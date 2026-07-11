@@ -1,0 +1,17 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#161a21"/>
+      <stop offset="1" stop-color="#0e1014"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <g fill="#4fd1c5">
+    <!-- equalizer / tracker columns, centered in the maskable safe zone -->
+    <rect x="140" y="216" width="34" height="80"  rx="10"/>
+    <rect x="196" y="168" width="34" height="176" rx="10"/>
+    <rect x="252" y="120" width="34" height="272" rx="10"/>
+    <rect x="308" y="176" width="34" height="160" rx="10"/>
+    <rect x="364" y="224" width="34" height="64"  rx="10"/>
+  </g>
+</svg>
