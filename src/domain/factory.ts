@@ -11,6 +11,23 @@ export function emptyCells(length: number): Cell[] {
   return Array.from({ length }, () => ({ note: null }))
 }
 
+/** Fit a cell list to a target length: truncate if longer, pad empty if shorter. */
+export function fitCells(cells: Cell[], length: number): Cell[] {
+  const out = cells.slice(0, length).map((c) => ({ ...c }))
+  while (out.length < length) out.push({ note: null })
+  return out
+}
+
+/** A fresh saw instrument. */
+export function newOscInstrument(name: string): Instrument {
+  return { id: makeId('inst'), kind: 'osc', name, params: { gain: 0.8 } }
+}
+
+/** A fresh empty track bound to an instrument. */
+export function newTrack(instrumentId: string, length: number): Track {
+  return { id: makeId('trk'), instrumentId, cells: emptyCells(length) }
+}
+
 /**
  * A minimal starter document: one 16-row pattern, two saw tracks, with a few
  * notes already placed so playback makes sound the moment you hit play.
