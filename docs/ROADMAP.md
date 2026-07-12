@@ -14,6 +14,20 @@ Proved the full stack end to end.
 - Keyboard-driven grid, spacebar transport, **verified real audio** (RMS meter).
 - One 16-row pattern, two saw-oscillator tracks.
 
+### M2.1 — Fixes & polish
+- **Ctrl+↑/↓ shift track notes** up/down (wrap-around), undoable.
+- **Ctrl+X cut** (to pasteboard) vs **Ctrl+⌫ delete** (no pasteboard).
+- **F1–F12 mute** tracks 1–12 (performance state, not undoable). Muted voices
+  are gained to 0 but kept in the graph so sequencer phase is preserved across
+  mute/unmute.
+- **Track headers** show the track number above the instrument name; names are
+  cropped to the track width (a `--track-w` CSS var that grows with vol/eff).
+- **Fixed per-track sequencer phase drift**: each `el.seq2` counter starts at 0
+  on node creation, so a track added mid-playback (duplicate/paste/insert) drifted
+  out of phase. Now a single shared loop-reset (`el.train`) re-zeroes every
+  sequencer at each pattern boundary → tracks stay mutually aligned. Guarded by
+  graph-introspection tests that fail if the shared reset regresses.
+
 ### M2 — Richer editing (single pattern)
 - **Extended piano keymap**: full two-row classic tracker layout (lower + upper
   octave), playable without a MIDI keyboard. Mapped by physical key position

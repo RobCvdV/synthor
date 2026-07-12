@@ -52,7 +52,16 @@ function trackIds(): string[] {
 
 describe('docStore track operations', () => {
   beforeEach(() => {
-    useDocStore.setState({ doc: createDefaultDoc(), past: [], future: [], trackClipboard: null })
+    useDocStore.setState({ doc: createDefaultDoc(), past: [], future: [], trackClipboard: null, mutedTracks: {} })
+  })
+
+  it('toggles a track mute without touching undo history', () => {
+    const [first] = trackIds()
+    useDocStore.getState().toggleMute(first)
+    expect(useDocStore.getState().mutedTracks[first]).toBe(true)
+    expect(useDocStore.getState().past).toHaveLength(0) // mute is not undoable
+    useDocStore.getState().toggleMute(first)
+    expect(useDocStore.getState().mutedTracks[first]).toBe(false)
   })
 
   it('inserts a new empty track at an index', () => {
@@ -98,6 +107,21 @@ describe('docStore track operations', () => {
     useDocStore.getState().duplicateTrack(first, 1)
     const dupId = trackIds()[1]
     expect(useDocStore.getState().doc.entities.tracks[dupId].cells[0].note).toBe(55)
+  })
+
+  it('shifts a track up and down with wrap-around', () => {
+    const [first] = trackIds()
+    // Put a distinctive note at row 0.
+    useDocStore.getState().setCellNote(first, 0, 77)
+    const noteAt = (row: number) => useDocStore.getState().doc.entities.tracks[first].cells[row].note
+    const len = useDocStore.getState().doc.entities.patterns[useDocStore.getState().doc.patternId].length
+
+    useDocStore.getState().shiftTrack(first, 'up') // row 0 wraps to the bottom
+    expect(noteAt(0)).toBeNull()
+    expect(noteAt(len - 1)).toBe(77)
+
+    useDocStore.getState().shiftTrack(first, 'down') // back to the top
+    expect(noteAt(0)).toBe(77)
   })
 
   it('undoes a track insert', () => {

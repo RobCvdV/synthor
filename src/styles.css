@@ -7,6 +7,8 @@
   --beat: #1b212b;
   --cursor: #2b3a55;
   --playhead: #3a2b1b;
+  /* Width of one track column. Grows once vol/eff columns are added. */
+  --track-w: 72px;
 }
 
 * { box-sizing: border-box; }
@@ -103,9 +105,43 @@ body {
 .grid-head { color: var(--accent); position: sticky; top: 0; background: var(--bg); }
 
 .cell {
-  min-width: 72px;
+  width: var(--track-w);
+  flex: none;
   padding: 1px 10px;
   white-space: pre;
 }
-.cell.rownum { min-width: 40px; color: var(--muted); }
+.cell.rownum { width: 40px; color: var(--muted); }
 .cell.cursor { background: var(--cursor); border-radius: 3px; }
+.cell.muted { opacity: 0.4; }
+
+/* Track header: number on top, cropped instrument name below. */
+.track-head {
+  display: flex;
+  flex-direction: column;
+  white-space: normal;
+  line-height: 1.2;
+}
+.track-head .track-no {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.track-head .track-name {
+  color: var(--accent);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.track-head.muted .track-name { color: var(--muted); text-decoration: line-through; }
+.mute-tag {
+  color: #e06c6c;
+  font-weight: bold;
+  border: 1px solid #e06c6c;
+  border-radius: 3px;
+  padding: 0 3px;
+  font-size: 9px;
+  line-height: 1.3;
+}

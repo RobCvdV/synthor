@@ -25,10 +25,14 @@ const TRACK_OPS: Row[] = [
   { keys: 'Ctrl ,', label: 'move track left' },
   { keys: 'Ctrl .', label: 'move track right' },
   { keys: 'Ctrl C', label: 'copy track' },
+  { keys: 'Ctrl X', label: 'cut track (to pasteboard)' },
   { keys: 'Ctrl V', label: 'paste track (right)' },
   { keys: 'Ctrl D', label: 'duplicate track' },
-  { keys: 'Ctrl ⌫', label: 'cut / remove track' },
+  { keys: 'Ctrl ⌫', label: 'delete track (no pasteboard)' },
+  { keys: 'Ctrl ↑ / ↓', label: 'shift notes up / down' },
 ]
+
+const MUTE: Row[] = [{ keys: 'F1 … F12', label: 'mute track 1 … 12' }]
 
 function Section({ title, rows }: { title: string; rows: Row[] }) {
   return (
@@ -50,6 +54,7 @@ export function Legend() {
       <Section title="Note entry" rows={NOTE_ENTRY} />
       <Section title="Transport & cursor" rows={TRANSPORT} />
       <Section title="Track (Ctrl)" rows={TRACK_OPS} />
+      <Section title="Mute" rows={MUTE} />
     </aside>
   )
 }

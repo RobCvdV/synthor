@@ -14,15 +14,22 @@ export function useEngine(): AudioHost {
   if (hostRef.current === null) hostRef.current = new AudioHost()
   const host = hostRef.current
 
-  // Dev-only handle for debugging / audio verification from the console.
-  if (import.meta.env.DEV) (globalThis as Record<string, unknown>).__host = host
+  // Dev-only handles for debugging / audio verification from the console.
+  if (import.meta.env.DEV) {
+    const g = globalThis as Record<string, unknown>
+    g.__host = host
+    g.__docStore = useDocStore
+    g.__transportStore = useTransportStore
+  }
 
   useEffect(() => {
     const rerender = () => {
       if (!host.isReady) return
-      const { doc } = useDocStore.getState()
+      const { doc, mutedTracks } = useDocStore.getState()
       const { bpm, linesPerBeat, playing } = useTransportStore.getState()
-      host.render(compileGraph(doc, { rowHz: rowHz(bpm, linesPerBeat), playing: playing ? 1 : 0 }))
+      host.render(
+        compileGraph(doc, { rowHz: rowHz(bpm, linesPerBeat), playing: playing ? 1 : 0, mutedTracks }),
+      )
     }
     const unsubDoc = useDocStore.subscribe(rerender)
     const unsubTransport = useTransportStore.subscribe(rerender)

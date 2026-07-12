@@ -23,6 +23,8 @@ interface DocState {
   future: HistoryEntry[]
   /** Non-undoable scratch space for track copy/paste. */
   trackClipboard: TrackSnapshot | null
+  /** Non-undoable performance state: which tracks are muted (keyed by id). */
+  mutedTracks: Record<Id, boolean>
 
   /** Run an Immer recipe against the doc, recording it as one undoable edit. */
   mutate: (recipe: (draft: Doc) => void) => void
@@ -39,6 +41,10 @@ interface DocState {
   copyTrack: (trackId: Id) => void
   pasteTrack: (atIndex: number) => void
   duplicateTrack: (trackId: Id, atIndex: number) => void
+  /** Rotate a track's cells one row up or down, wrapping around. */
+  shiftTrack: (trackId: Id, dir: 'up' | 'down') => void
+  /** Toggle a track's mute (performance state, not part of undo history). */
+  toggleMute: (trackId: Id) => void
 }
 
 const HISTORY_LIMIT = 200
@@ -48,6 +54,7 @@ export const useDocStore = create<DocState>((set, get) => ({
   past: [],
   future: [],
   trackClipboard: null,
+  mutedTracks: {},
 
   mutate: (recipe) => {
     const { doc, past } = get()
@@ -153,6 +160,17 @@ export const useDocStore = create<DocState>((set, get) => ({
       draft.entities.tracks[track.id] = track
       pattern.trackIds.splice(clamp(atIndex, 0, pattern.trackIds.length), 0, track.id)
     }),
+
+  shiftTrack: (trackId, dir) =>
+    get().mutate((draft) => {
+      const cells = draft.entities.tracks[trackId]?.cells
+      if (!cells || cells.length < 2) return
+      if (dir === 'up') cells.push(cells.shift()!) // row 0 wraps to the bottom
+      else cells.unshift(cells.pop()!) // last row wraps to the top
+    }),
+
+  toggleMute: (trackId) =>
+    set((s) => ({ mutedTracks: { ...s.mutedTracks, [trackId]: !s.mutedTracks[trackId] } })),
 }))
 
 function clamp(n: number, lo: number, hi: number): number {

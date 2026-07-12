@@ -19,6 +19,9 @@ export default function App() {
   const copyTrack = useDocStore((s) => s.copyTrack)
   const pasteTrack = useDocStore((s) => s.pasteTrack)
   const duplicateTrack = useDocStore((s) => s.duplicateTrack)
+  const shiftTrack = useDocStore((s) => s.shiftTrack)
+  const toggleMute = useDocStore((s) => s.toggleMute)
+  const mutedTracks = useDocStore((s) => s.mutedTracks)
 
   const playing = useTransportStore((s) => s.playing)
   const bpm = useTransportStore((s) => s.bpm)
@@ -81,6 +84,15 @@ export default function App() {
         return
       }
 
+      // Mute toggle: F1..F12 -> tracks 1..12 (when they exist).
+      const fkey = /^F([1-9]|1[0-2])$/.exec(e.code)
+      if (fkey) {
+        e.preventDefault()
+        const id = ids[Number(fkey[1]) - 1]
+        if (id) toggleMute(id)
+        return
+      }
+
       // Track operations — all on Ctrl (per design). Ctrl swallows note entry.
       if (e.ctrlKey && !e.metaKey && !e.altKey) {
         switch (e.code) {
@@ -120,13 +132,28 @@ export default function App() {
               setCursor((c) => ({ ...c, track: Math.min(liveTrackCount() - 1, cur.track + 1) }))
             }
             return
-          case 'Backspace':
+          case 'KeyX': // Ctrl+X  cut = copy to pasteboard, then remove
             e.preventDefault()
             if (trackId) {
-              copyTrack(trackId) // "cut" = copy then remove
+              copyTrack(trackId)
               removeTrack(trackId)
               setCursor((c) => ({ ...c, track: Math.max(0, Math.min(c.track, liveTrackCount() - 1)) }))
             }
+            return
+          case 'Backspace': // Ctrl+⌫  delete = remove without touching pasteboard
+            e.preventDefault()
+            if (trackId) {
+              removeTrack(trackId)
+              setCursor((c) => ({ ...c, track: Math.max(0, Math.min(c.track, liveTrackCount() - 1)) }))
+            }
+            return
+          case 'ArrowUp': // Ctrl+↑  shift track content up (wraps)
+            e.preventDefault()
+            if (trackId) shiftTrack(trackId, 'up')
+            return
+          case 'ArrowDown': // Ctrl+↓  shift track content down (wraps)
+            e.preventDefault()
+            if (trackId) shiftTrack(trackId, 'down')
             return
         }
         return // any other Ctrl combo: don't fall through to note entry
@@ -176,7 +203,7 @@ export default function App() {
         }
       }
     },
-    [pattern, host, toggle, undo, redo, setCellNote, addTrack, removeTrack, moveTrack, copyTrack, pasteTrack, duplicateTrack],
+    [pattern, host, toggle, undo, redo, setCellNote, addTrack, removeTrack, moveTrack, copyTrack, pasteTrack, duplicateTrack, shiftTrack, toggleMute],
   )
 
   useEffect(() => {
@@ -198,7 +225,7 @@ export default function App() {
       </header>
       <div className="layout">
         <main className="main">
-          <TrackerGrid doc={doc} pattern={pattern} cursor={cursor} playhead={playhead} />
+          <TrackerGrid doc={doc} pattern={pattern} cursor={cursor} playhead={playhead} muted={mutedTracks} />
         </main>
         <Legend />
       </div>
