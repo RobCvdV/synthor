@@ -30,6 +30,8 @@ interface DocState {
   mutate: (recipe: (draft: Doc) => void) => void
   undo: () => void
   redo: () => void
+  /** Replace the whole document (e.g. loading a saved song). Resets history. */
+  loadDoc: (doc: Doc) => void
 
   // --- Cell editing ---
   setCellNote: (trackId: Id, row: number, note: number | null) => void
@@ -63,6 +65,8 @@ export const useDocStore = create<DocState>((set, get) => ({
     const trimmed = past.length >= HISTORY_LIMIT ? past.slice(1) : past
     set({ doc: next, past: [...trimmed, { patches, inverse }], future: [] })
   },
+
+  loadDoc: (doc) => set({ doc, past: [], future: [], trackClipboard: null, mutedTracks: {} }),
 
   undo: () => {
     const { doc, past, future } = get()

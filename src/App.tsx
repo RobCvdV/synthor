@@ -2,12 +2,23 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useDocStore } from './state/docStore'
 import { rowHz, useTransportStore } from './state/transportStore'
 import { useEngine } from './ui/useEngine'
+import { useAutosave } from './ui/useAutosave'
 import { codeToSemitone } from './ui/keymap'
 import { TrackerGrid, type Cursor } from './ui/TrackerGrid'
+import { ProjectBar } from './ui/ProjectBar'
 import { Legend } from './ui/Legend'
+
+/** True when a keystroke should go to a focused form field, not the tracker. */
+function isEditableTarget(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null
+  if (!el) return false
+  const tag = el.tagName
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable
+}
 
 export default function App() {
   const host = useEngine()
+  useAutosave()
 
   const doc = useDocStore((s) => s.doc)
   const setCellNote = useDocStore((s) => s.setCellNote)
@@ -65,6 +76,10 @@ export default function App() {
 
   const onKeyDown = useCallback(
     (e: KeyboardEvent) => {
+      // Don't hijack keys while the user is typing in a form field (e.g. the
+      // song-name box) — let the input handle them normally.
+      if (isEditableTarget(e.target)) return
+
       const cur = cursorRef.current
       const ids = pattern.trackIds
       const trackId = ids[cur.track]
@@ -223,6 +238,7 @@ export default function App() {
         <button className="octbtn" onClick={() => setOctave((o) => Math.max(0, o - 1))}>oct −</button>
         <button className="octbtn" onClick={() => setOctave((o) => Math.min(9, o + 1))}>oct +</button>
       </header>
+      <ProjectBar />
       <div className="layout">
         <main className="main">
           <TrackerGrid doc={doc} pattern={pattern} cursor={cursor} playhead={playhead} muted={mutedTracks} />

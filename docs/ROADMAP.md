@@ -5,6 +5,25 @@
 
 ## Done
 
+### M3 — Song persistence (JSON + autosave)
+- **Versioned `SongFile`** (`persist/serialize.ts`): `schemaVersion` + meta + doc,
+  with a `migrate` hook so older files keep loading. Pure/round-trip tested.
+- **OPFS working store** (`persist/opfsStore.ts`): songs saved as
+  `songs/<slug>/song.json`, mirroring the eventual project-folder + `samples/`
+  layout. Always-available, no permission prompt; degrades gracefully where
+  unsupported.
+- **Debounced, coalescing autosave** (`persist/autosave.ts` + `ui/useAutosave.ts`):
+  saves ~800ms after edits settle, flushes on transport stop / tab hide /
+  unload. Safe during playback (small JSON, off the audio thread) — timing, not
+  play-state, is the throttle. One save in flight at a time; no lost edits.
+- **`ProjectBar`**: song name, save-status indicator, New / Open / Save /
+  Export (`.synthor.json`) / Import / Delete.
+- **id scheme fix**: `makeId` now uses `crypto.randomUUID()` so ids created
+  after loading a saved song can't collide with loaded ones.
+- Deferred (design allows for, not built yet): real File System Access folder,
+  zip export, and the `samples/` binary asset store — all land when the
+  sample-player instrument and sections/song arrangement arrive (schema v2).
+
 ### M1 — Vertical slice (commit `b173e01`)
 Proved the full stack end to end.
 - Five decoupled layers: domain → state → engine → audio → ui.
@@ -42,9 +61,12 @@ Proved the full stack end to end.
 - Sustained notes + real **note-off** (replace one-row staccato gates).
 - **vol** and **eff** columns per step; cursor moves across note/vol/eff.
 - **Selection** + block move/copy/paste/duplicate across rows and tracks.
-- **Sections → song** arrangement layer (model already normalized for it).
-- **Persistence**: IndexedDB autosave + JSON export, versioned schema.
-- Sample-player instrument; **drumkit** instrument.
+- **Sections → song** arrangement layer (model already normalized for it);
+  bump SongFile to schema v2 with a migration when it lands.
+- Sample-player instrument; **drumkit** instrument. Adds the `samples/` binary
+  asset store (content-addressed) alongside `song.json`.
+- **Linked project folder** via File System Access API (Chromium) + zip
+  export, reusing the OPFS folder layout.
 - Follow-playhead vs free-move toggle; jump to ¼/½/¾ of pattern; play-from-here.
 - Fidelity: replace approximate playhead with an `el.snapshot` tap.
 
@@ -52,4 +74,4 @@ Proved the full stack end to end.
 
 - Playhead is a visual approximation from the AudioContext clock.
 - One-row (staccato) gates; no note-off yet.
-- No sections/song or persistence yet.
+- No sections/song arrangement yet (persistence shipped in M3, schema v1).

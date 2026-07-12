@@ -1,10 +1,12 @@
 import type { Cell, Doc, Instrument, Pattern, Track } from './types'
 
-let counter = 0
-/** Deterministic-enough id for a single session. Not for persistence keys. */
+/**
+ * Collision-free id, safe across save/load. A session-local counter would
+ * restart at 0 when a saved doc is reloaded and collide with the loaded ids,
+ * so we use a UUID (prefixed only for human readability in the JSON).
+ */
 export function makeId(prefix: string): string {
-  counter += 1
-  return `${prefix}_${counter}`
+  return `${prefix}_${crypto.randomUUID()}`
 }
 
 export function emptyCells(length: number): Cell[] {

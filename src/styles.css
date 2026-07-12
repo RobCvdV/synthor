@@ -92,6 +92,40 @@ body {
 }
 .badge.on { background: rgba(79, 209, 197, 0.15); color: var(--accent); }
 
+.projectbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: var(--panel);
+  border-bottom: 1px solid #000;
+}
+.projectbar .spacer { flex: 1; }
+.projectbar button,
+.projectbar select {
+  background: #222;
+  color: var(--fg);
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 3px 10px;
+  font: inherit;
+  cursor: pointer;
+}
+.projectbar button:hover,
+.projectbar select:hover { border-color: var(--accent); }
+.song-name {
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 3px 10px;
+  font: inherit;
+  min-width: 180px;
+}
+.song-name:focus { outline: none; border-color: var(--accent); }
+.save-status { font-size: 12px; }
+.save-status.error { color: #e07a5f; }
+
 .grid {
   flex: 1;
   overflow: auto;
