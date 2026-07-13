@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createDefaultDoc } from '../domain/factory'
+import { createDefaultDoc, newModularInstrument, newTrack } from '../domain/factory'
 import {
   CURRENT_SCHEMA_VERSION,
   deserializeSong,
@@ -54,5 +54,19 @@ describe('song serialization', () => {
   it('accepts an already-current file via migrate', () => {
     const file = makeSongFile(createDefaultDoc(), META)
     expect(migrate(file)).toEqual(file)
+  })
+
+  it('round-trips a modular instrument (module graph survives save/load)', () => {
+    const doc = createDefaultDoc()
+    const inst = newModularInstrument('Patch')
+    const trk = newTrack(inst.id, doc.entities.patterns[doc.patternId].length)
+    doc.entities.instruments[inst.id] = inst
+    doc.entities.tracks[trk.id] = trk
+    doc.entities.patterns[doc.patternId].trackIds.push(trk.id)
+
+    const restored = deserializeSong(serializeSong(makeSongFile(doc, META)))
+    const back = restored.doc.entities.instruments[inst.id]
+    expect(back).toEqual(inst)
+    expect(back.kind).toBe('modular')
   })
 })

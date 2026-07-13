@@ -16,8 +16,8 @@ export interface Cell {
   note: number | null
 }
 
-/** For now the only instrument kind is a simple saw oscillator. */
-export interface Instrument {
+/** The original built-in instrument: a simple saw oscillator through an ADSR. */
+export interface OscInstrument {
   id: Id
   kind: 'osc'
   name: string
@@ -26,6 +26,58 @@ export interface Instrument {
     gain: number
   }
 }
+
+/**
+ * A modular instrument: a graph of `modules` wired by `connections`. Compiles
+ * to an Elementary node exactly like an osc instrument, so the tracker never
+ * needs to know the difference. Kept fully serializable (plain data + numbers).
+ */
+export type ModuleType =
+  | 'note' // source: the track's per-row frequency (Hz)
+  | 'gate' // source: the track's per-row gate (0/1)
+  | 'osc' // oscillator (saw/square/triangle/sine)
+  | 'filter' // state-variable filter (lp/hp/bp)
+  | 'adsr' // envelope generator
+  | 'gain' // multiply a signal by a level (and/or a modulation inlet)
+  | 'mix' // combine several signals (add or multiply)
+  | 'output' // the voice's final output tap
+
+/** An address into a module's inlet or outlet, by name. */
+export interface Port {
+  moduleId: Id
+  /** Inlet/outlet name as declared in the module registry (`moduleDefs`). */
+  port: string
+}
+
+/** One block in a modular instrument. `params` keys come from the registry. */
+export interface Module {
+  id: Id
+  type: ModuleType
+  params: Record<string, number>
+  /** React Flow canvas position; persisted so layouts survive save/load. */
+  pos: { x: number; y: number }
+}
+
+/** A patch cord from one module's outlet to another's inlet. */
+export interface Connection {
+  id: Id
+  from: Port
+  to: Port
+  /** Per-cord "impact" knob: the source is scaled by this before summing. */
+  gain: number
+}
+
+export interface ModularInstrument {
+  id: Id
+  kind: 'modular'
+  name: string
+  modules: Record<Id, Module>
+  connections: Record<Id, Connection>
+  /** The module whose inlet feeds the voice output (always type 'output'). */
+  outputId: Id
+}
+
+export type Instrument = OscInstrument | ModularInstrument
 
 export interface Track {
   id: Id

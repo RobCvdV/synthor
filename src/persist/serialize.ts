@@ -12,7 +12,14 @@
 
 import type { Doc } from '../domain/types'
 
-/** Bump when the on-disk shape changes; add a matching `migrate` case. */
+/**
+ * Bump when the on-disk shape changes; add a matching `migrate` case.
+ *
+ * Note: modular instruments (`kind:'modular'` with a module graph) were added
+ * without a bump — `Instrument` is a discriminated union, so old v1 files
+ * (osc-only) and new files with modular instruments both satisfy the same
+ * schema. A bump is only needed for a *breaking* shape change (e.g. sections).
+ */
 export const CURRENT_SCHEMA_VERSION = 1
 
 export interface SongMeta {

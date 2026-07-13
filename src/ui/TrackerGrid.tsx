@@ -1,5 +1,6 @@
 import type { Doc, Id, Pattern } from '../domain/types'
 import { midiToName } from '../domain/notes'
+import { useDocStore } from '../state/docStore'
 
 export interface Cursor {
   row: number
@@ -17,13 +18,14 @@ interface Props {
 /** Read-only presentation of the current pattern. Editing happens via keys. */
 export function TrackerGrid({ doc, pattern, cursor, playhead, muted }: Props) {
   const tracks = pattern.trackIds.map((id) => doc.entities.tracks[id])
+  const setTrackInstrument = useDocStore((s) => s.setTrackInstrument)
+  const instruments = Object.values(doc.entities.instruments)
 
   return (
     <div className="grid">
       <div className="grid-row grid-head">
         <span className="cell rownum">##</span>
         {tracks.map((t, ti) => {
-          const name = doc.entities.instruments[t.instrumentId].name
           const isMuted = muted[t.id] === true
           return (
             <span key={t.id} className={'cell track-head' + (isMuted ? ' muted' : '')}>
@@ -31,7 +33,16 @@ export function TrackerGrid({ doc, pattern, cursor, playhead, muted }: Props) {
                 {ti + 1}
                 {isMuted && <span className="mute-tag">M</span>}
               </span>
-              <span className="track-name" title={name}>{name}</span>
+              <select
+                className="track-inst"
+                value={t.instrumentId}
+                onChange={(e) => setTrackInstrument(t.id, e.target.value)}
+                title="Instrument for this track"
+              >
+                {instruments.map((inst) => (
+                  <option key={inst.id} value={inst.id}>{inst.name}</option>
+                ))}
+              </select>
             </span>
           )
         })}

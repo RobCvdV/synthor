@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { useDocStore } from './docStore'
-import { createDefaultDoc } from '../domain/factory'
+import { cloneInstrument, createDefaultDoc, newModularInstrument } from '../domain/factory'
+import type { ModularInstrument } from '../domain/types'
 
 function firstTrackId(): string {
   const { doc } = useDocStore.getState()
@@ -72,13 +73,22 @@ describe('docStore track operations', () => {
     expect(cells.every((c) => c.note === null)).toBe(true)
   })
 
-  it('removes a track and its now-orphaned instrument', () => {
+  it('removes a track but keeps its (now first-class) instrument', () => {
     const [first] = trackIds()
     const instId = useDocStore.getState().doc.entities.tracks[first].instrumentId
     useDocStore.getState().removeTrack(first)
     expect(trackIds()).toHaveLength(1)
     expect(useDocStore.getState().doc.entities.tracks[first]).toBeUndefined()
-    expect(useDocStore.getState().doc.entities.instruments[instId]).toBeUndefined()
+    // Instruments are shared entities now — removing a track never deletes one.
+    expect(useDocStore.getState().doc.entities.instruments[instId]).toBeDefined()
+  })
+
+  it('duplicates a track sharing the same instrument (reference reuse)', () => {
+    const [first] = trackIds()
+    const srcInst = useDocStore.getState().doc.entities.tracks[first].instrumentId
+    useDocStore.getState().duplicateTrack(first, 1)
+    const dupInst = useDocStore.getState().doc.entities.tracks[trackIds()[1]].instrumentId
+    expect(dupInst).toBe(srcInst)
   })
 
   it('moves a track', () => {
@@ -129,5 +139,140 @@ describe('docStore track operations', () => {
     expect(trackIds()).toHaveLength(3)
     useDocStore.getState().undo()
     expect(trackIds()).toHaveLength(2)
+  })
+})
+
+function instruments() {
+  return useDocStore.getState().doc.entities.instruments
+}
+function asModular(id: string): ModularInstrument {
+  const inst = instruments()[id]
+  if (inst.kind !== 'modular') throw new Error('not modular')
+  return inst
+}
+
+describe('docStore instrument operations', () => {
+  beforeEach(() => {
+    useDocStore.setState({ doc: createDefaultDoc(), past: [], future: [], trackClipboard: null, mutedTracks: {} })
+  })
+
+  it('adds a modular instrument seeded with a playable patch', () => {
+    const id = useDocStore.getState().addInstrument('modular')
+    const inst = asModular(id)
+    const types = Object.values(inst.modules).map((m) => m.type).sort()
+    expect(types).toContain('osc')
+    expect(types).toContain('output')
+    expect(inst.modules[inst.outputId].type).toBe('output')
+  })
+
+  it('renames an instrument', () => {
+    const id = useDocStore.getState().addInstrument('osc')
+    useDocStore.getState().renameInstrument(id, 'Bass')
+    expect(instruments()[id].name).toBe('Bass')
+  })
+
+  it('blocks deleting an instrument still used by a track, allows it once free', () => {
+    const [first] = trackIds()
+    const instId = useDocStore.getState().doc.entities.tracks[first].instrumentId
+    useDocStore.getState().removeInstrument(instId)
+    expect(instruments()[instId]).toBeDefined() // still in use → kept
+    const spare = useDocStore.getState().addInstrument('osc')
+    useDocStore.getState().setTrackInstrument(first, spare)
+    useDocStore.getState().removeInstrument(instId) // now orphaned
+    expect(instruments()[instId]).toBeUndefined()
+  })
+
+  it('points a track at another instrument', () => {
+    const [first] = trackIds()
+    const id = useDocStore.getState().addInstrument('modular')
+    useDocStore.getState().setTrackInstrument(first, id)
+    expect(useDocStore.getState().doc.entities.tracks[first].instrumentId).toBe(id)
+  })
+})
+
+describe('docStore modular graph operations', () => {
+  let instId: string
+  beforeEach(() => {
+    useDocStore.setState({ doc: createDefaultDoc(), past: [], future: [], trackClipboard: null, mutedTracks: {} })
+    instId = useDocStore.getState().addInstrument('modular')
+  })
+
+  it('adds a module, rejects singletons, and is undoable', () => {
+    const before = Object.keys(asModular(instId).modules).length
+    useDocStore.getState().addModule(instId, 'osc', { x: 0, y: 0 })
+    expect(Object.keys(asModular(instId).modules).length).toBe(before + 1)
+    useDocStore.getState().addModule(instId, 'note', { x: 0, y: 0 }) // singleton
+    expect(Object.keys(asModular(instId).modules).length).toBe(before + 1)
+    useDocStore.getState().undo() // undo the osc add
+    expect(Object.keys(asModular(instId).modules).length).toBe(before)
+  })
+
+  it('removes a module and drops its connections', () => {
+    const oscId = Object.values(asModular(instId).modules).find((m) => m.type === 'osc')!.id
+    const touching = () =>
+      Object.values(asModular(instId).connections).filter(
+        (c) => c.from.moduleId === oscId || c.to.moduleId === oscId,
+      ).length
+    expect(touching()).toBeGreaterThan(0)
+    useDocStore.getState().removeModule(instId, oscId)
+    expect(asModular(instId).modules[oscId]).toBeUndefined()
+    expect(touching()).toBe(0)
+  })
+
+  it('replaces an existing cord into the same inlet', () => {
+    const mods = Object.values(asModular(instId).modules)
+    const filterId = mods.find((m) => m.type === 'filter')!.id
+    const noteId = mods.find((m) => m.type === 'note')!.id
+    const feedersIntoFilterIn = () =>
+      Object.values(asModular(instId).connections).filter(
+        (c) => c.to.moduleId === filterId && c.to.port === 'in',
+      )
+    expect(feedersIntoFilterIn().length).toBe(1) // osc → filter.in from seed
+    useDocStore.getState().addConnection(
+      instId,
+      { moduleId: noteId, port: 'freq' },
+      { moduleId: filterId, port: 'in' },
+    )
+    expect(feedersIntoFilterIn().length).toBe(1) // replaced, not added
+    expect(feedersIntoFilterIn()[0].from.moduleId).toBe(noteId)
+  })
+
+  it('rejects a connection that would form a cycle', () => {
+    const mods = Object.values(asModular(instId).modules)
+    const oscId = mods.find((m) => m.type === 'osc')!.id
+    const gainId = mods.find((m) => m.type === 'gain')!.id
+    // gain already feeds (via filter chain) into osc? No — osc → filter → gain.
+    // So gain.out → osc.freq would close a loop and must be rejected.
+    const before = Object.keys(asModular(instId).connections).length
+    useDocStore.getState().addConnection(
+      instId,
+      { moduleId: gainId, port: 'out' },
+      { moduleId: oscId, port: 'freq' },
+    )
+    expect(Object.keys(asModular(instId).connections).length).toBe(before)
+  })
+
+  it('sets a connection gain', () => {
+    const conId = Object.keys(asModular(instId).connections)[0]
+    useDocStore.getState().setConnectionGain(instId, conId, 0.25)
+    expect(asModular(instId).connections[conId].gain).toBe(0.25)
+  })
+})
+
+describe('cloneInstrument', () => {
+  it('produces fully fresh module and connection ids', () => {
+    const src = newModularInstrument('Src')
+    const copy = cloneInstrument(src, 'Copy') as ModularInstrument
+    const srcMods = new Set(Object.keys(src.modules))
+    const copyMods = Object.keys(copy.modules)
+    expect(copyMods).toHaveLength(srcMods.size)
+    expect(copyMods.some((id) => srcMods.has(id))).toBe(false)
+    // outputId is remapped and still points at the output module.
+    expect(copy.modules[copy.outputId].type).toBe('output')
+    // Connections reference only cloned module ids.
+    for (const c of Object.values(copy.connections)) {
+      expect(copy.modules[c.from.moduleId]).toBeDefined()
+      expect(copy.modules[c.to.moduleId]).toBeDefined()
+    }
   })
 })

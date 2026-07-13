@@ -1,5 +1,6 @@
 import { el, type NodeRepr_t } from '@elemaudio/core'
 import type { Instrument } from '../domain/types'
+import { compileModular } from './modular'
 
 /**
  * An instrument is a node factory: given the control signals a track drives
@@ -24,5 +25,10 @@ export function renderInstrument(
       const tone = el.blepsaw(freq)
       return el.mul(tone, env, inst.params.gain)
     }
+    case 'modular':
+      // A modular instrument is the same node factory, just data-driven. Its
+      // graph reads freq/gate through its note/gate source modules. voiceKey
+      // keys the nodes per-voice so shared instruments don't collide.
+      return compileModular(inst, freq, gate, voiceKey)
   }
 }

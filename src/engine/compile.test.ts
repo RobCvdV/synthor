@@ -134,6 +134,40 @@ describe('compileGraph sequencer phase alignment', () => {
   })
 })
 
+describe('compileGraph preview', () => {
+  const previewInst = (doc: Doc) => doc.entities.tracks[doc.entities.patterns[doc.patternId].trackIds[0]].instrumentId
+
+  it('sounds a held note even when the transport is stopped', () => {
+    const doc = createDefaultDoc()
+    const instrumentId = previewInst(doc)
+    // Stopped (playing 0), no tracks: silence normally…
+    const empty: Doc = {
+      ...doc,
+      entities: { ...doc.entities, patterns: { [doc.patternId]: { ...doc.entities.patterns[doc.patternId], trackIds: [] } } },
+    }
+    const silent = compileGraph(empty, { rowHz: 8, playing: 0 })
+    expect(collect(silent, 'blepsaw')).toHaveLength(0)
+    // …but a preview voice makes an osc even with playing 0 and no tracks.
+    const withPreview = compileGraph(empty, {
+      rowHz: 8, playing: 0, preview: { instrumentId, voices: [{ note: 60, gate: 1 }] },
+    })
+    expect(collect(withPreview, 'blepsaw').length).toBeGreaterThan(0)
+  })
+
+  it('gives each preview voice a distinct frequency (polyphony without key clashes)', () => {
+    const doc = createDefaultDoc()
+    const node = compileGraph(doc, {
+      rowHz: 8, playing: 1,
+      preview: { instrumentId: previewInst(doc), voices: [{ note: 60, gate: 1 }, { note: 67, gate: 1 }] },
+    })
+    // The two preview freq consts carry different values and different keys.
+    const previewFreqKeys = collect(node, 'const')
+      .map((c) => c.props.key)
+      .filter((k): k is string => typeof k === 'string' && k.includes(':freq') && k.startsWith('preview:'))
+    expect(new Set(previewFreqKeys).size).toBe(2)
+  })
+})
+
 describe('compileGraph mute', () => {
   const zeroConsts = (root: unknown) =>
     collect(root, 'const').filter((c) => c.props.value === 0).length

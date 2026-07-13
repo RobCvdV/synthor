@@ -1,7 +1,16 @@
 import { create } from 'zustand'
 import { applyPatches, enablePatches, type Patch, produceWithPatches } from 'immer'
-import type { Cell, Doc, Id, Instrument } from '../domain/types'
-import { createDefaultDoc, fitCells, newOscInstrument, newTrack } from '../domain/factory'
+import type { Cell, Doc, Id, Instrument, ModuleType, Port } from '../domain/types'
+import {
+  cloneInstrument,
+  createDefaultDoc,
+  fitCells,
+  makeId,
+  newModularInstrument,
+  newOscInstrument,
+  newTrack,
+} from '../domain/factory'
+import { defaultParams, MODULE_DEFS } from '../domain/moduleDefs'
 
 enablePatches()
 
@@ -11,9 +20,10 @@ interface HistoryEntry {
   inverse: Patch[]
 }
 
-/** A detached copy of a track + its instrument, for copy/paste. */
+/** A detached copy of a track + its instrument, for copy/paste. Stores the full
+ *  instrument (osc or modular); paste clones it with fresh ids. */
 interface TrackSnapshot {
-  instrument: { kind: Instrument['kind']; name: string; params: Instrument['params'] }
+  instrument: Instrument
   cells: Cell[]
 }
 
@@ -35,6 +45,24 @@ interface DocState {
 
   // --- Cell editing ---
   setCellNote: (trackId: Id, row: number, note: number | null) => void
+
+  // --- Instrument operations (first-class, shared across tracks) ---
+  addInstrument: (kind: Instrument['kind']) => Id
+  removeInstrument: (instrumentId: Id) => void
+  renameInstrument: (instrumentId: Id, name: string) => void
+  /** Set a top-level param on an osc instrument (e.g. gain). */
+  setOscParam: (instrumentId: Id, key: string, value: number) => void
+  /** Point a track at any existing instrument. */
+  setTrackInstrument: (trackId: Id, instrumentId: Id) => void
+
+  // --- Modular graph editing (on a modular instrument) ---
+  addModule: (instrumentId: Id, type: ModuleType, pos: { x: number; y: number }) => void
+  removeModule: (instrumentId: Id, moduleId: Id) => void
+  moveModule: (instrumentId: Id, moduleId: Id, pos: { x: number; y: number }) => void
+  setModuleParam: (instrumentId: Id, moduleId: Id, key: string, value: number) => void
+  addConnection: (instrumentId: Id, from: Port, to: Port) => void
+  removeConnection: (instrumentId: Id, connectionId: Id) => void
+  setConnectionGain: (instrumentId: Id, connectionId: Id, gain: number) => void
 
   // --- Track operations (atIndex = position within the current pattern) ---
   addTrack: (atIndex: number) => void
@@ -104,12 +132,10 @@ export const useDocStore = create<DocState>((set, get) => ({
       const idx = pattern.trackIds.indexOf(trackId)
       if (idx < 0) return
       pattern.trackIds.splice(idx, 1)
-      const instId = draft.entities.tracks[trackId]?.instrumentId
       delete draft.entities.tracks[trackId]
-      // Drop the instrument too if nothing else references it.
-      if (instId && !Object.values(draft.entities.tracks).some((t) => t.instrumentId === instId)) {
-        delete draft.entities.instruments[instId]
-      }
+      // Instruments are first-class now: removing a track leaves its instrument
+      // in place (it may be shared, and orphan instruments are fine to keep and
+      // reassign from the instruments panel).
     }),
 
   moveTrack: (from, to) =>
@@ -124,10 +150,11 @@ export const useDocStore = create<DocState>((set, get) => ({
     const { doc } = get()
     const track = doc.entities.tracks[trackId]
     if (!track) return
-    const inst = doc.entities.instruments[track.instrumentId]
+    // Docs are immutable snapshots, so storing the instrument by reference is
+    // safe; paste clones it with fresh ids.
     set({
       trackClipboard: {
-        instrument: { kind: inst.kind, name: inst.name, params: { ...inst.params } },
+        instrument: doc.entities.instruments[track.instrumentId],
         cells: track.cells.map((c) => ({ ...c })),
       },
     })
@@ -138,9 +165,7 @@ export const useDocStore = create<DocState>((set, get) => ({
     if (!snap) return
     get().mutate((draft) => {
       const pattern = draft.entities.patterns[draft.patternId]
-      const inst = newOscInstrument(snap.instrument.name)
-      inst.kind = snap.instrument.kind
-      inst.params = { ...snap.instrument.params }
+      const inst = cloneInstrument(snap.instrument, snap.instrument.name)
       const track = newTrack(inst.id, pattern.length)
       track.cells = fitCells(snap.cells, pattern.length)
       draft.entities.instruments[inst.id] = inst
@@ -154,13 +179,10 @@ export const useDocStore = create<DocState>((set, get) => ({
       const pattern = draft.entities.patterns[draft.patternId]
       const src = draft.entities.tracks[trackId]
       if (!src) return
-      const srcInst = draft.entities.instruments[src.instrumentId]
-      const inst = newOscInstrument(`${srcInst.name} copy`)
-      inst.kind = srcInst.kind
-      inst.params = { ...srcInst.params }
-      const track = newTrack(inst.id, pattern.length)
+      // Duplicating a track shares the same instrument (true reference reuse):
+      // both lanes drive one instrument. Copy/paste is the "independent copy".
+      const track = newTrack(src.instrumentId, pattern.length)
       track.cells = src.cells.map((c) => ({ ...c }))
-      draft.entities.instruments[inst.id] = inst
       draft.entities.tracks[track.id] = track
       pattern.trackIds.splice(clamp(atIndex, 0, pattern.trackIds.length), 0, track.id)
     }),
@@ -175,7 +197,141 @@ export const useDocStore = create<DocState>((set, get) => ({
 
   toggleMute: (trackId) =>
     set((s) => ({ mutedTracks: { ...s.mutedTracks, [trackId]: !s.mutedTracks[trackId] } })),
+
+  addInstrument: (kind) => {
+    const inst = kind === 'modular' ? newModularInstrument('Modular') : newOscInstrument('Instrument')
+    get().mutate((draft) => {
+      draft.entities.instruments[inst.id] = inst
+    })
+    return inst.id
+  },
+
+  removeInstrument: (instrumentId) =>
+    get().mutate((draft) => {
+      // Guard: keep instruments that any track still references (the UI blocks
+      // this too, but never orphan a track's instrument pointer).
+      const inUse = Object.values(draft.entities.tracks).some((t) => t.instrumentId === instrumentId)
+      if (inUse) return
+      delete draft.entities.instruments[instrumentId]
+    }),
+
+  renameInstrument: (instrumentId, name) =>
+    get().mutate((draft) => {
+      const inst = draft.entities.instruments[instrumentId]
+      if (inst) inst.name = name
+    }),
+
+  setOscParam: (instrumentId, key, value) =>
+    get().mutate((draft) => {
+      const inst = draft.entities.instruments[instrumentId]
+      if (inst?.kind === 'osc' && key in inst.params) {
+        ;(inst.params as Record<string, number>)[key] = value
+      }
+    }),
+
+  setTrackInstrument: (trackId, instrumentId) =>
+    get().mutate((draft) => {
+      const track = draft.entities.tracks[trackId]
+      if (track && draft.entities.instruments[instrumentId]) track.instrumentId = instrumentId
+    }),
+
+  addModule: (instrumentId, type, pos) =>
+    get().mutate((draft) => {
+      const inst = draft.entities.instruments[instrumentId]
+      if (inst?.kind !== 'modular') return
+      // Sources (note/gate) and the output sink are singletons — one per patch.
+      if (MODULE_DEFS[type].singleton) return
+      const id = makeId('mod')
+      inst.modules[id] = { id, type, params: defaultParams(type), pos }
+    }),
+
+  removeModule: (instrumentId, moduleId) =>
+    get().mutate((draft) => {
+      const inst = draft.entities.instruments[instrumentId]
+      if (inst?.kind !== 'modular') return
+      const mod = inst.modules[moduleId]
+      // Never delete singletons (note/gate/output) — the patch depends on them.
+      if (!mod || MODULE_DEFS[mod.type].singleton) return
+      delete inst.modules[moduleId]
+      for (const c of Object.values(inst.connections)) {
+        if (c.from.moduleId === moduleId || c.to.moduleId === moduleId) {
+          delete inst.connections[c.id]
+        }
+      }
+    }),
+
+  moveModule: (instrumentId, moduleId, pos) =>
+    get().mutate((draft) => {
+      const inst = draft.entities.instruments[instrumentId]
+      if (inst?.kind !== 'modular') return
+      const mod = inst.modules[moduleId]
+      if (mod) mod.pos = pos
+    }),
+
+  setModuleParam: (instrumentId, moduleId, key, value) =>
+    get().mutate((draft) => {
+      const inst = draft.entities.instruments[instrumentId]
+      if (inst?.kind !== 'modular') return
+      const mod = inst.modules[moduleId]
+      if (mod) mod.params[key] = value
+    }),
+
+  addConnection: (instrumentId, from, to) =>
+    get().mutate((draft) => {
+      const inst = draft.entities.instruments[instrumentId]
+      if (inst?.kind !== 'modular') return
+      if (!inst.modules[from.moduleId] || !inst.modules[to.moduleId]) return
+      // Reject cycles first — before mutating anything — so a rejected cord
+      // doesn't drop the inlet's existing feeder.
+      if (wouldCycle(inst.connections, from.moduleId, to.moduleId)) return
+      // One cord per inlet: replace any existing feeder into this exact inlet.
+      for (const c of Object.values(inst.connections)) {
+        if (c.to.moduleId === to.moduleId && c.to.port === to.port) delete inst.connections[c.id]
+      }
+      const id = makeId('con')
+      inst.connections[id] = { id, from, to, gain: 1 }
+    }),
+
+  removeConnection: (instrumentId, connectionId) =>
+    get().mutate((draft) => {
+      const inst = draft.entities.instruments[instrumentId]
+      if (inst?.kind !== 'modular') return
+      delete inst.connections[connectionId]
+    }),
+
+  setConnectionGain: (instrumentId, connectionId, gain) =>
+    get().mutate((draft) => {
+      const inst = draft.entities.instruments[instrumentId]
+      if (inst?.kind !== 'modular') return
+      const con = inst.connections[connectionId]
+      if (con) con.gain = gain
+    }),
 }))
+
+/**
+ * Would adding a cord from `fromId`→`toId` create a cycle? True if `fromId` is
+ * already reachable from `toId` by following existing cords (so the new edge
+ * would close a loop). Keeps modular patches acyclic for the v1 compiler.
+ */
+function wouldCycle(
+  connections: Record<Id, { from: Port; to: Port }>,
+  fromId: Id,
+  toId: Id,
+): boolean {
+  const adjacency = Object.values(connections)
+  const stack = [toId]
+  const seen = new Set<Id>()
+  while (stack.length) {
+    const cur = stack.pop()!
+    if (cur === fromId) return true
+    if (seen.has(cur)) continue
+    seen.add(cur)
+    for (const c of adjacency) {
+      if (c.from.moduleId === cur) stack.push(c.to.moduleId)
+    }
+  }
+  return false
+}
 
 function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n))

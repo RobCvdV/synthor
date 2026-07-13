@@ -7,6 +7,7 @@ import { codeToSemitone } from './ui/keymap'
 import { TrackerGrid, type Cursor } from './ui/TrackerGrid'
 import { ProjectBar } from './ui/ProjectBar'
 import { Legend } from './ui/Legend'
+import { InstrumentsView } from './ui/InstrumentsView'
 
 /** True when a keystroke should go to a focused form field, not the tracker. */
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -43,6 +44,7 @@ export default function App() {
   const [cursor, setCursor] = useState<Cursor>({ row: 0, track: 0 })
   const [octave, setOctave] = useState(5)
   const [playhead, setPlayhead] = useState<number | null>(null)
+  const [view, setView] = useState<'tracker' | 'instruments'>('tracker')
 
   const cursorRef = useRef(cursor)
   cursorRef.current = cursor
@@ -98,6 +100,10 @@ export default function App() {
         else undo()
         return
       }
+
+      // In the instruments view the tracker keymap is inert (transport + undo
+      // above still work globally); form fields handle their own keys.
+      if (view === 'instruments') return
 
       // Mute toggle: F1..F12 -> tracks 1..12 (when they exist).
       const fkey = /^F([1-9]|1[0-2])$/.exec(e.code)
@@ -218,7 +224,7 @@ export default function App() {
         }
       }
     },
-    [pattern, host, toggle, undo, redo, setCellNote, addTrack, removeTrack, moveTrack, copyTrack, pasteTrack, duplicateTrack, shiftTrack, toggleMute],
+    [view, pattern, host, toggle, undo, redo, setCellNote, addTrack, removeTrack, moveTrack, copyTrack, pasteTrack, duplicateTrack, shiftTrack, toggleMute],
   )
 
   useEffect(() => {
@@ -235,16 +241,38 @@ export default function App() {
         <span className="muted">oct {octave}</span>
         <span className="muted">{trackCount} tracks</span>
         <span className="spacer" />
-        <button className="octbtn" onClick={() => setOctave((o) => Math.max(0, o - 1))}>oct −</button>
-        <button className="octbtn" onClick={() => setOctave((o) => Math.min(9, o + 1))}>oct +</button>
+        <button
+          className={'octbtn' + (view === 'tracker' ? ' active' : '')}
+          onClick={() => setView('tracker')}
+        >
+          Tracker
+        </button>
+        <button
+          className={'octbtn' + (view === 'instruments' ? ' active' : '')}
+          onClick={() => setView('instruments')}
+        >
+          Instruments
+        </button>
+        {view === 'tracker' && (
+          <>
+            <button className="octbtn" onClick={() => setOctave((o) => Math.max(0, o - 1))}>oct −</button>
+            <button className="octbtn" onClick={() => setOctave((o) => Math.min(9, o + 1))}>oct +</button>
+          </>
+        )}
       </header>
       <ProjectBar />
-      <div className="layout">
-        <main className="main">
-          <TrackerGrid doc={doc} pattern={pattern} cursor={cursor} playhead={playhead} muted={mutedTracks} />
-        </main>
-        <Legend />
-      </div>
+      {view === 'tracker' ? (
+        <div className="layout">
+          <main className="main">
+            <TrackerGrid doc={doc} pattern={pattern} cursor={cursor} playhead={playhead} muted={mutedTracks} />
+          </main>
+          <Legend />
+        </div>
+      ) : (
+        <div className="layout">
+          <InstrumentsView host={host} />
+        </div>
+      )}
     </div>
   )
 }

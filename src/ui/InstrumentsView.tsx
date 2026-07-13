@@ -1,0 +1,200 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useDocStore } from '../state/docStore'
+import { usePreviewStore } from '../state/previewStore'
+import { codeToSemitone } from './keymap'
+import { ModularEditor } from './ModularEditor'
+import type { AudioHost } from '../audio/host'
+import type { Id } from '../domain/types'
+
+/** True when a keystroke should go to a focused form field, not the preview. */
+function isEditableTarget(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null
+  if (!el) return false
+  const tag = el.tagName
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable
+}
+
+/** Full-screen instruments view: a list rail on the left, the selected
+ *  instrument's editor on the right (knob strip for osc, node graph for
+ *  modular). All edits go through docStore, so undo/redo + autosave apply.
+ *
+ *  The note keys audition the selected instrument live (held = gate open); the
+ *  tracker keymap is inert here (App guards it). Octave keys and a panic control
+ *  let you test a patch without touching the pattern. */
+export function InstrumentsView({ host }: { host: AudioHost }) {
+  const doc = useDocStore((s) => s.doc)
+  const addInstrument = useDocStore((s) => s.addInstrument)
+  const removeInstrument = useDocStore((s) => s.removeInstrument)
+  const renameInstrument = useDocStore((s) => s.renameInstrument)
+  const setOscParam = useDocStore((s) => s.setOscParam)
+
+  const noteOn = usePreviewStore((s) => s.noteOn)
+  const noteOff = usePreviewStore((s) => s.noteOff)
+  const panic = usePreviewStore((s) => s.panic)
+  const activeVoices = usePreviewStore((s) => Object.keys(s.voices).length)
+
+  const instruments = Object.values(doc.entities.instruments)
+  const [selectedId, setSelectedId] = useState<Id | null>(instruments[0]?.id ?? null)
+  const [octave, setOctave] = useState(5)
+
+  // Keep a valid selection as instruments come and go.
+  useEffect(() => {
+    if (selectedId && doc.entities.instruments[selectedId]) return
+    setSelectedId(Object.keys(doc.entities.instruments)[0] ?? null)
+  }, [doc.entities.instruments, selectedId])
+
+  const selected = selectedId ? doc.entities.instruments[selectedId] : undefined
+
+  // Refs so the window key handlers always read the latest values.
+  const selectedIdRef = useRef(selectedId)
+  selectedIdRef.current = selectedId
+  const octaveRef = useRef(octave)
+  octaveRef.current = octave
+  // Physical key code → the MIDI note it triggered, so key-up releases the
+  // exact note even if the octave changed while it was held.
+  const heldRef = useRef<Record<string, number>>({})
+
+  // Panic when leaving the view or switching instruments — no stuck notes.
+  useEffect(() => {
+    heldRef.current = {}
+    panic()
+  }, [selectedId, panic])
+  useEffect(() => () => panic(), [panic])
+
+  const onKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      if (isEditableTarget(e.target) || e.metaKey || e.ctrlKey || e.altKey) return
+
+      if (e.code === 'Escape') {
+        e.preventDefault()
+        heldRef.current = {}
+        panic()
+        return
+      }
+      if (e.code === 'Minus') { e.preventDefault(); setOctave((o) => Math.max(0, o - 1)); return }
+      if (e.code === 'Equal') { e.preventDefault(); setOctave((o) => Math.min(9, o + 1)); return }
+
+      if (e.repeat) return // ignore auto-repeat: one attack per physical press
+      const semi = codeToSemitone(e.code)
+      const instId = selectedIdRef.current
+      if (semi === undefined || !instId) return
+      e.preventDefault()
+      const note = octaveRef.current * 12 + semi
+      heldRef.current[e.code] = note
+      void host.start().then(() => noteOn(instId, note))
+    },
+    [host, noteOn, panic],
+  )
+
+  const onKeyUp = useCallback(
+    (e: KeyboardEvent) => {
+      const note = heldRef.current[e.code]
+      if (note === undefined) return
+      delete heldRef.current[e.code]
+      noteOff(note)
+    },
+    [noteOff],
+  )
+
+  useEffect(() => {
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('keyup', onKeyUp)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keyup', onKeyUp)
+    }
+  }, [onKeyDown, onKeyUp])
+
+  /** How many tracks reference each instrument (delete is blocked while > 0). */
+  const usage = (id: Id) => Object.values(doc.entities.tracks).filter((t) => t.instrumentId === id).length
+
+  return (
+    <div className="instruments-view">
+      <aside className="inst-rail">
+        <div className="inst-rail-actions">
+          <button onClick={() => setSelectedId(addInstrument('modular'))}>+ Modular</button>
+          <button onClick={() => setSelectedId(addInstrument('osc'))}>+ Osc</button>
+        </div>
+        <ul className="inst-list">
+          {instruments.map((inst) => {
+            const uses = usage(inst.id)
+            return (
+              <li
+                key={inst.id}
+                className={'inst-item' + (inst.id === selectedId ? ' selected' : '')}
+                onClick={() => setSelectedId(inst.id)}
+              >
+                <span className="inst-kind">{inst.kind === 'modular' ? '▦' : '∿'}</span>
+                <span className="inst-name" title={inst.name}>{inst.name}</span>
+                <span className="inst-uses" title={`${uses} track(s) use this`}>{uses}</span>
+              </li>
+            )
+          })}
+        </ul>
+      </aside>
+
+      <section className="inst-editor">
+        {!selected && <div className="inst-empty">No instruments. Add one to start patching.</div>}
+        {selected && (
+          <>
+            <header className="inst-editor-head">
+              <input
+                className="inst-name-input"
+                value={selected.name}
+                onChange={(e) => renameInstrument(selected.id, e.target.value)}
+              />
+              <span className="muted">{selected.kind}</span>
+              <span className="spacer" />
+              <button
+                disabled={usage(selected.id) > 0}
+                title={usage(selected.id) > 0 ? 'In use by a track — reassign first' : 'Delete instrument'}
+                onClick={() => removeInstrument(selected.id)}
+              >
+                Delete
+              </button>
+            </header>
+
+            <div className="preview-bar">
+              <span className="muted">Play keys to preview</span>
+              <span className="preview-oct">
+                <button onClick={() => setOctave((o) => Math.max(0, o - 1))}>oct −</button>
+                <span className="preview-oct-val">oct {octave}</span>
+                <button onClick={() => setOctave((o) => Math.min(9, o + 1))}>oct +</button>
+              </span>
+              <span className="spacer" />
+              <span className={'preview-voices' + (activeVoices ? ' on' : '')}>{activeVoices} voice{activeVoices === 1 ? '' : 's'}</span>
+              <button
+                className="panic-btn"
+                title="Stop all preview notes (Esc)"
+                onMouseDown={() => { heldRef.current = {}; panic() }}
+              >
+                Panic
+              </button>
+            </div>
+
+            {selected.kind === 'modular' ? (
+              <ModularEditor inst={selected} />
+            ) : (
+              <div className="osc-strip">
+                <label className="mod-param">
+                  <span className="mod-param-label">
+                    Gain<span className="mod-param-value">{selected.params.gain.toFixed(2)}</span>
+                  </span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.01}
+                    value={selected.params.gain}
+                    onChange={(e) => setOscParam(selected.id, 'gain', Number(e.target.value))}
+                  />
+                </label>
+                <p className="muted">A built-in saw voice. Convert to modular by adding a new modular instrument.</p>
+              </div>
+            )}
+          </>
+        )}
+      </section>
+    </div>
+  )
+}
