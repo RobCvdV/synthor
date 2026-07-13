@@ -120,7 +120,13 @@ export default function App() {
           case 'Comma': // Ctrl+,  move left  / Ctrl+Shift+,  insert left
             e.preventDefault()
             if (e.shiftKey) {
-              addTrack(cur.track)
+              // Inherit the cursor track's instrument, fall back to any other,
+              // or auto-create one as a last resort.
+              const inheritId =
+                useDocStore.getState().doc.entities.tracks[trackId]?.instrumentId ??
+                Object.keys(useDocStore.getState().doc.entities.instruments)[0] ??
+                useDocStore.getState().addInstrument('osc')
+              addTrack(cur.track, inheritId)
               setCursor((c) => ({ ...c, track: cur.track }))
             } else {
               moveTrack(cur.track, cur.track - 1)
@@ -130,7 +136,12 @@ export default function App() {
           case 'Period': // Ctrl+.  move right / Ctrl+Shift+.  insert right
             e.preventDefault()
             if (e.shiftKey) {
-              addTrack(cur.track + 1)
+              // Inherit the cursor track's instrument (same logic as above).
+              const inheritId =
+                useDocStore.getState().doc.entities.tracks[trackId]?.instrumentId ??
+                Object.keys(useDocStore.getState().doc.entities.instruments)[0] ??
+                useDocStore.getState().addInstrument('osc')
+              addTrack(cur.track + 1, inheritId)
               setCursor((c) => ({ ...c, track: cur.track + 1 }))
             } else {
               moveTrack(cur.track, cur.track + 1)

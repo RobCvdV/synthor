@@ -65,7 +65,7 @@ interface DocState {
   setConnectionGain: (instrumentId: Id, connectionId: Id, gain: number) => void
 
   // --- Track operations (atIndex = position within the current pattern) ---
-  addTrack: (atIndex: number) => void
+  addTrack: (atIndex: number, instrumentId: Id) => void
   removeTrack: (trackId: Id) => void
   moveTrack: (from: number, to: number) => void
   copyTrack: (trackId: Id) => void
@@ -116,12 +116,13 @@ export const useDocStore = create<DocState>((set, get) => ({
       if (track && track.cells[row]) track.cells[row].note = note
     }),
 
-  addTrack: (atIndex) =>
+  addTrack: (atIndex, instrumentId) =>
     get().mutate((draft) => {
       const pattern = draft.entities.patterns[draft.patternId]
-      const inst = newOscInstrument(`Track ${pattern.trackIds.length + 1}`)
-      const track = newTrack(inst.id, pattern.length)
-      draft.entities.instruments[inst.id] = inst
+      // Use the given instrument (caller provides it, e.g. from the cursor
+      // track) — no auto-creating instruments just to add a layer.
+      if (!draft.entities.instruments[instrumentId]) return
+      const track = newTrack(instrumentId, pattern.length)
       draft.entities.tracks[track.id] = track
       pattern.trackIds.splice(clamp(atIndex, 0, pattern.trackIds.length), 0, track.id)
     }),

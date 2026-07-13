@@ -65,12 +65,15 @@ describe('docStore track operations', () => {
     expect(useDocStore.getState().mutedTracks[first]).toBe(false)
   })
 
-  it('inserts a new empty track at an index', () => {
-    useDocStore.getState().addTrack(1)
+  it('inserts a new empty track at an index, inheriting the given instrument', () => {
+    const [first] = trackIds()
+    const instId = useDocStore.getState().doc.entities.tracks[first].instrumentId
+    useDocStore.getState().addTrack(1, instId)
     expect(trackIds()).toHaveLength(3)
     const newId = trackIds()[1]
     const cells = useDocStore.getState().doc.entities.tracks[newId].cells
     expect(cells.every((c) => c.note === null)).toBe(true)
+    expect(useDocStore.getState().doc.entities.tracks[newId].instrumentId).toBe(instId)
   })
 
   it('removes a track but keeps its (now first-class) instrument', () => {
@@ -135,7 +138,9 @@ describe('docStore track operations', () => {
   })
 
   it('undoes a track insert', () => {
-    useDocStore.getState().addTrack(2)
+    const [first] = trackIds()
+    const instId = useDocStore.getState().doc.entities.tracks[first].instrumentId
+    useDocStore.getState().addTrack(2, instId)
     expect(trackIds()).toHaveLength(3)
     useDocStore.getState().undo()
     expect(trackIds()).toHaveLength(2)
