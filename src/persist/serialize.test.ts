@@ -69,4 +69,25 @@ describe('song serialization', () => {
     expect(back).toEqual(inst)
     expect(back.kind).toBe('modular')
   })
+
+  it('migrates old output.in connections to inL (post-stereo fix)', () => {
+    const doc = createDefaultDoc()
+    const inst = newModularInstrument('Patch')
+    // Simulate an old connection targeting the old 'in' port on the output.
+    for (const c of Object.values(inst.connections)) {
+      if (inst.modules[c.to.moduleId]?.type === 'output') {
+        c.to.port = 'in' // mutate the seeded connection
+      }
+    }
+    doc.entities.instruments[inst.id] = inst
+    const file = makeSongFile(doc, META)
+    const restored = deserializeSong(serializeSong(file))
+    const back = restored.doc.entities.instruments[inst.id]
+    if (back.kind !== 'modular') throw new Error('expected modular')
+    for (const c of Object.values(back.connections)) {
+      if (back.modules[c.to.moduleId]?.type === 'output') {
+        expect(c.to.port).toBe('inL')
+      }
+    }
+  })
 })

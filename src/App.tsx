@@ -34,8 +34,11 @@ export default function App() {
       if (!slug) return
       const file = await readSong(slug)
       if (!file) return
-      useDocStore.getState().loadDoc(file.doc)
+      // Update project identity BEFORE loading the doc, so the autosave that
+      // fires on loadDoc uses the right song name + doesn't overwrite the
+      // recent slug with "untitled".
       useProjectStore.getState().reset(file.meta.name, file.meta.createdAt)
+      useDocStore.getState().loadDoc(file.doc)
     })()
   }, [])
 

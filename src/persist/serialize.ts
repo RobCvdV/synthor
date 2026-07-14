@@ -79,6 +79,12 @@ export function migrate(raw: unknown): SongFile {
   // Future migrations chain here, oldest first:
   //   if (version < 2) raw = upgradeV1toV2(raw)
 
+  // v1→v1 migration: when the stereo output was added (commit b3917fc), the
+  // output module's inlet changed from 'in' to 'inL'. Old modular instruments
+  // with connections targeting 'in' would silently produce silence because
+  // nothing feeds 'inL'. Fix those connections in-place on load.
+  raw = fixOutputPortMigrate(raw)
+
   assertShape(raw)
   return raw
 }
@@ -96,4 +102,49 @@ function assertShape(raw: unknown): asserts raw is SongFile {
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
+/**
+ * Fix modular instrument connections that target the old output `in` port
+ * (pre-stereo, before commit b3917fc). Changes them to `inL` so they feed the
+ * left output channel. Returns a new object (doesn't mutate the input) so
+ * callers can still compare against the raw parsed file if needed.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function fixOutputPortMigrate(raw: any): any {
+  const insts = raw.doc?.entities?.instruments
+  if (!insts || !isRecord(insts)) return raw
+
+  let changed = false
+  const fixed: Record<string, unknown> = {}
+  for (const [id, inst] of Object.entries(insts)) {
+    if (!isRecord(inst) || inst.kind !== 'modular') {
+      fixed[id] = inst
+      continue
+    }
+    const conns = inst.connections
+    if (!isRecord(conns)) {
+      fixed[id] = inst
+      continue
+    }
+    const fixedConns: Record<string, unknown> = {}
+    for (const [cid, c] of Object.entries(conns)) {
+      if (isRecord(c) && isRecord(c.to) && c.to.port === 'in') {
+        const targetMod = isRecord(inst.modules) ? (inst.modules as Record<string, unknown>)[c.to.moduleId as string] : undefined
+        if (isRecord(targetMod) && targetMod.type === 'output') {
+          fixedConns[cid] = { ...c, to: { ...c.to, port: 'inL' } }
+          changed = true
+          continue
+        }
+      }
+      fixedConns[cid] = c
+    }
+    fixed[id] = { ...inst, connections: fixedConns }
+  }
+
+  if (!changed) return raw
+  return {
+    ...raw,
+    doc: { ...raw.doc, entities: { ...raw.doc.entities, instruments: fixed } },
+  }
 }

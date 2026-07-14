@@ -10,8 +10,8 @@ export interface StereoOut {
   right: NodeRepr_t
 }
 
-/** Maximum delay buffer in samples — 2 seconds at 44.1 kHz. */
-const DELAY_SIZE = 88200
+/** Maximum delay buffer in samples — 4 seconds at 44.1 kHz. */
+const DELAY_SIZE = 176400
 
 /**
  * Compile a modular instrument's block graph into a stereo pair. Modules are
