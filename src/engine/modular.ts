@@ -146,9 +146,11 @@ export function compileModular(
 
       case 'delay': {
         const input = inlet(m.id, 'in') ?? SILENCE
-        const timeS = kconst(key('time'), (p.time ?? 200) / 1000) // ms → seconds
-        const fb = kconst(key('feedback'), p.feedback ?? 0.4)
-        const wet = el.delay({ key: `${keyPrefix}:${m.id}`, size: DELAY_SIZE }, timeS, fb, input)
+        // el.delay uses len in samples, so convert ms → samples via Elementary's
+        // built-in ms2samps (aware of the actual sample rate at render time).
+        const timeSamps = el.ms2samps(kconst(key('time'), p.time ?? 150))
+        const fb = kconst(key('feedback'), p.feedback ?? 0.25)
+        const wet = el.delay({ key: `${keyPrefix}:${m.id}`, size: DELAY_SIZE }, timeSamps, fb, input)
         const dryMix = kconst(key('mix'), p.mix ?? 0.5)
         return el.add(el.mul(input, el.sub(el.const({ value: 1 }), dryMix)), el.mul(wet, dryMix))
       }
