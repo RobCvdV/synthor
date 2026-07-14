@@ -40,6 +40,9 @@ export type ModuleType =
   | 'adsr' // envelope generator
   | 'gain' // multiply a signal by a level (and/or a modulation inlet)
   | 'mix' // combine several signals (add or multiply)
+  | 'lfo' // low-frequency oscillator (sine/triangle) for modulation
+  | 'tanh' // soft-clipping distortion (tanh waveshaper)
+  | 'delay' // delay line with feedback
   | 'output' // the voice's final output tap
 
 /** An address into a module's inlet or outlet, by name. */

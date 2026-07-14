@@ -1,5 +1,6 @@
-import { el, type NodeRepr_t } from '@elemaudio/core'
+import { el } from '@elemaudio/core'
 import WebRenderer from '@elemaudio/web-renderer'
+import type { StereoOut } from '../engine/modular'
 
 /**
  * Owns the AudioContext + Elementary WebRenderer and pushes compiled graphs to
@@ -50,10 +51,12 @@ export class AudioHost {
     this.ready = true
   }
 
-  /** Render one mono node to both channels. No-op until started. */
-  render(mono: NodeRepr_t): void {
+  /** Render a stereo pair to the output. No-op until started. */
+  render(stereo: StereoOut): void {
     if (!this.ready || !this.core) return
-    // Duplicate through named channels so reconciliation stays stable.
-    void this.core.render(el.mul(mono, el.const({ key: 'ch:l', value: 1 })), el.mul(mono, el.const({ key: 'ch:r', value: 1 })))
+    void this.core.render(
+      el.mul(stereo.left, el.const({ key: 'ch:l', value: 1 })),
+      el.mul(stereo.right, el.const({ key: 'ch:r', value: 1 })),
+    )
   }
 }

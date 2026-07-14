@@ -5,15 +5,24 @@ import { FILTER_MODES } from '../domain/moduleDefs'
 type Node = NodeRepr_t | number
 const SILENCE = 0
 
+export interface StereoOut {
+  left: NodeRepr_t
+  right: NodeRepr_t
+}
+
+/** Maximum delay buffer in samples — 2 seconds at 44.1 kHz. */
+const DELAY_SIZE = 88200
+
 /**
- * Compile a modular instrument's block graph into a single Elementary node.
+ * Compile a modular instrument's block graph into a stereo pair. Modules are
+ * mono throughout — only the `output` module's L/R inlets create true stereo
+ * separation. When the right channel is unconnected it falls back to the left
+ * (mono duplicate), so existing mono patches keep working unchanged.
  *
  * Evaluation is a memoised depth-first walk from the `output` module: each
  * module's inlets are the sum of every incoming cord's source scaled by that
  * cord's `gain`. The track's control signals enter through the `note` (freq,
- * Hz) and `gate` source modules, so a modular instrument obeys the same
- * `(freq, gate) => node` contract as the built-in osc — the tracker is none the
- * wiser.
+ * Hz) and `gate` source modules.
  *
  * Pure: no React, no Zustand, no AudioContext. v1 assumes an acyclic graph; a
  * back-edge (cycle) is broken by returning silence for the re-entered module.
@@ -22,14 +31,8 @@ export function compileModular(
   inst: ModularInstrument,
   freq: Node,
   gate: Node,
-  /**
-   * Prefix for every node key. Must be unique per *voice*, not per instrument:
-   * instruments are shared, so two voices of the same modular instrument (two
-   * held preview notes, or two tracks pointing at one instrument) would collide
-   * on identical keys if we used `inst.id`. Callers pass the voice/track key.
-   */
   keyPrefix: string = inst.id,
-): NodeRepr_t {
+): StereoOut {
   const memo = new Map<string, Node>()
   const visiting = new Set<string>()
 
@@ -78,18 +81,27 @@ export function compileModular(
 
       case 'osc': {
         const f = inlet(m.id, 'freq') ?? 440
-        const ratio = Math.pow(2, (p.detune ?? 0) / 12)
+        let ratio = Math.pow(2, (p.detune ?? 0) / 12)
+        ratio *= Math.pow(2, (p.finetune ?? 0) / 1200)
         const tuned = el.mul(f, kconst(key('detune'), ratio))
-        return el.mul(osc(p.waveform ?? 0, tuned), kconst(key('gain'), p.gain ?? 1))
+        return el.mul(oscAudio(p.waveform ?? 0, tuned), kconst(key('gain'), p.gain ?? 1))
       }
 
       case 'filter': {
         const input = inlet(m.id, 'in') ?? SILENCE
         const cutoffMod = inlet(m.id, 'cutoffMod')
         const base = kconst(key('cutoff'), p.cutoff ?? 1200)
-        const fc = cutoffMod === null ? base : el.add(base, cutoffMod)
+        // cutoffMod is a ratio modifier: e.g. a 0→1 envelope swings the
+        // cutoff from base to base×(1+modDepth). Scaled by the modDepth
+        // knob so it's immediately musical — no inaudible ±1 Hz offsets.
+        if (cutoffMod !== null) {
+          const depth = kconst(key('modDepth'), p.modDepth ?? 0.5)
+          const fc = el.mul(base, el.add(el.const({ value: 1 }), el.mul(cutoffMod, depth)))
+          const mode = FILTER_MODES[Math.round(p.mode ?? 0)] ?? 'lowpass'
+          return el.svf({ key: `${keyPrefix}:${m.id}`, mode }, fc, kconst(key('q'), p.q ?? 0.7), input)
+        }
         const mode = FILTER_MODES[Math.round(p.mode ?? 0)] ?? 'lowpass'
-        return el.svf({ key: `${keyPrefix}:${m.id}`, mode }, fc, kconst(key('q'), p.q ?? 0.7), input)
+        return el.svf({ key: `${keyPrefix}:${m.id}`, mode }, base, kconst(key('q'), p.q ?? 0.7), input)
       }
 
       case 'adsr': {
@@ -118,16 +130,45 @@ export function compileModular(
         return parts.reduce((acc, n) => op(acc, n))
       }
 
+      case 'lfo': {
+        const rate = kconst(key('rate'), p.rate ?? 4)
+        const wf = Math.round(p.waveform ?? 0)
+        const raw = wf === 1 ? el.bleptriangle(rate) : el.cycle(rate)
+        // Scale to bipolar ±amount.
+        return el.mul(raw, kconst(key('amount'), p.amount ?? 1))
+      }
+
+      case 'tanh': {
+        const input = inlet(m.id, 'in') ?? SILENCE
+        const drive = kconst(key('drive'), p.drive ?? 3)
+        return el.mul(el.tanh(el.mul(input, drive)), kconst(key('level'), p.level ?? 0.5))
+      }
+
+      case 'delay': {
+        const input = inlet(m.id, 'in') ?? SILENCE
+        const timeS = kconst(key('time'), (p.time ?? 200) / 1000) // ms → seconds
+        const fb = kconst(key('feedback'), p.feedback ?? 0.4)
+        const wet = el.delay({ key: `${keyPrefix}:${m.id}`, size: DELAY_SIZE }, timeS, fb, input)
+        const dryMix = kconst(key('mix'), p.mix ?? 0.5)
+        return el.add(el.mul(input, el.sub(el.const({ value: 1 }), dryMix)), el.mul(wet, dryMix))
+      }
+
+      // output is evaluated per-channel at the top level — render() for the
+      // output module isn't called. Keep as a fallback.
       case 'output':
-        return inlet(m.id, 'in') ?? SILENCE
+        return SILENCE
     }
   }
 
-  const result = evalModule(inst.outputId)
-  return typeof result === 'number' ? el.const({ value: result }) : result
+  const outMod = inst.modules[inst.outputId]
+  const left = outMod ? (inlet(inst.outputId, 'inL') ?? SILENCE) : SILENCE
+  const right = outMod ? (inlet(inst.outputId, 'inR') ?? left) : SILENCE
+  const node = (n: Node): NodeRepr_t =>
+    typeof n === 'number' ? el.const({ value: n }) : n
+  return { left: node(left), right: node(right) }
 }
 
-function osc(waveform: number, freq: Node): NodeRepr_t {
+function oscAudio(waveform: number, freq: Node): NodeRepr_t {
   switch (Math.round(waveform)) {
     case 1:
       return el.blepsquare(freq)

@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { compileModular } from './modular'
+import { compileModular, type StereoOut } from './modular'
 import { newModularInstrument } from '../domain/factory'
 import type { ModularInstrument } from '../domain/types'
+
+function mono(out: StereoOut) {
+  return out.left
+}
 
 // --- Elementary node introspection (same shape as compile.test.ts) --------
 interface ElNode {
@@ -38,12 +42,12 @@ function collect(root: unknown, kind: string): ElNode[] {
 }
 
 describe('compileModular', () => {
+  const m = (inst: ModularInstrument, freq = 440, gate = 1) =>
+    mono(compileModular(inst, freq, gate))
+
   it('compiles the seeded default patch into a real subtractive voice', () => {
     const inst = newModularInstrument('Test')
-    const node = compileModular(inst, 440, 1)
-    // The default patch is Osc → Filter → Gain(×ADSR) → Output. blepsaw and svf
-    // are native nodes; adsr is a composite, so we assert its absence of throw
-    // plus the presence of the multiply that applies the envelope + level.
+    const node = m(inst)
     expect(collect(node, 'blepsaw').length).toBe(1)
     expect(collect(node, 'svf').length).toBe(1)
     expect(collect(node, 'mul').length).toBeGreaterThan(0)
@@ -53,7 +57,7 @@ describe('compileModular', () => {
     const inst = newModularInstrument('Test')
     const filterId = Object.values(inst.modules).find((m) => m.type === 'filter')!.id
 
-    const before = collect(compileModular(inst, 440, 1), 'svf')[0]
+    const before = collect(m(inst), 'svf')[0]
     const edited: ModularInstrument = {
       ...inst,
       modules: {
@@ -61,7 +65,7 @@ describe('compileModular', () => {
         [filterId]: { ...inst.modules[filterId], params: { ...inst.modules[filterId].params, cutoff: 800 } },
       },
     }
-    const after = collect(compileModular(edited, 440, 1), 'svf')[0]
+    const after = collect(m(edited), 'svf')[0]
 
     expect(before.props.key).toBe(after.props.key)
     expect(before.props.key).toBe(`${inst.id}:${filterId}`)
@@ -74,7 +78,7 @@ describe('compileModular', () => {
       ...inst,
       modules: { ...inst.modules, [oscId]: { ...inst.modules[oscId], params: { ...inst.modules[oscId].params, waveform: 1 } } },
     }
-    const node = compileModular(square, 440, 1)
+    const node = m(square)
     expect(collect(node, 'blepsquare').length).toBe(1)
     expect(collect(node, 'blepsaw').length).toBe(0)
   })
@@ -82,13 +86,12 @@ describe('compileModular', () => {
   it('returns silence for an empty output (nothing connected)', () => {
     const inst = newModularInstrument('Test')
     const bare: ModularInstrument = { ...inst, connections: {} }
-    const node = compileModular(bare, 440, 1)
+    const node = m(bare)
     const consts = collect(node, 'const')
     expect(consts.some((c) => c.props.value === 0)).toBe(true)
   })
 
   it('breaks a cycle instead of recursing forever', () => {
-    // A hand-built cyclic patch: gainA ⇄ gainB, output ← gainA.
     const inst: ModularInstrument = {
       id: 'inst_cycle',
       kind: 'modular',
@@ -101,7 +104,7 @@ describe('compileModular', () => {
       connections: {
         c1: { id: 'c1', from: { moduleId: 'a', port: 'out' }, to: { moduleId: 'b', port: 'in' }, gain: 1 },
         c2: { id: 'c2', from: { moduleId: 'b', port: 'out' }, to: { moduleId: 'a', port: 'in' }, gain: 1 },
-        c3: { id: 'c3', from: { moduleId: 'a', port: 'out' }, to: { moduleId: 'out', port: 'in' }, gain: 1 },
+        c3: { id: 'c3', from: { moduleId: 'a', port: 'out' }, to: { moduleId: 'out', port: 'inL' }, gain: 1 },
       },
       outputId: 'out',
     }

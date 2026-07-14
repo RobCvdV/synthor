@@ -33,6 +33,8 @@ export interface ModuleDef {
 
 /** Waveform selector values, shared by the osc param and the compiler. */
 export const WAVEFORMS = ['saw', 'square', 'triangle', 'sine'] as const
+/** LFO waveform selector — sine and triangle only (sub-audio rate). */
+export const LFO_WAVEFORMS = ['sine', 'triangle'] as const
 /** Filter mode selector values. */
 export const FILTER_MODES = ['lowpass', 'highpass', 'bandpass'] as const
 /** Mix combine modes. */
@@ -63,7 +65,8 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     params: [
       { key: 'waveform', label: 'Wave', min: 0, max: 3, default: 0, step: 1, enumLabels: [...WAVEFORMS] },
       { key: 'detune', label: 'Detune (st)', min: -24, max: 24, default: 0, step: 1 },
-      { key: 'gain', label: 'Level', min: 0, max: 1, default: 1, step: 0.01 },
+      { key: 'finetune', label: 'Fine (ct)', min: -100, max: 100, default: 0, step: 1 },
+      { key: 'gain', label: 'Level', min: 0, max: 2, default: 1, step: 0.01 },
     ],
   },
   filter: {
@@ -75,6 +78,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
       { key: 'mode', label: 'Mode', min: 0, max: 2, default: 0, step: 1, enumLabels: [...FILTER_MODES] },
       { key: 'cutoff', label: 'Cutoff (Hz)', min: 20, max: 18000, default: 1200, step: 1 },
       { key: 'q', label: 'Resonance', min: 0.1, max: 12, default: 0.7, step: 0.1 },
+      { key: 'modDepth', label: 'Mod depth', min: 0, max: 1, default: 0.5, step: 0.01 },
     ],
   },
   adsr: {
@@ -94,7 +98,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     label: 'Gain',
     inlets: ['in', 'mod'],
     outlets: ['out'],
-    params: [{ key: 'level', label: 'Level', min: 0, max: 1, default: 0.8, step: 0.01 }],
+    params: [{ key: 'level', label: 'Level', min: 0, max: 2, default: 0.8, step: 0.01 }],
   },
   mix: {
     type: 'mix',
@@ -103,10 +107,42 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     outlets: ['out'],
     params: [{ key: 'mode', label: 'Mode', min: 0, max: 1, default: 0, step: 1, enumLabels: [...MIX_MODES] }],
   },
+  lfo: {
+    type: 'lfo',
+    label: 'LFO',
+    inlets: [],
+    outlets: ['out'],
+    params: [
+      { key: 'waveform', label: 'Wave', min: 0, max: 1, default: 0, step: 1, enumLabels: [...LFO_WAVEFORMS] },
+      { key: 'rate', label: 'Rate (Hz)', min: 0.1, max: 50, default: 4, step: 0.1 },
+      { key: 'amount', label: 'Amount', min: 0, max: 1, default: 1, step: 0.01 },
+    ],
+  },
+  tanh: {
+    type: 'tanh',
+    label: 'Distortion',
+    inlets: ['in'],
+    outlets: ['out'],
+    params: [
+      { key: 'drive', label: 'Drive', min: 1, max: 20, default: 3, step: 0.5 },
+      { key: 'level', label: 'Level', min: 0, max: 1, default: 0.5, step: 0.01 },
+    ],
+  },
+  delay: {
+    type: 'delay',
+    label: 'Delay',
+    inlets: ['in'],
+    outlets: ['out'],
+    params: [
+      { key: 'time', label: 'Time (ms)', min: 1, max: 1000, default: 200, step: 1 },
+      { key: 'feedback', label: 'Feedback', min: 0, max: 0.95, default: 0.4, step: 0.01 },
+      { key: 'mix', label: 'Mix', min: 0, max: 1, default: 0.5, step: 0.01 },
+    ],
+  },
   output: {
     type: 'output',
     label: 'Output',
-    inlets: ['in'],
+    inlets: ['inL', 'inR'],
     outlets: [],
     params: [],
     singleton: true,

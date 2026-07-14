@@ -67,7 +67,7 @@ export function newModularInstrument(name: string): ModularInstrument {
     connect({ moduleId: filter.id, port: 'out' }, { moduleId: gain.id, port: 'in' }),
     connect({ moduleId: gate.id, port: 'gate' }, { moduleId: adsr.id, port: 'gate' }),
     connect({ moduleId: adsr.id, port: 'env' }, { moduleId: gain.id, port: 'mod' }),
-    connect({ moduleId: gain.id, port: 'out' }, { moduleId: output.id, port: 'in' }),
+    connect({ moduleId: gain.id, port: 'out' }, { moduleId: output.id, port: 'inL' }),
   ]
 
   return {

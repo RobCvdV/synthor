@@ -3,11 +3,17 @@ import { compileGraph } from './compile'
 import { createDefaultDoc, newOscInstrument, newTrack } from '../domain/factory'
 import type { Doc } from '../domain/types'
 
+/** Unwrap the left channel from a StereoOut. */
+function mono(out: ReturnType<typeof compileGraph>) {
+  return out.left
+}
+
 describe('compileGraph', () => {
   it('builds a graph node from the default document without throwing', () => {
     const doc = createDefaultDoc()
-    const node = compileGraph(doc, { rowHz: 8, playing: 1 })
-    expect(node).toBeTruthy()
+    const out = compileGraph(doc, { rowHz: 8, playing: 1 })
+    expect(out.left).toBeTruthy()
+    expect(out.right).toBeTruthy()
   })
 
   it('handles an empty pattern (no tracks) by returning silence', () => {
@@ -26,9 +32,6 @@ describe('compileGraph', () => {
 })
 
 // --- Elementary node introspection helpers -------------------------------
-// A compiled node is { symbol:'__ELEM_NODE__', hash, kind, props, children },
-// where `children` is a cons-list ({hd, tl}) terminated by 0.
-
 interface ElNode {
   symbol: string
   hash: number
@@ -41,7 +44,6 @@ function isNode(x: unknown): x is ElNode {
   return typeof x === 'object' && x !== null && (x as { symbol?: unknown }).symbol === '__ELEM_NODE__'
 }
 
-/** Flatten a node's cons-list children into an array. */
 function childArray(children: unknown): unknown[] {
   const out: unknown[] = []
   let c: unknown = children
@@ -53,7 +55,6 @@ function childArray(children: unknown): unknown[] {
   return out
 }
 
-/** Depth-first collect all nodes of a given kind. */
 function collect(root: unknown, kind: string): ElNode[] {
   const found: ElNode[] = []
   const seen = new Set<ElNode>()
@@ -67,7 +68,6 @@ function collect(root: unknown, kind: string): ElNode[] {
   return found
 }
 
-/** el.seq2(props, trigger, reset) → children [trigger, reset]. */
 function seqInputs(seq: ElNode): { trigger: ElNode; reset: unknown } {
   const [trigger, reset] = childArray(seq.children)
   return { trigger: trigger as ElNode, reset }
@@ -87,46 +87,42 @@ function withExtraTrack(doc: Doc): Doc {
   }
 }
 
-// --- Regression: per-track sequencer phase alignment ---------------------
-// Each el.seq2 keeps its own step counter, initialized to 0 when the *node* is
-// created. A track added mid-playback would drift out of phase unless every
-// sequencer shares a single loop-reset that re-zeroes them together. These
-// tests pin that structural guarantee at the graph level.
+/** Shortcut: compile a doc for inspection (mono left channel). */
+function g(doc: Doc, ctx = { rowHz: 8, playing: 1 } as const) {
+  return mono(compileGraph(doc, ctx))
+}
 
 describe('compileGraph sequencer phase alignment', () => {
   it('gives every track sequencer the SAME shared reset (not a constant)', () => {
-    const doc = createDefaultDoc() // 2 tracks
-    const seqs = collect(compileGraph(doc, { rowHz: 8, playing: 1 }), 'seq2')
+    const doc = createDefaultDoc()
+    const seqs = collect(g(doc), 'seq2')
 
-    expect(seqs.length).toBe(4) // freq + gate per track
+    expect(seqs.length).toBe(4)
 
     const resets = seqs.map((s) => seqInputs(s).reset)
-    // All resets are real nodes (a train), never the bug's constant 0.
     for (const r of resets) {
       expect(isNode(r)).toBe(true)
       expect((r as ElNode).kind).not.toBe('const')
     }
-    // All sequencers share one and the same reset (identical content hash).
     const resetHashes = new Set(resets.map((r) => (r as ElNode).hash))
     expect(resetHashes.size).toBe(1)
   })
 
   it('shares one clock and one reset, and they are distinct signals', () => {
     const doc = createDefaultDoc()
-    const seqs = collect(compileGraph(doc, { rowHz: 8, playing: 1 }), 'seq2')
+    const seqs = collect(g(doc), 'seq2')
 
     const triggerHashes = new Set(seqs.map((s) => seqInputs(s).trigger.hash))
     const resetHashes = new Set(seqs.map((s) => (seqInputs(s).reset as ElNode).hash))
 
-    expect(triggerHashes.size).toBe(1) // one shared row clock
-    expect(resetHashes.size).toBe(1) // one shared loop reset
-    // Clock and reset run at different rates, so they must differ.
+    expect(triggerHashes.size).toBe(1)
+    expect(resetHashes.size).toBe(1)
     expect([...triggerHashes][0]).not.toBe([...resetHashes][0])
   })
 
   it('keeps the shared reset when a track is added (the duplicate scenario)', () => {
-    const doc = withExtraTrack(createDefaultDoc()) // 3 tracks
-    const seqs = collect(compileGraph(doc, { rowHz: 8, playing: 1 }), 'seq2')
+    const doc = withExtraTrack(createDefaultDoc())
+    const seqs = collect(g(doc), 'seq2')
 
     expect(seqs.length).toBe(6)
     const resetHashes = new Set(seqs.map((s) => (seqInputs(s).reset as ElNode).hash))
@@ -134,33 +130,34 @@ describe('compileGraph sequencer phase alignment', () => {
   })
 })
 
+function zeroConsts(root: unknown) {
+  return collect(root, 'const').filter((c) => c.props.value === 0).length
+}
+
 describe('compileGraph preview', () => {
   const previewInst = (doc: Doc) => doc.entities.tracks[doc.entities.patterns[doc.patternId].trackIds[0]].instrumentId
 
   it('sounds a held note even when the transport is stopped', () => {
     const doc = createDefaultDoc()
     const instrumentId = previewInst(doc)
-    // Stopped (playing 0), no tracks: silence normally…
     const empty: Doc = {
       ...doc,
       entities: { ...doc.entities, patterns: { [doc.patternId]: { ...doc.entities.patterns[doc.patternId], trackIds: [] } } },
     }
-    const silent = compileGraph(empty, { rowHz: 8, playing: 0 })
+    const silent = mono(compileGraph(empty, { rowHz: 8, playing: 0 }))
     expect(collect(silent, 'blepsaw')).toHaveLength(0)
-    // …but a preview voice makes an osc even with playing 0 and no tracks.
-    const withPreview = compileGraph(empty, {
+    const withPreview = mono(compileGraph(empty, {
       rowHz: 8, playing: 0, preview: { instrumentId, voices: [{ note: 60, gate: 1 }] },
-    })
+    }))
     expect(collect(withPreview, 'blepsaw').length).toBeGreaterThan(0)
   })
 
   it('gives each preview voice a distinct frequency (polyphony without key clashes)', () => {
     const doc = createDefaultDoc()
-    const node = compileGraph(doc, {
+    const node = mono(compileGraph(doc, {
       rowHz: 8, playing: 1,
       preview: { instrumentId: previewInst(doc), voices: [{ note: 60, gate: 1 }, { note: 67, gate: 1 }] },
-    })
-    // The two preview freq consts carry different values and different keys.
+    }))
     const previewFreqKeys = collect(node, 'const')
       .map((c) => c.props.key)
       .filter((k): k is string => typeof k === 'string' && k.includes(':freq') && k.startsWith('preview:'))
@@ -169,22 +166,18 @@ describe('compileGraph preview', () => {
 })
 
 describe('compileGraph mute', () => {
-  const zeroConsts = (root: unknown) =>
-    collect(root, 'const').filter((c) => c.props.value === 0).length
-
   it('adds a zero-gain multiplier for a muted track (and none when unmuted)', () => {
     const doc = createDefaultDoc()
     const first = doc.entities.patterns[doc.patternId].trackIds[0]
-    const unmuted = zeroConsts(compileGraph(doc, { rowHz: 8, playing: 1 }))
-    const muted = zeroConsts(compileGraph(doc, { rowHz: 8, playing: 1, mutedTracks: { [first]: true } }))
+    const unmuted = zeroConsts(g(doc))
+    const muted = zeroConsts(mono(compileGraph(doc, { rowHz: 8, playing: 1, mutedTracks: { [first]: true } })))
     expect(muted).toBeGreaterThan(unmuted)
   })
 
   it('still compiles all track sequencers when a track is muted (phase preserved)', () => {
     const doc = createDefaultDoc()
     const first = doc.entities.patterns[doc.patternId].trackIds[0]
-    const seqs = collect(compileGraph(doc, { rowHz: 8, playing: 1, mutedTracks: { [first]: true } }), 'seq2')
-    // Muting gains the voice to 0 but keeps its seq2 nodes in the graph.
+    const seqs = collect(mono(compileGraph(doc, { rowHz: 8, playing: 1, mutedTracks: { [first]: true } })), 'seq2')
     expect(seqs.length).toBe(4)
   })
 })

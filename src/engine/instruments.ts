@@ -1,34 +1,28 @@
 import { el, type NodeRepr_t } from '@elemaudio/core'
 import type { Instrument } from '../domain/types'
-import { compileModular } from './modular'
+import { compileModular, type StereoOut } from './modular'
 
 /**
  * An instrument is a node factory: given the control signals a track drives
- * (frequency + gate), it returns a mono audio node. This same shape scales up
- * to sample players, drumkits, and full modular patches later — the tracker
- * never needs to know what's inside.
+ * (frequency + gate), it returns a stereo audio pair. Mono instruments (osc)
+ * duplicate the same signal to both channels; modular instruments can route
+ * different signals to the output module's L/R inlets for true stereo.
  */
 export function renderInstrument(
   inst: Instrument,
   freq: NodeRepr_t | number,
   gate: NodeRepr_t | number,
   voiceKey: string,
-): NodeRepr_t {
+): StereoOut {
   switch (inst.kind) {
     case 'osc': {
-      // Band-limited saw through a simple ADSR. Keys keep node identity stable
-      // across re-renders so Elementary reconciles instead of rebuilding.
-      // Voices reconcile by structural position (stable track order); the
-      // keyed seq2 nodes carry the identity that actually needs pinning.
       void voiceKey
       const env = el.adsr(0.005, 0.12, 0.7, 0.25, gate)
       const tone = el.blepsaw(freq)
-      return el.mul(tone, env, inst.params.gain)
+      const out = el.mul(tone, env, inst.params.gain)
+      return { left: out, right: out }
     }
     case 'modular':
-      // A modular instrument is the same node factory, just data-driven. Its
-      // graph reads freq/gate through its note/gate source modules. voiceKey
-      // keys the nodes per-voice so shared instruments don't collide.
       return compileModular(inst, freq, gate, voiceKey)
   }
 }
