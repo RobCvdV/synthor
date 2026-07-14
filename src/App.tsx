@@ -8,6 +8,8 @@ import { TrackerGrid, type Cursor } from './ui/TrackerGrid'
 import { ProjectBar } from './ui/ProjectBar'
 import { Legend } from './ui/Legend'
 import { InstrumentsView } from './ui/InstrumentsView'
+import { loadRecent, readSong } from './persist/opfsStore'
+import { useProjectStore } from './state/projectStore'
 
 /** True when a keystroke should go to a focused form field, not the tracker. */
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -20,6 +22,22 @@ function isEditableTarget(target: EventTarget | null): boolean {
 export default function App() {
   const host = useEngine()
   useAutosave()
+
+  // On first mount, try to restore the last-opened song so the user picks up
+  // where they left off instead of landing on the default test pattern.
+  const loadedRef = useRef(false)
+  useEffect(() => {
+    if (loadedRef.current) return
+    loadedRef.current = true
+    void (async () => {
+      const slug = await loadRecent()
+      if (!slug) return
+      const file = await readSong(slug)
+      if (!file) return
+      useDocStore.getState().loadDoc(file.doc)
+      useProjectStore.getState().reset(file.meta.name, file.meta.createdAt)
+    })()
+  }, [])
 
   const doc = useDocStore((s) => s.doc)
   const setCellNote = useDocStore((s) => s.setCellNote)

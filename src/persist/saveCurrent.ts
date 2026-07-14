@@ -1,6 +1,6 @@
 import { useDocStore } from '../state/docStore'
 import { useProjectStore } from '../state/projectStore'
-import { writeSong } from './opfsStore'
+import { saveRecent, writeSong } from './opfsStore'
 import { makeSongFile, type SongFile } from './serialize'
 
 /** Build a SongFile snapshot from the current doc + project identity. */
@@ -20,7 +20,9 @@ export async function saveCurrentSong(): Promise<void> {
   const project = useProjectStore.getState()
   project.markSaving()
   try {
-    await writeSong(file)
+    const slug = await writeSong(file)
+    // Remember this song so it auto-loads on the next startup.
+    await saveRecent(slug)
     useProjectStore.getState().markSaved(file.meta.modifiedAt)
   } catch (err) {
     useProjectStore.getState().markError()

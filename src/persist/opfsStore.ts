@@ -99,3 +99,38 @@ export async function deleteSong(slug: string): Promise<void> {
 function isNotFound(err: unknown): boolean {
   return err instanceof DOMException && err.name === 'NotFoundError'
 }
+
+// --- Recent song (last-opened, restored on startup) ---
+
+const RECENT_FILE = 'recent'
+
+/**
+ * Remember which song was open last so the app can restore it on the next
+ * startup. Does nothing (silently catches) if OPFS is unavailable.
+ */
+export async function saveRecent(slug: string): Promise<void> {
+  try {
+    const root = await navigator.storage.getDirectory()
+    const handle = await root.getFileHandle(RECENT_FILE, { create: true })
+    const writable = await handle.createWritable()
+    await writable.write(slug)
+    await writable.close()
+  } catch {
+    // Non-critical — OPFS may not be available (tests, old browsers).
+  }
+}
+
+/**
+ * Return the slug of the last-opened song, or null if no recent song exists or
+ * OPFS is unavailable.
+ */
+export async function loadRecent(): Promise<string | null> {
+  try {
+    const root = await navigator.storage.getDirectory()
+    const handle = await root.getFileHandle(RECENT_FILE)
+    const text = await (await handle.getFile()).text()
+    return text.trim() || null
+  } catch {
+    return null
+  }
+}

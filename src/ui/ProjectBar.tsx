@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createDefaultDoc } from '../domain/factory'
-import { deleteSong, isOpfsSupported, listSongs, readSong } from '../persist/opfsStore'
+import { deleteSong, isOpfsSupported, listSongs, readSong, saveRecent } from '../persist/opfsStore'
 import { currentSongFile, saveCurrentSong } from '../persist/saveCurrent'
 import { deserializeSong, serializeSong, type SongFile } from '../persist/serialize'
 import { useDocStore } from '../state/docStore'
@@ -43,7 +43,10 @@ export function ProjectBar() {
   const openSong = async (slug: string) => {
     if (!slug) return
     const file = await readSong(slug)
-    if (file) loadFile(file)
+    if (file) {
+      loadFile(file)
+      await saveRecent(slug) // remember for next startup
+    }
   }
 
   const removeSong = async (slug: string) => {
