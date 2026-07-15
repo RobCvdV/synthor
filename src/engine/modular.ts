@@ -49,13 +49,19 @@ export function compileModular(
     const feeders = conns.filter((c) => c.to.moduleId === moduleId && c.to.port === port)
     if (feeders.length === 0) return null
     const scaled = feeders.map((c: Connection) => {
-      const src = evalModule(c.from.moduleId)
+      const src = evalModule(c.from.moduleId, c.from.port)
       return el.mul(src, kconst(`${c.id}:gain`, c.gain))
     })
     return scaled.reduce((a, b) => el.add(a, b))
   }
 
-  function evalModule(id: string): Node {
+  function evalModule(id: string, outletPort?: string): Node {
+    // Stereo ports: check the specifically-keyed cache first (e.g. 'modId:outR').
+    if (outletPort && outletPort !== 'outL') {
+      const portCache = memo.get(`${id}:${outletPort}`)
+      if (portCache !== undefined) return portCache
+    }
+    // Default cache (left / only channel).
     const cached = memo.get(id)
     if (cached !== undefined) return cached
     if (visiting.has(id)) return SILENCE // cycle: break the back-edge
@@ -66,6 +72,13 @@ export function compileModular(
     const out = render(m)
     visiting.delete(id)
     memo.set(id, out)
+
+    // After render, the reverb module may have stored a stereo pair — pick it up.
+    if (outletPort && outletPort !== 'outL') {
+      const portResult = memo.get(`${id}:${outletPort}`)
+      if (portResult !== undefined) return portResult
+    }
+
     return out
   }
 
@@ -146,13 +159,97 @@ export function compileModular(
 
       case 'delay': {
         const input = inlet(m.id, 'in') ?? SILENCE
-        // el.delay uses len in samples, so convert ms → samples via Elementary's
-        // built-in ms2samps (aware of the actual sample rate at render time).
+        // Single-tap delay — no feedback, one repeat at the given time.
+        const timeSamps = el.ms2samps(kconst(key('time'), p.time ?? 150))
+        const wet = el.delay({ key: `${keyPrefix}:${m.id}`, size: DELAY_SIZE }, timeSamps, 0, input)
+        const dryMix = kconst(key('mix'), p.mix ?? 0.5)
+        return el.add(el.mul(input, el.sub(el.const({ value: 1 }), dryMix)), el.mul(wet, dryMix))
+      }
+
+      case 'echo': {
+        const input = inlet(m.id, 'in') ?? SILENCE
+        // Repeating echo — delay line with feedback for multiple repeats.
         const timeSamps = el.ms2samps(kconst(key('time'), p.time ?? 150))
         const fb = kconst(key('feedback'), p.feedback ?? 0.25)
         const wet = el.delay({ key: `${keyPrefix}:${m.id}`, size: DELAY_SIZE }, timeSamps, fb, input)
         const dryMix = kconst(key('mix'), p.mix ?? 0.5)
         return el.add(el.mul(input, el.sub(el.const({ value: 1 }), dryMix)), el.mul(wet, dryMix))
+      }
+
+      case 'reverb': {
+        const input = inlet(m.id, 'in') ?? SILENCE
+
+        const roomSize = kconst(key('roomSize'), p.roomSize ?? 0.5)
+        const feedback = kconst(key('feedback'), p.feedback ?? 0.45)
+        const damping = kconst(key('damping'), p.damping ?? 0.5)
+        const stereoWidth = kconst(key('stereoWidth'), p.stereoWidth ?? 0.6)
+        const wetMix = kconst(key('mix'), p.mix ?? 0.35)
+
+        // Prime-number comb delay times (ms) for density, plus stereo offsets.
+        const baseTimes = [29.7, 37.1, 41.3, 43.7]
+        const stereoOff = [1.3, 2.1, 0.9, 1.7]
+
+        // Build one stereo channel: 4 filtered-feedback combs → sum → tone lowpass.
+        function buildChannel(side: 'L' | 'R'): Node {
+          const offsetMul = side === 'R' ? stereoWidth : el.const({ value: 0 })
+
+          const combs = baseTimes.map((base, i) => {
+            // Delay time = (base + offset * width) * room size.
+            const off = el.mul(el.const({ value: stereoOff[i] }), offsetMul)
+            const timeMs = el.mul(el.add(el.const({ value: base }), off), roomSize)
+            const timeSamps = el.ms2samps(timeMs)
+
+            // Damping lowpass before the comb: bright (~15 kHz) → dark (~400 Hz).
+            // The filter is placed *before* the delay input so each recirculation
+            // passes through it once (= progressive high-frequency roll-off).
+            const dampHi = el.const({ value: 16000 })
+            const dampLo = el.const({ value: 400 })
+            const dampFreq = el.add(dampLo, el.mul(el.sub(el.const({ value: 1 }), damping), el.sub(dampHi, dampLo)))
+            const damped = el.svf(
+              { key: `${keyPrefix}:${m.id}:damp${side}${i}`, mode: 'lowpass' },
+              dampFreq,
+              el.const({ value: 0.5 }),
+              input,
+            )
+
+            return el.delay(
+              { key: `${keyPrefix}:${m.id}:comb${side}${i}`, size: DELAY_SIZE },
+              timeSamps,
+              feedback,
+              damped,
+            )
+          })
+
+          // Sum combs, scale down to avoid clipping.
+          const combSum = el.mul(
+            combs.reduce((a, b) => el.add(a, b), el.const({ value: 0 })),
+            el.const({ value: 0.35 }),
+          )
+
+          // Overall tone shaping — same damping curve brightens or darkens the tail.
+          const toneHi = el.const({ value: 14000 })
+          const toneLo = el.const({ value: 800 })
+          const toneFreq = el.add(toneLo, el.mul(el.sub(el.const({ value: 1 }), damping), el.sub(toneHi, toneLo)))
+          return el.svf(
+            { key: `${keyPrefix}:${m.id}:tone${side}`, mode: 'lowpass' },
+            toneFreq,
+            el.const({ value: 0.5 }),
+            combSum,
+          )
+        }
+
+        const wetL = buildChannel('L')
+        const wetR = buildChannel('R')
+
+        // Dry/wet mix.
+        const dryGain = el.sub(el.const({ value: 1 }), wetMix)
+        const outL = el.add(el.mul(input, dryGain), el.mul(wetL, wetMix))
+        const outR = el.add(el.mul(input, dryGain), el.mul(wetR, wetMix))
+
+        // Store the right channel so connections from outR can pick it up later.
+        memo.set(`${m.id}:outR`, outR)
+
+        return outL
       }
 
       // output is evaluated per-channel at the top level — render() for the

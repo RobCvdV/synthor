@@ -42,7 +42,9 @@ export type ModuleType =
   | 'mix' // combine several signals (add or multiply)
   | 'lfo' // low-frequency oscillator (sine/triangle) for modulation
   | 'tanh' // soft-clipping distortion (tanh waveshaper)
-  | 'delay' // delay line with feedback
+  | 'delay' // single-tap delay (no feedback)
+  | 'echo' // repeating echo with feedback
+  | 'reverb' // multi-comb stereo reverb with damping
   | 'output' // the voice's final output tap
 
 /** An address into a module's inlet or outlet, by name. */

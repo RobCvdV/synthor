@@ -11,12 +11,15 @@ import { InstrumentsView } from './ui/InstrumentsView'
 import { loadRecent, readSong } from './persist/opfsStore'
 import { useProjectStore } from './state/projectStore'
 
-/** True when a keystroke should go to a focused form field, not the tracker. */
+/** True when a keystroke should go to a focused form field, not the tracker.
+ *  Range sliders are excluded — they can't receive text, and we want global
+ *  shortcuts (transport, undo/redo) to work while tweaking sliders. */
 function isEditableTarget(target: EventTarget | null): boolean {
-  const el = target as HTMLElement | null
+  const el = target as HTMLInputElement | null
   if (!el) return false
   const tag = el.tagName
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable
+  if (tag === 'INPUT') return el.type !== 'range'
+  return tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable
 }
 
 export default function App() {

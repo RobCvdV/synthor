@@ -6,12 +6,15 @@ import { ModularEditor } from './ModularEditor'
 import type { AudioHost } from '../audio/host'
 import type { Id } from '../domain/types'
 
-/** True when a keystroke should go to a focused form field, not the preview. */
+/** True when a keystroke should go to a focused form field, not the preview.
+ *  Range sliders are excluded — they can't receive text, and we want note
+ *  keys to preview the instrument while tweaking sliders. */
 function isEditableTarget(target: EventTarget | null): boolean {
-  const el = target as HTMLElement | null
+  const el = target as HTMLInputElement | null
   if (!el) return false
   const tag = el.tagName
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable
+  if (tag === 'INPUT') return el.type !== 'range'
+  return tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable
 }
 
 /** Full-screen instruments view: a list rail on the left, the selected

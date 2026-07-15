@@ -21,7 +21,7 @@ import { MODULE_DEFS } from '../domain/moduleDefs'
 import type { Id, ModularInstrument, ModuleType } from '../domain/types'
 
 /** Non-singleton module types the palette can drop into a patch. */
-const PALETTE: ModuleType[] = ['osc', 'filter', 'adsr', 'gain', 'mix', 'lfo', 'tanh', 'delay']
+const PALETTE: ModuleType[] = ['osc', 'filter', 'adsr', 'gain', 'mix', 'lfo', 'tanh', 'delay', 'echo', 'reverb']
 
 interface NodeData {
   instrumentId: Id

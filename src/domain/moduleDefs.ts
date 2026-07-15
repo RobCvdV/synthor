@@ -135,8 +135,31 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     outlets: ['out'],
     params: [
       { key: 'time', label: 'Time (ms)', min: 1, max: 2000, default: 150, step: 1 },
+      { key: 'mix', label: 'Mix', min: 0, max: 1, default: 0.5, step: 0.01 },
+    ],
+  },
+  echo: {
+    type: 'echo',
+    label: 'Echo',
+    inlets: ['in'],
+    outlets: ['out'],
+    params: [
+      { key: 'time', label: 'Time (ms)', min: 1, max: 2000, default: 150, step: 1 },
       { key: 'feedback', label: 'Feedback', min: 0, max: 0.95, default: 0.25, step: 0.01 },
       { key: 'mix', label: 'Mix', min: 0, max: 1, default: 0.5, step: 0.01 },
+    ],
+  },
+  reverb: {
+    type: 'reverb',
+    label: 'Reverb',
+    inlets: ['in'],
+    outlets: ['outL', 'outR'],
+    params: [
+      { key: 'roomSize', label: 'Room', min: 0.1, max: 1, default: 0.5, step: 0.01 },
+      { key: 'feedback', label: 'Feedback', min: 0, max: 0.95, default: 0.45, step: 0.01 },
+      { key: 'damping', label: 'Damping', min: 0, max: 1, default: 0.5, step: 0.01 },
+      { key: 'stereoWidth', label: 'Width', min: 0, max: 1, default: 0.6, step: 0.01 },
+      { key: 'mix', label: 'Mix', min: 0, max: 1, default: 0.35, step: 0.01 },
     ],
   },
   output: {
