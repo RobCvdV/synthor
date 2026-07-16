@@ -3,8 +3,11 @@ import { useDocStore } from '../state/docStore'
 import { usePreviewStore } from '../state/previewStore'
 import { codeToSemitone } from './keymap'
 import { ModularEditor } from './ModularEditor'
+import { SampleLibrary } from './SampleLibrary'
+import { DrumKitEditor } from './DrumKitEditor'
+import { cloneInstrument } from '../domain/factory'
 import type { AudioHost } from '../audio/host'
-import type { Id } from '../domain/types'
+import type { Id, Instrument } from '../domain/types'
 
 /** True when a keystroke should go to a focused form field, not the preview.
  *  Range sliders are excluded — they can't receive text, and we want note
@@ -28,6 +31,7 @@ export function InstrumentsView({ host }: { host: AudioHost }) {
   const doc = useDocStore((s) => s.doc)
   const addInstrument = useDocStore((s) => s.addInstrument)
   const removeInstrument = useDocStore((s) => s.removeInstrument)
+  const duplicateInstrument = useDocStore((s) => s.duplicateInstrument)
   const renameInstrument = useDocStore((s) => s.renameInstrument)
   const setOscParam = useDocStore((s) => s.setOscParam)
 
@@ -111,12 +115,50 @@ export function InstrumentsView({ host }: { host: AudioHost }) {
   /** How many tracks reference each instrument (delete is blocked while > 0). */
   const usage = (id: Id) => Object.values(doc.entities.tracks).filter((t) => t.instrumentId === id).length
 
+  const fileInput = useRef<HTMLInputElement>(null)
+
+  /** Serialize the selected instrument and trigger a download. */
+  const exportInstrument = () => {
+    if (!selected) return
+    const json = JSON.stringify({ schemaVersion: 1, instrument: selected }, null, 2)
+    const blob = new Blob([json], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${selected.name}.synthor.inst.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  /** Parse an instrument file and add it to the current song with fresh ids. */
+  const importInstrument = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]
+    e.target.value = '' // allow re-importing the same file
+    if (!f) return
+    try {
+      const raw = JSON.parse(await f.text())
+      if (!raw || typeof raw !== 'object' || !raw.instrument) throw new Error('Not a valid instrument file')
+      const inst = raw.instrument as Instrument
+      if (inst.kind !== 'modular' && inst.kind !== 'osc' && inst.kind !== 'drumkit') throw new Error('Unknown instrument kind')
+      // Deep-clone with fresh ids so it never collides with existing instruments.
+      const cloned = cloneInstrument(inst, inst.name)
+      useDocStore.getState().mutate((draft) => {
+        draft.entities.instruments[cloned.id] = cloned
+      })
+      setSelectedId(cloned.id)
+    } catch (err) {
+      alert(`Could not import instrument: ${(err as Error).message}`)
+    }
+  }
+
   return (
     <div className="instruments-view">
       <aside className="inst-rail">
         <div className="inst-rail-actions">
           <button onClick={() => setSelectedId(addInstrument('modular'))}>+ Modular</button>
           <button onClick={() => setSelectedId(addInstrument('osc'))}>+ Osc</button>
+          <button onClick={() => setSelectedId(addInstrument('drumkit'))}>+ Kit</button>
+          <button onClick={() => fileInput.current?.click()}>Import</button>
         </div>
         <ul className="inst-list">
           {instruments.map((inst) => {
@@ -127,13 +169,14 @@ export function InstrumentsView({ host }: { host: AudioHost }) {
                 className={'inst-item' + (inst.id === selectedId ? ' selected' : '')}
                 onClick={() => setSelectedId(inst.id)}
               >
-                <span className="inst-kind">{inst.kind === 'modular' ? '▦' : '∿'}</span>
+                <span className="inst-kind">{inst.kind === 'modular' ? '▦' : inst.kind === 'drumkit' ? '◆' : '∿'}</span>
                 <span className="inst-name" title={inst.name}>{inst.name}</span>
                 <span className="inst-uses" title={`${uses} track(s) use this`}>{uses}</span>
               </li>
             )
           })}
         </ul>
+        <SampleLibrary />
       </aside>
 
       <section className="inst-editor">
@@ -148,6 +191,15 @@ export function InstrumentsView({ host }: { host: AudioHost }) {
               />
               <span className="muted">{selected.kind}</span>
               <span className="spacer" />
+              <button
+                title="Duplicate this instrument"
+                onClick={() => setSelectedId(duplicateInstrument(selected.id))}
+              >
+                Duplicate
+              </button>
+              <button onClick={exportInstrument}>
+                Export
+              </button>
               <button
                 disabled={usage(selected.id) > 0}
                 title={usage(selected.id) > 0 ? 'In use by a track — reassign first' : 'Delete instrument'}
@@ -176,7 +228,9 @@ export function InstrumentsView({ host }: { host: AudioHost }) {
             </div>
 
             {selected.kind === 'modular' ? (
-              <ModularEditor inst={selected} />
+              <ModularEditor inst={selected} host={host} />
+            ) : selected.kind === 'drumkit' ? (
+              <DrumKitEditor inst={selected} />
             ) : (
               <div className="osc-strip">
                 <label className="mod-param">
@@ -198,6 +252,13 @@ export function InstrumentsView({ host }: { host: AudioHost }) {
           </>
         )}
       </section>
+      <input
+        ref={fileInput}
+        type="file"
+        accept=".json,application/json"
+        hidden
+        onChange={(e) => void importInstrument(e)}
+      />
     </div>
   )
 }

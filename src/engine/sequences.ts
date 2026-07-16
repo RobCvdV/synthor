@@ -14,11 +14,14 @@ import { midiToFreq } from '../domain/notes'
 export interface TrackSequences {
   freqSeq: number[]
   gateSeq: number[]
+  /** Raw MIDI note numbers — used by drumkit instruments for slot mapping. */
+  noteSeq: (number | null)[]
 }
 
 export function buildSequences(track: Track, length: number): TrackSequences {
   const freqSeq: number[] = new Array(length)
   const gateSeq: number[] = new Array(length)
+  const noteSeq: (number | null)[] = new Array(length)
   let lastFreq = 0
 
   for (let row = 0; row < length; row++) {
@@ -26,11 +29,13 @@ export function buildSequences(track: Track, length: number): TrackSequences {
     if (note !== null) {
       lastFreq = midiToFreq(note)
       gateSeq[row] = 1
+      noteSeq[row] = note
     } else {
       gateSeq[row] = 0
+      noteSeq[row] = null
     }
     freqSeq[row] = lastFreq
   }
 
-  return { freqSeq, gateSeq }
+  return { freqSeq, gateSeq, noteSeq }
 }

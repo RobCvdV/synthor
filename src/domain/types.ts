@@ -45,6 +45,7 @@ export type ModuleType =
   | 'delay' // single-tap delay (no feedback)
   | 'echo' // repeating echo with feedback
   | 'reverb' // multi-comb stereo reverb with damping
+  | 'sample' // audio sample playback
   | 'output' // the voice's final output tap
 
 /** An address into a module's inlet or outlet, by name. */
@@ -82,7 +83,53 @@ export interface ModularInstrument {
   outputId: Id
 }
 
-export type Instrument = OscInstrument | ModularInstrument
+/** A managed sample asset — metadata only. Binary PCM data lives in OPFS. */
+export interface SampleEntity {
+  id: Id
+  /** User-facing name. */
+  name: string
+  /** Content-addressed hash used as the OPFS filename and VFS key. */
+  hash: string
+  /** Original filename for display. */
+  originalName: string
+  /** Sample rate in Hz (e.g. 44100). */
+  sampleRate: number
+  /** 1 = mono, 2 = stereo. */
+  channels: number
+  /** Total frames per channel. */
+  frames: number
+}
+
+/** A drum kit slot: maps a MIDI note range to a sample with per-slot controls. */
+export interface DrumKitSlot {
+  id: Id
+  /** Lowest MIDI note that triggers this slot (inclusive). */
+  noteLo: number
+  /** Highest MIDI note that triggers this slot (inclusive). */
+  noteHi: number
+  /** Which sample entity to play. */
+  sampleId: Id
+  /** Pitch offset in semitones applied to playback rate. */
+  pitchOffset: number
+  /** Per-slot gain, 0..1. */
+  gain: number
+  /** Pan, -1 (left) .. +1 (right). */
+  pan: number
+}
+
+/** A drum kit instrument: MIDI note ranges mapped to sample slots. */
+export interface DrumKitInstrument {
+  id: Id
+  kind: 'drumkit'
+  name: string
+  slots: DrumKitSlot[]
+  params: {
+    /** Master output gain, 0..1. */
+    gain: number
+  }
+}
+
+export type Instrument = OscInstrument | ModularInstrument | DrumKitInstrument
 
 export interface Track {
   id: Id
@@ -103,6 +150,7 @@ export interface Entities {
   instruments: Record<Id, Instrument>
   tracks: Record<Id, Track>
   patterns: Record<Id, Pattern>
+  samples: Record<Id, SampleEntity>
 }
 
 /** The full editable document. Serializable as-is to JSON. */

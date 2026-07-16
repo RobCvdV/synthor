@@ -31,10 +31,11 @@ export interface ModuleDef {
   singleton?: boolean
 }
 
-/** Waveform selector values, shared by the osc param and the compiler. */
-export const WAVEFORMS = ['saw', 'square', 'triangle', 'sine'] as const
-/** LFO waveform selector — sine and triangle only (sub-audio rate). */
-export const LFO_WAVEFORMS = ['sine', 'triangle'] as const
+/** Waveform selector values for the oscillator. */
+export const WAVEFORMS = ['saw', 'square', 'triangle', 'sine', 'pulse'] as const
+/** LFO waveform selector — all shapes, ordered so old sine/triangle patches
+ *  keep their index (0=sine, 1=triangle, then the rest). */
+export const LFO_WAVEFORMS = ['sine', 'triangle', 'saw', 'square', 'pulse'] as const
 /** Filter mode selector values. */
 export const FILTER_MODES = ['lowpass', 'highpass', 'bandpass'] as const
 /** Mix combine modes. */
@@ -63,9 +64,10 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     inlets: ['freq'],
     outlets: ['out'],
     params: [
-      { key: 'waveform', label: 'Wave', min: 0, max: 3, default: 0, step: 1, enumLabels: [...WAVEFORMS] },
+      { key: 'waveform', label: 'Wave', min: 0, max: 4, default: 0, step: 1, enumLabels: [...WAVEFORMS] },
       { key: 'detune', label: 'Detune (st)', min: -24, max: 24, default: 0, step: 1 },
       { key: 'finetune', label: 'Fine (ct)', min: -100, max: 100, default: 0, step: 1 },
+      { key: 'pulseWidth', label: 'Width', min: 0.05, max: 0.95, default: 0.5, step: 0.01 },
       { key: 'gain', label: 'Level', min: 0, max: 2, default: 1, step: 0.01 },
     ],
   },
@@ -110,12 +112,14 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
   lfo: {
     type: 'lfo',
     label: 'LFO',
-    inlets: [],
+    inlets: ['gate'],
     outlets: ['out'],
     params: [
-      { key: 'waveform', label: 'Wave', min: 0, max: 1, default: 0, step: 1, enumLabels: [...LFO_WAVEFORMS] },
+      { key: 'waveform', label: 'Wave', min: 0, max: 4, default: 0, step: 1, enumLabels: [...LFO_WAVEFORMS] },
       { key: 'rate', label: 'Rate (Hz)', min: 0.1, max: 50, default: 4, step: 0.1 },
       { key: 'amount', label: 'Amount', min: 0, max: 1, default: 1, step: 0.01 },
+      { key: 'pulseWidth', label: 'Width', min: 0.05, max: 0.95, default: 0.5, step: 0.01 },
+      { key: 'sync', label: 'Sync', min: 0, max: 1, default: 0, step: 1, enumLabels: ['free', 'gate'] },
     ],
   },
   tanh: {
@@ -162,12 +166,29 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
       { key: 'mix', label: 'Mix', min: 0, max: 1, default: 0.35, step: 0.01 },
     ],
   },
+  sample: {
+    type: 'sample',
+    label: 'Sample',
+    inlets: ['gate', 'freq'],
+    outlets: ['out', 'outR'],
+    params: [
+      { key: 'sampleIndex', label: 'Sample', min: 0, max: 0, default: 0, step: 1 },
+      // max and enumLabels are populated dynamically from entities.samples
+      { key: 'startOffset', label: 'Start (smp)', min: 0, max: 1_000_000, default: 0, step: 1 },
+      { key: 'loop', label: 'Loop', min: 0, max: 1, default: 0, step: 1, enumLabels: ['off', 'on'] },
+      { key: 'loopStart', label: 'Loop start', min: 0, max: 1_000_000, default: 0, step: 1 },
+      { key: 'pitchTrack', label: 'Pitch track', min: 0, max: 1, default: 0, step: 1, enumLabels: ['off', 'on'] },
+      { key: 'gain', label: 'Level', min: 0, max: 2, default: 1, step: 0.01 },
+    ],
+  },
   output: {
     type: 'output',
     label: 'Output',
     inlets: ['inL', 'inR'],
     outlets: [],
-    params: [],
+    params: [
+      { key: 'gain', label: 'Volume', min: 0, max: 2, default: 1, step: 0.01 },
+    ],
     singleton: true,
   },
 }

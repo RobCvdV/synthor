@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Background,
   Controls,
@@ -8,6 +8,7 @@ import {
   ReactFlowProvider,
   applyNodeChanges,
   useNodesState,
+  useOnSelectionChange,
   type Connection as RFConnection,
   type Edge,
   type EdgeChange,
@@ -18,10 +19,12 @@ import {
 import '@xyflow/react/dist/style.css'
 import { useDocStore } from '../state/docStore'
 import { MODULE_DEFS } from '../domain/moduleDefs'
-import type { Id, ModularInstrument, ModuleType } from '../domain/types'
+import type { Connection, Id, Module, ModularInstrument, ModuleType } from '../domain/types'
+import { makeId } from '../domain/factory'
+import type { AudioHost } from '../audio/host'
 
 /** Non-singleton module types the palette can drop into a patch. */
-const PALETTE: ModuleType[] = ['osc', 'filter', 'adsr', 'gain', 'mix', 'lfo', 'tanh', 'delay', 'echo', 'reverb']
+const PALETTE: ModuleType[] = ['osc', 'filter', 'adsr', 'gain', 'mix', 'lfo', 'tanh', 'delay', 'echo', 'reverb', 'sample']
 
 interface NodeData {
   instrumentId: Id
@@ -32,22 +35,83 @@ interface NodeData {
 /** Vertical offset (px) for the i-th handle on a node side. */
 const handleTop = (i: number) => 44 + i * 24
 
+/** Waveform colour for the output oscilloscope. */
+const SCOPE_COLOR = '#4af'
+const CLIP_THRESHOLD = 0.95
+
 /** One module rendered as a React Flow node. Reads its params live from the
- *  store so slider edits never need a node rebuild. */
+ *  store so slider edits never need a node rebuild. For the output module a
+ *  clip LED and small waveform oscilloscope are rendered when an audio host
+ *  is available. */
 function ModuleNode({ data }: NodeProps) {
-  const { instrumentId, moduleId } = data as NodeData
+  const { instrumentId, moduleId, host } = data as NodeData & { host?: AudioHost }
   const module = useDocStore((s) => {
     const inst = s.doc.entities.instruments[instrumentId]
     return inst?.kind === 'modular' ? inst.modules[moduleId] : undefined
   })
   const setModuleParam = useDocStore((s) => s.setModuleParam)
   const removeModule = useDocStore((s) => s.removeModule)
-  if (!module) return null
 
-  const def = MODULE_DEFS[module.type]
+  const def = module ? MODULE_DEFS[module.type] : undefined
+  const isOutput = module?.type === 'output'
+  const sampleEntities = useDocStore((s) => s.doc.entities.samples)
+  const samples = useMemo(
+    () => Object.values(sampleEntities).sort((a, b) => a.name.localeCompare(b.name)),
+    [sampleEntities],
+  )
+  const sampleLabels = samples.map((s) => s.name)
+  // Dynamically override the sampleIndex param when samples exist.
+  const paramOverrides =
+    module?.type === 'sample'
+      ? new Map<string, { max?: number; enumLabels?: string[] }>([
+          [
+            'sampleIndex',
+            { max: Math.max(0, sampleLabels.length - 1), enumLabels: sampleLabels.length ? sampleLabels : ['(none)'] },
+          ],
+        ])
+      : undefined
+
+  // --- oscilloscope / clip LED for the output node --------------------
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const levelRef = useRef(0)
+
+  useEffect(() => {
+    if (!isOutput || !host) return
+    let raf = 0
+    const tick = () => {
+      const lvl = host.getLevel()
+      levelRef.current = lvl
+      const canvas = canvasRef.current
+      if (canvas) drawScope(canvas, host)
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [isOutput, host])
+
+  // Poll the level ref on a cheap interval so React re-renders the LED
+  // without repainting the scope canvas from React.
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    if (!isOutput || !host) return
+    const id = setInterval(() => setTick((n) => n + 1), 80)
+    return () => clearInterval(id)
+  }, [isOutput, host])
+
+  // EARLY RETURN only after ALL hooks have been called.
+  if (!module || !def) return null
+
+  const clip = levelRef.current > CLIP_THRESHOLD
+
   return (
     <div className="mod-node">
       <div className="mod-node-head">
+        {isOutput && (
+          <span
+            className={'mod-clip-led' + (clip ? ' on' : '')}
+            title={clip ? 'Clipping!' : 'Signal OK'}
+          />
+        )}
         <span>{def.label}</span>
         {!def.singleton && (
           <button className="mod-del nodrag" title="Delete module" onClick={() => removeModule(instrumentId, moduleId)}>
@@ -72,17 +136,20 @@ function ModuleNode({ data }: NodeProps) {
       <div className="mod-node-body" style={{ paddingTop: Math.max(def.inlets.length, def.outlets.length) * 24 }}>
         {def.params.map((p) => {
           const value = module.params[p.key] ?? p.default
+          const over = paramOverrides?.get(p.key)
+          const labels = over?.enumLabels ?? p.enumLabels
+          const max = over?.max ?? p.max
           return (
             <label className="mod-param" key={p.key}>
               <span className="mod-param-label">
                 {p.label}
-                <span className="mod-param-value">{p.enumLabels ? p.enumLabels[Math.round(value)] : round(value)}</span>
+                <span className="mod-param-value">{labels ? labels[Math.round(value)] ?? '?' : round(value)}</span>
               </span>
               <input
                 className="nodrag"
                 type="range"
                 min={p.min}
-                max={p.max}
+                max={max}
                 step={p.step}
                 value={value}
                 onChange={(e) => setModuleParam(instrumentId, moduleId, p.key, Number(e.target.value))}
@@ -90,9 +157,39 @@ function ModuleNode({ data }: NodeProps) {
             </label>
           )
         })}
+        {isOutput && host && (
+          <canvas ref={canvasRef} className="mod-scope" width={120} height={36} />
+        )}
       </div>
     </div>
   )
+}
+
+/** Draw the host's current waveform onto a canvas (one frame, called from rAF). */
+function drawScope(canvas: HTMLCanvasElement, host: AudioHost) {
+  const buf = host.getWaveform()
+  if (buf.length === 0) return
+  const dpr = window.devicePixelRatio || 1
+  const w = canvas.clientWidth
+  const h = canvas.clientHeight
+  if (canvas.width !== w * dpr) canvas.width = w * dpr
+  if (canvas.height !== h * dpr) canvas.height = h * dpr
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+  ctx.clearRect(0, 0, w, h)
+  ctx.strokeStyle = SCOPE_COLOR
+  ctx.lineWidth = 1
+  ctx.beginPath()
+  const mid = h / 2
+  const n = buf.length
+  for (let x = 0; x < w; x++) {
+    const idx = Math.floor((x / w) * n)
+    const y = mid + buf[idx] * mid * 0.85
+    if (x === 0) ctx.moveTo(x, y)
+    else ctx.lineTo(x, y)
+  }
+  ctx.stroke()
 }
 
 const nodeTypes = { module: ModuleNode }
@@ -101,12 +198,12 @@ function round(v: number): string {
   return Math.abs(v) >= 100 ? String(Math.round(v)) : v.toFixed(2).replace(/\.?0+$/, '')
 }
 
-function buildNodes(inst: ModularInstrument): Node[] {
+function buildNodes(inst: ModularInstrument, host?: AudioHost): Node[] {
   return Object.values(inst.modules).map((m) => ({
     id: m.id,
     type: 'module',
     position: { ...m.pos },
-    data: { instrumentId: inst.id, moduleId: m.id },
+    data: { instrumentId: inst.id, moduleId: m.id, host: m.type === 'output' ? host : undefined },
   }))
 }
 
@@ -121,26 +218,150 @@ function buildEdges(inst: ModularInstrument): Edge[] {
   }))
 }
 
-function Editor({ inst }: { inst: ModularInstrument }) {
+/** True when a keystroke should stay in a focused form field. Range sliders are
+ *  excluded — they can't receive text, and we want shortcuts to work. */
+function isEditableTarget(target: EventTarget | null): boolean {
+  const el = target as HTMLInputElement | null
+  if (!el) return false
+  const tag = el.tagName
+  if (tag === 'INPUT') return el.type !== 'range'
+  return tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable
+}
+
+/** Clipboard for cut/copy of selected modules + their internal connections. */
+interface ModuleClipboard {
+  modules: Module[]
+  connections: Connection[]
+}
+
+function Editor({ inst, host }: { inst: ModularInstrument; host?: AudioHost }) {
   const addModule = useDocStore((s) => s.addModule)
   const moveModule = useDocStore((s) => s.moveModule)
   const addConnection = useDocStore((s) => s.addConnection)
   const removeConnection = useDocStore((s) => s.removeConnection)
   const setConnectionGain = useDocStore((s) => s.setConnectionGain)
+  const removeModules = useDocStore((s) => s.removeModules)
+  const pasteModules = useDocStore((s) => s.pasteModules)
 
   // Local node state for smooth dragging; positions persist to the doc on drag
   // stop. Rebuilt from the doc whenever the *set* of modules changes (add /
   // remove / undo) — param edits are read live inside ModuleNode, so they don't
   // force a rebuild.
-  const [nodes, setNodes] = useNodesState<Node>(buildNodes(inst))
+  const [nodes, setNodes] = useNodesState<Node>(buildNodes(inst, host))
   const moduleKey = Object.keys(inst.modules).sort().join(',')
-  useEffect(() => setNodes(buildNodes(inst)), [moduleKey, inst.id, setNodes, inst])
+  useEffect(() => setNodes(buildNodes(inst, host)), [moduleKey, inst.id, host, setNodes, inst])
 
   // Edges are cheap and fully controlled by the doc.
   const connectionKey = Object.keys(inst.connections).sort().join(',')
   const edges = useMemo(() => buildEdges(inst), [connectionKey, inst])
 
   const [selectedEdge, setSelectedEdge] = useState<Id | null>(null)
+
+  // Track selected node ids via React Flow's selection-change hook.
+  const selectedIdsRef = useRef<Set<Id>>(new Set())
+  useOnSelectionChange({
+    onChange: ({ nodes: sel }) => {
+      selectedIdsRef.current = new Set(sel.map((n) => n.id))
+    },
+  })
+
+  // Clipboard (non-undoable, like the track clipboard).
+  const clipboardRef = useRef<ModuleClipboard | null>(null)
+
+  // --- helpers for cut/copy/paste/delete --------------------------------
+
+  const selectedIds = (): Id[] => [...selectedIdsRef.current]
+
+  /** Connections whose BOTH endpoints are in `ids`. */
+  function internalConns(ids: Set<Id>): Connection[] {
+    return Object.values(inst.connections).filter(
+      (c) => ids.has(c.from.moduleId) && ids.has(c.to.moduleId),
+    )
+  }
+
+  /** Modules that are safe to delete (non-singleton, in the set). */
+  function deletableModules(ids: Set<Id>): Module[] {
+    return Object.values(inst.modules).filter(
+      (m) => ids.has(m.id) && !MODULE_DEFS[m.type].singleton,
+    )
+  }
+
+  const doCopy = useCallback(() => {
+    const ids = new Set(selectedIds())
+    const mods = deletableModules(ids)
+    if (mods.length === 0) return
+    clipboardRef.current = { modules: mods, connections: internalConns(ids) }
+  }, [inst])
+
+  const doCut = useCallback(() => {
+    const ids = new Set(selectedIds())
+    const mods = deletableModules(ids)
+    if (mods.length === 0) return
+    clipboardRef.current = { modules: mods, connections: internalConns(ids) }
+    removeModules(inst.id, [...ids])
+  }, [inst, removeModules])
+
+  const doPaste = useCallback(() => {
+    const clip = clipboardRef.current
+    if (!clip || clip.modules.length === 0) return
+
+    // Build id remap table; offset position so the pasted group is visible.
+    const idMap = new Map<Id, Id>()
+    const newMods: Module[] = clip.modules.map((m) => {
+      const newId = makeId('mod')
+      idMap.set(m.id, newId)
+      return { ...m, id: newId, params: { ...m.params }, pos: { x: m.pos.x + 44, y: m.pos.y + 44 } }
+    })
+
+    const newConns: Connection[] = clip.connections.map((c) => ({
+      id: makeId('con'),
+      from: { moduleId: idMap.get(c.from.moduleId) ?? c.from.moduleId, port: c.from.port },
+      to: { moduleId: idMap.get(c.to.moduleId) ?? c.to.moduleId, port: c.to.port },
+      gain: c.gain,
+    }))
+
+    pasteModules(inst.id, newMods, newConns)
+  }, [inst.id, pasteModules])
+
+  const doDelete = useCallback(() => {
+    const ids = new Set(selectedIds())
+    const mods = deletableModules(ids)
+    if (mods.length === 0) {
+      // No module selected — check for a selected edge.
+      if (selectedEdge) {
+        removeConnection(inst.id, selectedEdge)
+        setSelectedEdge(null)
+      }
+      return
+    }
+    removeModules(inst.id, [...ids])
+  }, [inst.id, selectedEdge, removeModules, removeConnection])
+
+  // --- keyboard shortcuts -----------------------------------------------
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey
+      const isCopy = mod && e.code === 'KeyC'
+      const isCut = mod && e.code === 'KeyX'
+      const isPaste = mod && e.code === 'KeyV'
+      const isDel = e.code === 'Delete' || e.code === 'Backspace'
+
+      if (!isCopy && !isCut && !isPaste && !isDel) return
+      if (isEditableTarget(e.target)) return
+
+      e.preventDefault()
+      if (isCopy) doCopy()
+      else if (isCut) doCut()
+      else if (isPaste) doPaste()
+      else if (isDel) doDelete()
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [doCopy, doCut, doPaste, doDelete])
+
+  // --- React Flow callbacks ---------------------------------------------
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => setNodes((nds) => applyNodeChanges(changes, nds)),
@@ -182,6 +403,11 @@ function Editor({ inst }: { inst: ModularInstrument }) {
             {MODULE_DEFS[type].label}
           </button>
         ))}
+        <span className="mod-palette-label" style={{ marginLeft: 12 }}>Selection:</span>
+        <button onClick={doCopy} title="Copy selected (⌘C / Ctrl+C)">Copy</button>
+        <button onClick={doCut} title="Cut selected (⌘X / Ctrl+X)">Cut</button>
+        <button onClick={doPaste} title="Paste (⌘V / Ctrl+V)">Paste</button>
+        <button onClick={doDelete} title="Delete selected (Del)">Del</button>
         {selected && (
           <span className="mod-edge-inspector">
             <span>cord ×{round(selected.gain)}</span>
@@ -209,6 +435,8 @@ function Editor({ inst }: { inst: ModularInstrument }) {
           colorMode="dark"
           fitView
           proOptions={{ hideAttribution: true }}
+          deleteKeyCode={['Backspace', 'Delete']}
+          multiSelectionKeyCode={['Shift', 'Meta', 'Control']}
         >
           <Background />
           <Controls />
@@ -218,10 +446,10 @@ function Editor({ inst }: { inst: ModularInstrument }) {
   )
 }
 
-export function ModularEditor({ inst }: { inst: ModularInstrument }) {
+export function ModularEditor({ inst, host }: { inst: ModularInstrument; host?: AudioHost }) {
   return (
     <ReactFlowProvider>
-      <Editor inst={inst} />
+      <Editor inst={inst} host={host} />
     </ReactFlowProvider>
   )
 }

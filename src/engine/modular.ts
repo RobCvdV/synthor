@@ -1,6 +1,7 @@
 import { el, type NodeRepr_t } from '@elemaudio/core'
 import type { Connection, Module, ModularInstrument } from '../domain/types'
 import { FILTER_MODES } from '../domain/moduleDefs'
+import type { SampleMeta } from './instruments'
 
 type Node = NodeRepr_t | number
 const SILENCE = 0
@@ -8,6 +9,51 @@ const SILENCE = 0
 export interface StereoOut {
   left: NodeRepr_t
   right: NodeRepr_t
+}
+
+/**
+ * Custom ADSR envelope generator.
+ *
+ * Elementary's built-in `el.adsr()` uses `counter(gate)` to time the attack
+ * phase.  `counter` only counts from a rising edge, so a constant gate (like
+ * the preview keyboard's `el.const({value:1})`) never triggers it — the ADSR
+ * stays stuck in attack forever and you never hear decay or sustain.
+ *
+ * This version uses `el.accum` instead, which counts every sample the gate
+ * is high and resets to zero when it's low — no rising edge required.
+ *
+ * Time parameters are the time constant τ of the one-pole smoother:
+ *   • ~63 % of target reached in τ seconds
+ *   • ~95 % of target reached in 3τ seconds
+ */
+export function makeAdsr(
+  attack: Node,
+  decay: Node,
+  sustain: Node,
+  release: Node,
+  gate: Node,
+): NodeRepr_t {
+  const one = el.const({ value: 1 })
+  const zero = el.const({ value: 0 })
+  const eps = el.const({ value: 1e-4 })
+
+  // Count how long the gate has been continuously high.
+  // accum(xn, reset): adds xn each sample, resets to 0 when reset > 0.
+  const atkCounter = el.accum(gate, el.sub(one, gate))
+  const atkSamps = el.mul(attack, el.sr())
+  const atkGate = el.le(atkCounter, atkSamps)
+
+  // Phase → target value.
+  //   gate=0           → 0        (release / idle)
+  //   gate=1, atkGate  → 1        (attack)
+  //   gate=1, !atkGate → sustain  (decay / sustain)
+  const targetValue = el.select(gate, el.select(atkGate, one, sustain), zero)
+
+  // Phase → smoothing rate (tau, in seconds).  We pass tau directly to
+  // tau2pole — no t60/6.91 indirection.
+  const tau = el.max(eps, el.select(gate, el.select(atkGate, attack, decay), release))
+
+  return el.smooth(el.tau2pole(tau), targetValue)
 }
 
 /** Maximum delay buffer in samples — 4 seconds at 44.1 kHz. */
@@ -32,6 +78,10 @@ export function compileModular(
   freq: Node,
   gate: Node,
   keyPrefix: string = inst.id,
+  /** Sample metadata indexed by sampleIndex param — sorted by sample name. */
+  sampleMeta: SampleMeta[] = [],
+  /** Base frequency in Hz for pitch tracking. 0 = use original rate. */
+  baseFreq: number = 0,
 ): StereoOut {
   const memo = new Map<string, Node>()
   const visiting = new Set<string>()
@@ -97,7 +147,8 @@ export function compileModular(
         let ratio = Math.pow(2, (p.detune ?? 0) / 12)
         ratio *= Math.pow(2, (p.finetune ?? 0) / 1200)
         const tuned = el.mul(f, kconst(key('detune'), ratio))
-        return el.mul(oscAudio(p.waveform ?? 0, tuned), kconst(key('gain'), p.gain ?? 1))
+        const width = kconst(key('pulseWidth'), p.pulseWidth ?? 0.5)
+        return el.mul(oscAudio(p.waveform ?? 0, tuned, width), kconst(key('gain'), p.gain ?? 1))
       }
 
       case 'filter': {
@@ -119,7 +170,7 @@ export function compileModular(
 
       case 'adsr': {
         const g = inlet(m.id, 'gate') ?? SILENCE
-        return el.adsr(
+        return makeAdsr(
           kconst(key('attack'), p.attack ?? 0.005),
           kconst(key('decay'), p.decay ?? 0.12),
           kconst(key('sustain'), p.sustain ?? 0.7),
@@ -145,10 +196,20 @@ export function compileModular(
 
       case 'lfo': {
         const rate = kconst(key('rate'), p.rate ?? 4)
-        const wf = Math.round(p.waveform ?? 0)
-        const raw = wf === 1 ? el.bleptriangle(rate) : el.cycle(rate)
-        // Scale to bipolar ±amount.
-        return el.mul(raw, kconst(key('amount'), p.amount ?? 1))
+        const wf = Math.round(p.waveform ?? 0) // 0=sine,1=tri,2=saw,3=square,4=pulse
+        const syncMode = Math.round(p.sync ?? 0) // 0=free, 1=gate
+        const width = kconst(key('pulseWidth'), p.pulseWidth ?? 0.5)
+        const amount = kconst(key('amount'), p.amount ?? 1)
+
+        // Phase source: gate-synced resets when gate=0 and runs when gate=1,
+        // so each note-on starts the LFO from phase 0. Free-running ignores gate.
+        const g = inlet(m.id, 'gate')
+        const phase =
+          syncMode === 1
+            ? el.syncphasor(rate, el.sub(el.const({ value: 1 }), g ?? SILENCE))
+            : el.phasor(rate)
+
+        return el.mul(lfoShape(wf, phase, width), amount)
       }
 
       case 'tanh': {
@@ -252,6 +313,43 @@ export function compileModular(
         return outL
       }
 
+      case 'sample': {
+        const gateSig = inlet(m.id, 'gate') ?? SILENCE
+
+        // Resolve sample index → VFS path (hash) + channel count.
+        const idx = Math.round(p.sampleIndex ?? 0)
+        const meta = idx >= 0 && idx < sampleMeta.length ? sampleMeta[idx] : null
+        if (!meta?.hash) return SILENCE
+
+        const pitchTrack = Math.round(p.pitchTrack ?? 0)
+        const gain = kconst(key('gain'), p.gain ?? 1)
+
+        // Per-note playback rate (e.g. preview keyboard): scale so middle C
+        // (261.6 Hz) plays at 1×.  Falls back to 1 when unknown (sequencer).
+        const rate = pitchTrack && baseFreq > 0
+          ? baseFreq / 261.6256
+          : 1
+
+        const ch = el.mc.sample(
+          {
+            key: `${keyPrefix}:${m.id}`,
+            path: meta.hash,
+            channels: meta.channels,
+            playbackRate: rate,
+          },
+          gateSig,
+        )
+
+        if (meta.channels === 2) {
+          memo.set(`${m.id}:outR`, el.mul(ch[1], gain))
+          return el.mul(ch[0], gain)
+        }
+
+        const out = el.mul(ch[0], gain)
+        memo.set(`${m.id}:outR`, out)
+        return out
+      }
+
       // output is evaluated per-channel at the top level — render() for the
       // output module isn't called. Keep as a fallback.
       case 'output':
@@ -260,14 +358,15 @@ export function compileModular(
   }
 
   const outMod = inst.modules[inst.outputId]
+  const outGain = outMod ? kconst(`${outMod.id}:gain`, outMod.params.gain ?? 1) : el.const({ value: 1 })
   const left = outMod ? (inlet(inst.outputId, 'inL') ?? SILENCE) : SILENCE
   const right = outMod ? (inlet(inst.outputId, 'inR') ?? left) : SILENCE
   const node = (n: Node): NodeRepr_t =>
     typeof n === 'number' ? el.const({ value: n }) : n
-  return { left: node(left), right: node(right) }
+  return { left: el.mul(node(left), outGain), right: el.mul(node(right), outGain) }
 }
 
-function oscAudio(waveform: number, freq: Node): NodeRepr_t {
+function oscAudio(waveform: number, freq: Node, pulseWidth?: Node): NodeRepr_t {
   switch (Math.round(waveform)) {
     case 1:
       return el.blepsquare(freq)
@@ -275,7 +374,35 @@ function oscAudio(waveform: number, freq: Node): NodeRepr_t {
       return el.bleptriangle(freq)
     case 3:
       return el.cycle(freq)
+    case 4: {
+      // Variable-width pulse: phase < width → +1, else -1.
+      const w = pulseWidth ?? el.const({ value: 0.5 })
+      const phase = el.phasor(freq)
+      return el.sub(el.mul(el.le(phase, w), el.const({ value: 2 })), el.const({ value: 1 }))
+    }
     default:
       return el.blepsaw(freq)
+  }
+}
+
+/** Shape a 0→1 phasor ramp into a sub-audio LFO waveform (bipolar ±1).
+ *  Waveform indices match LFO_WAVEFORMS: 0=sine, 1=tri, 2=saw, 3=square, 4=pulse. */
+function lfoShape(wf: number, phase: Node, width: Node): Node {
+  const one = el.const({ value: 1 })
+  const two = el.const({ value: 2 })
+
+  switch (wf) {
+    case 0: // sine: sin(2π · phase)
+      return el.sin(el.mul(phase, el.const({ value: 2 * Math.PI })))
+    case 1: // triangle: 1 − 2·|2·phase − 1|
+      return el.sub(one, el.mul(two, el.abs(el.sub(el.mul(phase, two), one))))
+    case 2: // saw: 2·phase − 1
+      return el.sub(el.mul(phase, two), one)
+    case 3: // square: phase < 0.5 → +1 else −1
+      return el.sub(el.mul(el.le(phase, el.const({ value: 0.5 })), two), one)
+    case 4: // pulse: phase < width → +1 else −1
+      return el.sub(el.mul(el.le(phase, width), two), one)
+    default:
+      return el.sin(el.mul(phase, el.const({ value: 2 * Math.PI })))
   }
 }

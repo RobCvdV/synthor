@@ -31,6 +31,14 @@ export class AudioHost {
     return Math.sqrt(sum / buf.length)
   }
 
+  /** Raw time-domain waveform from the analyser (for oscilloscope display). */
+  getWaveform(): Float32Array {
+    if (!this.analyser) return new Float32Array(0)
+    const buf = new Float32Array(this.analyser.fftSize)
+    this.analyser.getFloatTimeDomainData(buf)
+    return buf
+  }
+
   /** Must be called from a user gesture (browser autoplay policy). */
   async start(): Promise<void> {
     if (this.ready) {
@@ -54,9 +62,32 @@ export class AudioHost {
   /** Render a stereo pair to the output. No-op until started. */
   render(stereo: StereoOut): void {
     if (!this.ready || !this.core) return
-    void this.core.render(
+    this.core.render(
       el.mul(stereo.left, el.const({ key: 'ch:l', value: 1 })),
       el.mul(stereo.right, el.const({ key: 'ch:r', value: 1 })),
-    )
+    ).catch((err: unknown) => {
+      console.error('Elementary render error:', err)
+      // Log the full error object for property-level details.
+      if (err && typeof err === 'object') {
+        const e = err as Record<string, unknown>
+        console.error('  message:', e.message)
+        console.error('  node property:', e.property)
+        console.error('  node kind:', e.kind)
+        console.error('  value:', e.value)
+      }
+    })
+  }
+
+  /**
+   * Update Elementary's Virtual File System with new / changed sample data.
+   * Keys are content hashes; values are mono Float32Array or stereo [L, R].
+   */
+  async updateVfs(vfs: Record<string, Float32Array | Float32Array[]>): Promise<void> {
+    if (!this.core) return
+    try {
+      await this.core.updateVirtualFileSystem(vfs)
+    } catch (err) {
+      console.error('Elementary VFS update error:', err)
+    }
   }
 }

@@ -20,7 +20,7 @@ import type { Doc } from '../domain/types'
  * (osc-only) and new files with modular instruments both satisfy the same
  * schema. A bump is only needed for a *breaking* shape change (e.g. sections).
  */
-export const CURRENT_SCHEMA_VERSION = 1
+export const CURRENT_SCHEMA_VERSION = 2
 
 export interface SongMeta {
   name: string
@@ -76,8 +76,8 @@ export function migrate(raw: unknown): SongFile {
     )
   }
 
-  // Future migrations chain here, oldest first:
-  //   if (version < 2) raw = upgradeV1toV2(raw)
+  // v1→v2: samples entity map added (sample playback + drum kit).
+  if (version < 2) raw = upgradeV1toV2(raw)
 
   // v1→v1 migration: when the stereo output was added (commit b3917fc), the
   // output module's inlet changed from 'in' to 'inL'. Old modular instruments
@@ -98,10 +98,23 @@ function assertShape(raw: unknown): asserts raw is SongFile {
   if (!isRecord(raw.doc) || !isRecord(raw.doc.entities)) {
     throw new Error('Not a valid song file: missing doc.entities')
   }
+  if (!isRecord(raw.doc.entities.samples)) {
+    throw new Error('Not a valid song file: missing doc.entities.samples')
+  }
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
+/** v1→v2: initialise the samples entity map for old files. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function upgradeV1toV2(raw: any): any {
+  const doc = raw.doc
+  if (doc && isRecord(doc.entities) && !doc.entities.samples) {
+    return { ...raw, doc: { ...doc, entities: { ...doc.entities, samples: {} } } }
+  }
+  return raw
 }
 
 /**

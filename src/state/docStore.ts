@@ -1,11 +1,12 @@
 import { create } from 'zustand'
 import { applyPatches, enablePatches, type Patch, produceWithPatches } from 'immer'
-import type { Cell, Doc, Id, Instrument, ModuleType, Port } from '../domain/types'
+import type { Cell, Connection, Doc, Id, Instrument, Module, ModuleType, Port, SampleEntity } from '../domain/types'
 import {
   cloneInstrument,
   createDefaultDoc,
   fitCells,
   makeId,
+  newDrumKitInstrument,
   newModularInstrument,
   newOscInstrument,
   newTrack,
@@ -63,6 +64,22 @@ interface DocState {
   addConnection: (instrumentId: Id, from: Port, to: Port) => void
   removeConnection: (instrumentId: Id, connectionId: Id) => void
   setConnectionGain: (instrumentId: Id, connectionId: Id, gain: number) => void
+  /** Duplicate an existing instrument (deep-clone with fresh ids). */
+  duplicateInstrument: (instrumentId: Id) => Id
+  /** Remove a batch of modules (and their incident connections) in one undo step. */
+  removeModules: (instrumentId: Id, moduleIds: Id[]) => void
+  /** Paste a group of modules + connections in one undo step. */
+  pasteModules: (instrumentId: Id, modules: Module[], connections: Connection[]) => void
+
+  // --- Sample management ---
+  addSampleEntity: (entity: SampleEntity) => void
+  removeSampleEntity: (id: Id) => void
+
+  // --- Drum kit operations ---
+  addDrumKitSlot: (instrumentId: Id, noteLo: number, noteHi: number, sampleId: Id) => void
+  removeDrumKitSlot: (instrumentId: Id, slotId: Id) => void
+  setDrumKitSlotParam: (instrumentId: Id, slotId: Id, key: string, value: number) => void
+  setDrumKitParam: (instrumentId: Id, key: string, value: number) => void
 
   // --- Track operations (atIndex = position within the current pattern) ---
   addTrack: (atIndex: number, instrumentId: Id) => void
@@ -200,7 +217,10 @@ export const useDocStore = create<DocState>((set, get) => ({
     set((s) => ({ mutedTracks: { ...s.mutedTracks, [trackId]: !s.mutedTracks[trackId] } })),
 
   addInstrument: (kind) => {
-    const inst = kind === 'modular' ? newModularInstrument('Modular') : newOscInstrument('Instrument')
+    let inst: Instrument
+    if (kind === 'modular') inst = newModularInstrument('Modular')
+    else if (kind === 'drumkit') inst = newDrumKitInstrument('Drum Kit')
+    else inst = newOscInstrument('Instrument')
     get().mutate((draft) => {
       draft.entities.instruments[inst.id] = inst
     })
@@ -307,6 +327,115 @@ export const useDocStore = create<DocState>((set, get) => ({
       const con = inst.connections[connectionId]
       if (con) con.gain = gain
     }),
+
+  duplicateInstrument: (instrumentId) => {
+    const inst = get().doc.entities.instruments[instrumentId]
+    if (!inst) return ''
+    const clone = cloneInstrument(inst, `${inst.name} (copy)`)
+    get().mutate((draft) => {
+      draft.entities.instruments[clone.id] = clone
+    })
+    return clone.id
+  },
+
+  removeModules: (instrumentId, moduleIds) =>
+    get().mutate((draft) => {
+      const inst = draft.entities.instruments[instrumentId]
+      if (inst?.kind !== 'modular') return
+      const set = new Set(moduleIds)
+      for (const mid of moduleIds) {
+        const mod = inst.modules[mid]
+        if (mod && !MODULE_DEFS[mod.type].singleton) delete inst.modules[mid]
+      }
+      for (const c of Object.values(inst.connections)) {
+        if (set.has(c.from.moduleId) || set.has(c.to.moduleId)) {
+          delete inst.connections[c.id]
+        }
+      }
+    }),
+
+  pasteModules: (instrumentId, modules, connections) =>
+    get().mutate((draft) => {
+      const inst = draft.entities.instruments[instrumentId]
+      if (inst?.kind !== 'modular') return
+      for (const m of modules) {
+        if (MODULE_DEFS[m.type].singleton) continue
+        inst.modules[m.id] = m
+      }
+      for (const c of connections) {
+        if (inst.modules[c.from.moduleId] && inst.modules[c.to.moduleId]) {
+          inst.connections[c.id] = c
+        }
+      }
+    }),
+
+  // --- Sample management ---
+
+  addSampleEntity: (entity) =>
+    get().mutate((draft) => {
+      draft.entities.samples[entity.id] = entity
+    }),
+
+  removeSampleEntity: (id) =>
+    get().mutate((draft) => {
+      const sample = draft.entities.samples[id]
+      if (!sample) return
+      // Guard: don't delete if any drumkit slot references this sample.
+      for (const inst of Object.values(draft.entities.instruments)) {
+        if (inst.kind === 'drumkit') {
+          for (const slot of inst.slots) {
+            if (slot.sampleId === id) return
+          }
+        }
+      }
+      delete draft.entities.samples[id]
+    }),
+
+  // --- Drum kit operations ---
+
+  addDrumKitSlot: (instrumentId, noteLo, noteHi, sampleId) =>
+    get().mutate((draft) => {
+      const inst = draft.entities.instruments[instrumentId]
+      if (inst?.kind !== 'drumkit') return
+      inst.slots.push({
+        id: makeId('slot'),
+        noteLo,
+        noteHi,
+        sampleId,
+        pitchOffset: 0,
+        gain: 1,
+        pan: 0,
+      })
+    }),
+
+  removeDrumKitSlot: (instrumentId, slotId) =>
+    get().mutate((draft) => {
+      const inst = draft.entities.instruments[instrumentId]
+      if (inst?.kind !== 'drumkit') return
+      inst.slots = inst.slots.filter((s) => s.id !== slotId)
+    }),
+
+  setDrumKitSlotParam: (instrumentId, slotId, key, value) =>
+    get().mutate((draft) => {
+      const inst = draft.entities.instruments[instrumentId]
+      if (inst?.kind !== 'drumkit') return
+      const slot = inst.slots.find((s) => s.id === slotId)
+      if (!slot) return
+      // Type-safe key access for the numeric slot params.
+      if (key === 'noteLo') slot.noteLo = value
+      else if (key === 'noteHi') slot.noteHi = value
+      else if (key === 'pitchOffset') slot.pitchOffset = value
+      else if (key === 'gain') slot.gain = value
+      else if (key === 'pan') slot.pan = value
+    }),
+
+  setDrumKitParam: (instrumentId, key, value) =>
+    get().mutate((draft) => {
+      const inst = draft.entities.instruments[instrumentId]
+      if (inst?.kind !== 'drumkit') return
+      if (key in inst.params) (inst.params as Record<string, number>)[key] = value
+    }),
+
 }))
 
 /**

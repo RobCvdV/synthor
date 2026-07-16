@@ -1,8 +1,11 @@
 import { useEffect, useRef } from 'react'
 import { AudioHost } from '../audio/host'
 import { compileGraph } from '../engine/compile'
+import { syncSamplesToVfs } from '../audio/vfsLoader'
 import { useDocStore } from '../state/docStore'
 import { usePreviewStore } from '../state/previewStore'
+import { useProjectStore } from '../state/projectStore'
+import { slugify } from '../persist/opfsStore'
 import { rowHz, useTransportStore } from '../state/transportStore'
 
 /**
@@ -31,24 +34,57 @@ export function useEngine(): AudioHost {
     g.__previewStore = usePreviewStore
   }
 
+  // Track pending VFS sync so we don't render graphs referencing unloaded samples.
+  const vfsSyncRef = useRef<Promise<void> | null>(null)
+  const lastVfsKeysRef = useRef('')
+  const vfsLoadedRef = useRef<Set<string>>(new Set())
+
   useEffect(() => {
     let frame = 0
+    const slug = slugify(useProjectStore.getState().name)
 
     const render = () => {
       frame = 0
       if (!host.isReady) return
+
       const { doc, mutedTracks } = useDocStore.getState()
-      const { bpm, linesPerBeat, playing } = useTransportStore.getState()
-      const { instrumentId, voices } = usePreviewStore.getState()
-      const active = Object.values(voices)
-      host.render(
-        compileGraph(doc, {
-          rowHz: rowHz(bpm, linesPerBeat),
-          playing: playing ? 1 : 0,
-          mutedTracks,
-          preview: instrumentId && active.length ? { instrumentId, voices: active } : undefined,
-        }),
-      )
+
+      // If samples changed, start loading them into VFS. The render happens
+      // after the VFS is ready so Elementary doesn't reject unknown paths.
+      const samples = Object.values(doc.entities.samples)
+      const keys = samples.map((s) => s.hash).sort().join(',')
+      if (keys !== lastVfsKeysRef.current) {
+        lastVfsKeysRef.current = keys
+        if (samples.length > 0) {
+          vfsSyncRef.current = syncSamplesToVfs(host, samples, slug).then(
+            (loaded) => { vfsSyncRef.current = null; vfsLoadedRef.current = loaded },
+          )
+        }
+      }
+
+      const doRender = () => {
+        const { bpm, linesPerBeat, playing } = useTransportStore.getState()
+        const { instrumentId, voices } = usePreviewStore.getState()
+        const active = Object.values(voices)
+        host.render(
+          compileGraph(doc, {
+            rowHz: rowHz(bpm, linesPerBeat),
+            playing: playing ? 1 : 0,
+            mutedTracks,
+            preview: instrumentId && active.length ? { instrumentId, voices: active } : undefined,
+            vfsLoadedHashes: vfsLoadedRef.current,
+          }),
+        )
+      }
+
+      // Wait for any in-flight VFS sync before rendering, so the sample
+      // paths referenced in the graph actually exist in Elementary's VFS.
+      const pending = vfsSyncRef.current
+      if (pending) {
+        pending.then(() => doRender())
+      } else {
+        doRender()
+      }
     }
 
     // Coalesce bursts of store mutations into a single render on the next frame.

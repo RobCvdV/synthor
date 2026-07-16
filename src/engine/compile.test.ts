@@ -83,6 +83,7 @@ function withExtraTrack(doc: Doc): Doc {
       instruments: { ...doc.entities.instruments, [inst.id]: inst },
       tracks: { ...doc.entities.tracks, [trk.id]: trk },
       patterns: { ...doc.entities.patterns, [doc.patternId]: { ...pat, trackIds: [...pat.trackIds, trk.id] } },
+      samples: doc.entities.samples,
     },
   }
 }

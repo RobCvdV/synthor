@@ -2,6 +2,8 @@ import type {
   Cell,
   Connection,
   Doc,
+  DrumKitInstrument,
+  DrumKitSlot,
   Instrument,
   Module,
   ModularInstrument,
@@ -9,6 +11,7 @@ import type {
   OscInstrument,
   Pattern,
   Port,
+  SampleEntity,
   Track,
 } from './types'
 import { defaultParams } from './moduleDefs'
@@ -36,6 +39,23 @@ export function fitCells(cells: Cell[], length: number): Cell[] {
 /** A fresh saw instrument. */
 export function newOscInstrument(name: string): OscInstrument {
   return { id: makeId('inst'), kind: 'osc', name, params: { gain: 0.8 } }
+}
+
+/** A fresh empty drum kit. */
+export function newDrumKitInstrument(name: string): DrumKitInstrument {
+  return { id: makeId('inst'), kind: 'drumkit', name, slots: [], params: { gain: 1 } }
+}
+
+/** A new sample entity (metadata only — binary data is stored in OPFS). */
+export function newSampleEntity(
+  name: string,
+  hash: string,
+  originalName: string,
+  sampleRate: number,
+  channels: number,
+  frames: number,
+): SampleEntity {
+  return { id: makeId('smp'), name, hash, originalName, sampleRate, channels, frames }
 }
 
 function newModule(type: ModuleType, x: number, y: number): Module {
@@ -88,6 +108,15 @@ export function newModularInstrument(name: string): ModularInstrument {
 export function cloneInstrument(inst: Instrument, name: string): Instrument {
   if (inst.kind === 'osc') {
     return { id: makeId('inst'), kind: 'osc', name, params: { ...inst.params } }
+  }
+
+  if (inst.kind === 'drumkit') {
+    const slots: DrumKitSlot[] = inst.slots.map((s) => ({
+      ...s,
+      id: makeId('slot'),
+      sampleId: s.sampleId, // keep same sample reference
+    }))
+    return { id: makeId('inst'), kind: 'drumkit', name, slots, params: { ...inst.params } }
   }
 
   const idMap = new Map<string, string>()
@@ -153,6 +182,7 @@ export function createDefaultDoc(): Doc {
       instruments: { [instA.id]: instA, [instB.id]: instB },
       tracks: { [trackA.id]: trackA, [trackB.id]: trackB },
       patterns: { [pattern.id]: pattern },
+      samples: {},
     },
     patternId: pattern.id,
   }
