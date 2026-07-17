@@ -1,4 +1,4 @@
-import { createNode, el, resolve, unpack, type NodeRepr_t } from '@elemaudio/core'
+import { el, type NodeRepr_t } from '@elemaudio/core'
 import type { DrumKitSlot, Id, Instrument } from '../domain/types'
 import { midiToFreq } from '../domain/notes'
 import { compileModular, makeAdsr, type StereoOut } from './modular'
@@ -89,56 +89,28 @@ export function renderDrumKitSlot(
       }
       if (meta) {
         const key = `${voiceKey}:slot:${slot.id}:${hash}`
-        const gain = el.const({ value: 1 })
 
-        // One-shot non-looping sample playback via el.accum + table.
+        // One-shot sample playback via Elementary's built-in el.sample.
+        // This is the same node the modular synth uses — it handles stereo
+        // correctly and plays once on each gate rising edge.
         //
-        // el.syncphasor wraps at 1 causing sample loops. Instead we use
-        // el.accum(inc, reset) which accumulates without wrapping — the
-        // phase grows past 1 but we clamp it for the table lookup and gate
-        // the envelope to 0 once phase >= 1, giving a true one-shot.
-        //
-        // Pitch tracking: the per-note frequency controls playback rate
-        // relative to the slot's base note (higher note = faster = higher
-        // pitch). At the slot's exact note the sample plays at 1× speed.
+        // playbackRate is relative to original speed: 1.0 = original pitch,
+        // 2.0 = one octave up. Computed from slot.note + pitchOffset, NOT
+        // the triggering MIDI note — drum hits are not pitch-tracked.
         const centerFreq = midiToFreq(slot.note)
-        const sampleDur = meta.frames / meta.sampleRate
-        // rateFactor maps a frequency in Hz to the phasor increment that
-        // plays the sample at 1× speed when slotFreq == centerFreq.
-        const rateFactor = meta.sampleRate / (meta.frames * centerFreq)
-        const rate = el.mul(slotFreq, el.const({ key: `${key}:rf`, value: rateFactor }))
-        // Phase increment per sample = rate / sampleRate.
-        const phaseInc = el.mul(rate, el.div(el.const({ value: 1 }), el.sr()))
-
-        // Rising-edge detector: trigger = max(gate - delay1(gate), 0).
-        // For pattern gates (seq2) this fires on every row trigger;
-        // for preview gates (constant 1) this fires once at note-on.
-        const delayed = el.delay({ size: 2 }, 1, 0, slotGate)
-        const trigger = el.max(el.sub(slotGate, delayed), 0)
-
-        // Free-running accumulator: phase += phaseInc each sample, reset
-        // to 0 on trigger. The phase grows past 1 but we clamp it below.
-        const phase = el.accum(phaseInc, trigger)
-
-        // Clamp phase to [0, 1] so the table lookup never wraps.
-        const clampedPhase = el.min(phase, el.const({ value: 1 }))
-        const time = el.mul(clampedPhase, el.const({ key: `${key}:dur`, value: sampleDur }))
-
-        // One-shot gate: 1 until phase passes 1, then 0 (stays 0 until
-        // the next trigger resets phase back below 1).
-        const oneShotGate = el.sub(el.const({ value: 1 }), el.geq(phase, el.const({ value: 0.9999 })))
-        const tbl = createNode('table', {
-          key: `${key}:tbl`,
-          path: hash,
-          channels: meta.channels,
-        }, [resolve(time)])
-        const ch = unpack(tbl as NodeRepr_t, meta.channels)
-        // Fast one-shot envelope: attack immediately, sustain at 1 for the
-        // sample duration (controlled by oneShotGate), then quick release.
-        const env = makeAdsr(0.001, 0.02, 1, 0.02, oneShotGate)
-
-        rawL = el.mul(ch[0], gain, env)
-        rawR = el.mul(ch[meta.channels === 2 ? 1 : 0], gain, env)
+        const playbackRate = midiToFreq(slot.note + slot.pitchOffset) / centerFreq
+        const ch = el.mc.sample(
+          {
+            key: `${key}:sample`,
+            path: hash,
+            channels: meta.channels,
+            playbackRate,
+          },
+          slotGate,
+        )
+        const gain = el.const({ value: 1 })
+        rawL = el.mul(ch[0], gain)
+        rawR = el.mul(ch[meta.channels === 2 ? 1 : 0], gain)
       }
     }
   } else if (slot.instrumentId) {

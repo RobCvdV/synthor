@@ -142,7 +142,9 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
       let mixL: NodeRepr_t = zero
       let mixR: NodeRepr_t = zero
       for (const slot of inst.slots) {
-        const slotGate = el.seq2({ key: `${trackId}:${slot.id}:gate`, seq: slotGateSeqs[slot.id], hold: true, loop: true }, clock, reset)
+        // hold:false so each hit produces a clean 0→1 edge for el.sample triggers.
+        const slotGate = el.seq2({ key: `${trackId}:${slot.id}:gate`, seq: slotGateSeqs[slot.id], hold: false, loop: true }, clock, reset)
+        // hold:true so instrument release tails keep the correct frequency.
         const slotFreq = el.seq2({ key: `${trackId}:${slot.id}:freq`, seq: slotFreqSeqs[slot.id], hold: true, loop: true }, clock, reset)
         const voice = renderDrumKitSlot(slot, doc.entities.instruments, slotGate, slotFreq, trackId, sampleMeta, sampleHashById)
         mixL = el.add(mixL, voice.left)
