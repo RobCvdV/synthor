@@ -91,19 +91,24 @@ export function renderDrumKitSlot(
         const key = `${voiceKey}:slot:${slot.id}:${hash}`
         const gain = el.const({ value: 1 })
 
-        // Pitch-tracked one-shot sample playback via table + syncphasor.
+        // One-shot non-looping sample playback via el.accum + table.
         //
-        // Drum hits always play to completion regardless of how long the key
-        // is held. We derive a one-shot gate from the trigger whose length
-        // matches the sample duration, so the envelope gates the output to
-        // silence after one pass through the sample.
+        // el.syncphasor wraps at 1 causing sample loops. Instead we use
+        // el.accum(inc, reset) which accumulates without wrapping — the
+        // phase grows past 1 but we clamp it for the table lookup and gate
+        // the envelope to 0 once phase >= 1, giving a true one-shot.
         //
-        // The per-note frequency controls playback rate relative to the
-        // slot's base note (higher note = faster playback = higher pitch).
+        // Pitch tracking: the per-note frequency controls playback rate
+        // relative to the slot's base note (higher note = faster = higher
+        // pitch). At the slot's exact note the sample plays at 1× speed.
         const centerFreq = midiToFreq(slot.note)
         const sampleDur = meta.frames / meta.sampleRate
+        // rateFactor maps a frequency in Hz to the phasor increment that
+        // plays the sample at 1× speed when slotFreq == centerFreq.
         const rateFactor = meta.sampleRate / (meta.frames * centerFreq)
         const rate = el.mul(slotFreq, el.const({ key: `${key}:rf`, value: rateFactor }))
+        // Phase increment per sample = rate / sampleRate.
+        const phaseInc = el.mul(rate, el.div(el.const({ value: 1 }), el.sr()))
 
         // Rising-edge detector: trigger = max(gate - delay1(gate), 0).
         // For pattern gates (seq2) this fires on every row trigger;
@@ -111,17 +116,17 @@ export function renderDrumKitSlot(
         const delayed = el.delay({ size: 2 }, 1, 0, slotGate)
         const trigger = el.max(el.sub(slotGate, delayed), 0)
 
-        // One-shot timer: a ramp 0→1 over exactly the sample duration,
-        // reset by the trigger. The resulting gate is high for sampleDur
-        // seconds after each trigger, then low — making drum hits one-shot.
-        const osPhase = el.syncphasor(
-          el.const({ key: `${key}:osRate`, value: 1 / sampleDur }),
-          trigger,
-        )
-        const oneShotGate = el.sub(1, el.geq(osPhase, el.const({ value: 0.999 })))
+        // Free-running accumulator: phase += phaseInc each sample, reset
+        // to 0 on trigger. The phase grows past 1 but we clamp it below.
+        const phase = el.accum(phaseInc, trigger)
 
-        const phase = el.syncphasor(rate, trigger)
-        const time = el.mul(phase, el.const({ key: `${key}:dur`, value: sampleDur }))
+        // Clamp phase to [0, 1] so the table lookup never wraps.
+        const clampedPhase = el.min(phase, el.const({ value: 1 }))
+        const time = el.mul(clampedPhase, el.const({ key: `${key}:dur`, value: sampleDur }))
+
+        // One-shot gate: 1 until phase passes 1, then 0 (stays 0 until
+        // the next trigger resets phase back below 1).
+        const oneShotGate = el.sub(1, el.geq(phase, el.const({ value: 0.9999 })))
         const tbl = createNode('table', {
           key: `${key}:tbl`,
           path: hash,
