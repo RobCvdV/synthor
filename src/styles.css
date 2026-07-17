@@ -7,8 +7,8 @@
   --beat: #1b212b;
   --cursor: #2b3a55;
   --playhead: #3a2b1b;
-  /* Width of one track column. Grows once vol/eff columns are added. */
-  --track-w: 72px;
+  /* Width of one track column, now fitting note + volume. */
+  --track-w: 96px;
 }
 
 * { box-sizing: border-box; }
@@ -282,6 +282,60 @@ body {
   padding: 8px 16px;
 }
 
+/* ---- Pattern header ----------------------------------------------------- */
+.pattern-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0 6px 40px;
+  border-bottom: 1px solid #000;
+  margin-bottom: 4px;
+}
+.pattern-name {
+  color: var(--accent);
+  font-weight: bold;
+  font-size: 14px;
+  cursor: default;
+}
+.pattern-name:hover { color: var(--fg); }
+.pattern-name-input {
+  background: var(--bg);
+  color: var(--accent);
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font: inherit;
+  font-weight: bold;
+  font-size: 14px;
+  width: 160px;
+}
+.pattern-name-input:focus { outline: none; border-color: var(--accent); }
+.pattern-length {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+.lenbtn {
+  background: #222;
+  color: var(--fg);
+  border: 1px solid #333;
+  border-radius: 3px;
+  padding: 0 6px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  line-height: 1.6;
+}
+.lenbtn:hover { border-color: var(--accent); }
+.lenval {
+  color: var(--fg);
+  min-width: 24px;
+  text-align: center;
+  font-weight: bold;
+}
+
+/* ---- Tracker grid ------------------------------------------------------- */
 .grid-row { display: flex; }
 .grid-row.beat { background: var(--beat); }
 .grid-row.playhead { background: var(--playhead); }
@@ -291,12 +345,139 @@ body {
 .cell {
   width: var(--track-w);
   flex: none;
-  padding: 1px 10px;
+  padding: 1px 4px;
   white-space: pre;
+  display: flex;
+  gap: 2px;
 }
-.cell.rownum { width: 40px; color: var(--muted); }
+.cell.rownum { width: 40px; color: var(--muted); display: block; }
 .cell.cursor { background: var(--cursor); border-radius: 3px; }
+.cell.selected { background: rgba(79, 209, 197, 0.12); }
+.cell.cursor.selected { background: var(--cursor); }
 .cell.muted { opacity: 0.4; }
+
+.cell-note { flex: 1; min-width: 0; }
+.cell-vol {
+  width: 24px;
+  text-align: right;
+  color: var(--muted);
+  font-size: 11px;
+  flex: none;
+}
+
+.cell-note.sub-active,
+.cell-vol.sub-active {
+  background: rgba(79, 209, 197, 0.3);
+  border-radius: 2px;
+}
+
+.cell.noteoff .cell-note { color: #e07a5f; }
+
+/* ---- SongBar ------------------------------------------------------------ */
+.songbar {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 6px 16px;
+  background: var(--panel);
+  border-bottom: 1px solid #000;
+  overflow-x: auto;
+  min-height: 52px;
+}
+.songbar-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 8px;
+  background: var(--bg);
+  border: 1px solid #2a2f38;
+  border-radius: 4px;
+  flex: none;
+}
+.songbar-section-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.songbar-section-name {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: bold;
+  cursor: default;
+  white-space: nowrap;
+}
+.songbar-section-name:hover { color: var(--fg); }
+.songbar-section-actions {
+  display: flex;
+  gap: 2px;
+}
+.songbar-btn {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0 3px;
+  border-radius: 2px;
+  line-height: 1.3;
+}
+.songbar-btn:hover { border-color: #444; color: var(--fg); }
+.songbar-btn-del:hover { color: #e07a5f; border-color: #e07a5f; }
+.songbar-section-patterns {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-wrap: wrap;
+}
+.songbar-pattern {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: #1a1e26;
+  border: 1px solid #2a2f38;
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.songbar-pattern:hover { border-color: var(--accent); }
+.songbar-pattern.current {
+  background: rgba(79, 209, 197, 0.15);
+  border-color: var(--accent);
+}
+.songbar-pattern-name { color: var(--fg); }
+.songbar-name-input {
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  padding: 1px 4px;
+  font: inherit;
+  font-size: 11px;
+}
+.songbar-name-input:focus { outline: none; }
+.songbar-add-pat-select {
+  background: #222;
+  color: var(--muted);
+  border: 1px solid #333;
+  border-radius: 3px;
+  font: inherit;
+  font-size: 11px;
+  padding: 1px 2px;
+  cursor: pointer;
+}
+.songbar-add-pat-select:hover { border-color: var(--accent); color: var(--fg); }
+.songbar-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  border-style: dashed;
+}
+.songbar-actions .octbtn {
+  font-size: 11px;
+  padding: 2px 6px;
+}
 
 /* Track header: number on top, cropped instrument name below. */
 .track-head {

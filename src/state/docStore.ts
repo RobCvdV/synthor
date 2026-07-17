@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { applyPatches, enablePatches, type Patch, produceWithPatches } from 'immer'
-import type { Cell, Connection, Doc, Id, Instrument, Module, ModuleType, Port, SampleEntity } from '../domain/types'
+import type { Cell, Connection, Doc, Id, Instrument, Module, ModuleType, Pattern, Port, SampleEntity } from '../domain/types'
 import {
   cloneInstrument,
   createDefaultDoc,
@@ -9,6 +9,7 @@ import {
   newDrumKitInstrument,
   newModularInstrument,
   newOscInstrument,
+  newSection,
   newTrack,
 } from '../domain/factory'
 import { defaultParams, MODULE_DEFS } from '../domain/moduleDefs'
@@ -34,6 +35,8 @@ interface DocState {
   future: HistoryEntry[]
   /** Non-undoable scratch space for track copy/paste. */
   trackClipboard: TrackSnapshot | null
+  /** Non-undoable scratch space for rectangular cell copy/paste. */
+  rectClipboard: Cell[][] | null
   /** Non-undoable performance state: which tracks are muted (keyed by id). */
   mutedTracks: Record<Id, boolean>
 
@@ -46,6 +49,24 @@ interface DocState {
 
   // --- Cell editing ---
   setCellNote: (trackId: Id, row: number, note: number | null) => void
+  setCellNoteOff: (trackId: Id, row: number, noteOff: boolean) => void
+  setCellVolume: (trackId: Id, row: number, volume: number | null) => void
+
+  // --- Pattern operations ---
+  setPatternLength: (patternId: Id, length: number) => void
+  renamePattern: (patternId: Id, name: string) => void
+  addPattern: (name?: string, length?: number) => Id
+  removePattern: (patternId: Id) => void
+  setCurrentPattern: (patternId: Id) => void
+
+  // --- Section operations ---
+  addSection: (name?: string) => Id
+  removeSection: (sectionId: Id) => void
+  renameSection: (sectionId: Id, name: string) => void
+  addPatternToSection: (sectionId: Id, patternId: Id, atIndex?: number) => void
+  removePatternFromSection: (sectionId: Id, patternIndex: number) => void
+  reorderSections: (fromIdx: number, toIdx: number) => void
+  reorderPatternsInSection: (sectionId: Id, fromIdx: number, toIdx: number) => void
 
   // --- Instrument operations (first-class, shared across tracks) ---
   addInstrument: (kind: Instrument['kind']) => Id
@@ -92,6 +113,11 @@ interface DocState {
   shiftTrack: (trackId: Id, dir: 'up' | 'down') => void
   /** Toggle a track's mute (performance state, not part of undo history). */
   toggleMute: (trackId: Id) => void
+
+  // --- Rectangular cell clipboard (non-undoable) ---
+  copyRect: (trackIds: Id[], startRow: number, endRow: number, startTrack: number, endTrack: number) => void
+  cutRect: (trackIds: Id[], startRow: number, endRow: number, startTrack: number, endTrack: number) => void
+  pasteRect: (trackIds: Id[], atRow: number, atTrack: number) => void
 }
 
 const HISTORY_LIMIT = 200
@@ -101,6 +127,7 @@ export const useDocStore = create<DocState>((set, get) => ({
   past: [],
   future: [],
   trackClipboard: null,
+  rectClipboard: null,
   mutedTracks: {},
 
   mutate: (recipe) => {
@@ -111,7 +138,7 @@ export const useDocStore = create<DocState>((set, get) => ({
     set({ doc: next, past: [...trimmed, { patches, inverse }], future: [] })
   },
 
-  loadDoc: (doc) => set({ doc, past: [], future: [], trackClipboard: null, mutedTracks: {} }),
+  loadDoc: (doc) => set({ doc, past: [], future: [], trackClipboard: null, rectClipboard: null, mutedTracks: {} }),
 
   undo: () => {
     const { doc, past, future } = get()
@@ -130,7 +157,27 @@ export const useDocStore = create<DocState>((set, get) => ({
   setCellNote: (trackId, row, note) =>
     get().mutate((draft) => {
       const track = draft.entities.tracks[trackId]
-      if (track && track.cells[row]) track.cells[row].note = note
+      if (track && track.cells[row]) {
+        track.cells[row].note = note
+        // Setting a note clears note-off (they're mutually exclusive).
+        if (note !== null) track.cells[row].noteOff = false
+      }
+    }),
+
+  setCellNoteOff: (trackId, row, noteOff) =>
+    get().mutate((draft) => {
+      const track = draft.entities.tracks[trackId]
+      if (track && track.cells[row]) {
+        track.cells[row].noteOff = noteOff
+        // Note-off and note are mutually exclusive: note-off clears any note.
+        if (noteOff) track.cells[row].note = null
+      }
+    }),
+
+  setCellVolume: (trackId, row, volume) =>
+    get().mutate((draft) => {
+      const track = draft.entities.tracks[trackId]
+      if (track && track.cells[row]) track.cells[row].volume = volume
     }),
 
   addTrack: (atIndex, instrumentId) =>
@@ -215,6 +262,67 @@ export const useDocStore = create<DocState>((set, get) => ({
 
   toggleMute: (trackId) =>
     set((s) => ({ mutedTracks: { ...s.mutedTracks, [trackId]: !s.mutedTracks[trackId] } })),
+
+  // --- Rectangular clipboard ---
+
+  copyRect: (trackIds, startRow, endRow, startTrack, endTrack) => {
+    const { doc } = get()
+    const t0 = Math.max(0, Math.min(startTrack, endTrack))
+    const t1 = Math.min(trackIds.length - 1, Math.max(startTrack, endTrack))
+    const r0 = Math.max(0, Math.min(startRow, endRow))
+    const r1 = Math.min(doc.entities.patterns[doc.patternId].length - 1, Math.max(startRow, endRow))
+    const cells: Cell[][] = []
+    for (let ti = t0; ti <= t1; ti++) {
+      const track = doc.entities.tracks[trackIds[ti]]
+      const col: Cell[] = []
+      for (let r = r0; r <= r1; r++) {
+        const c = track?.cells[r]
+        col.push(c ? { note: c.note, volume: c.volume, noteOff: c.noteOff } : { note: null, volume: null, noteOff: false })
+      }
+      cells.push(col)
+    }
+    set({ rectClipboard: cells })
+  },
+
+  cutRect: (trackIds, startRow, endRow, startTrack, endTrack) => {
+    get().copyRect(trackIds, startRow, endRow, startTrack, endTrack)
+    get().mutate((draft) => {
+      const pattern = draft.entities.patterns[draft.patternId]
+      const t0 = Math.max(0, Math.min(startTrack, endTrack))
+      const t1 = Math.min(trackIds.length - 1, Math.max(startTrack, endTrack))
+      const r0 = Math.max(0, Math.min(startRow, endRow))
+      const r1 = Math.min(pattern.length - 1, Math.max(startRow, endRow))
+      for (let ti = t0; ti <= t1; ti++) {
+        const track = draft.entities.tracks[trackIds[ti]]
+        if (!track) continue
+        for (let r = r0; r <= r1; r++) {
+          if (track.cells[r]) {
+            track.cells[r] = { note: null, volume: null, noteOff: false }
+          }
+        }
+      }
+    })
+  },
+
+  pasteRect: (trackIds, atRow, atTrack) => {
+    const clip = get().rectClipboard
+    if (!clip || clip.length === 0) return
+    get().mutate((draft) => {
+      const pattern = draft.entities.patterns[draft.patternId]
+      for (let ti = 0; ti < clip.length; ti++) {
+        const targetIdx = atTrack + ti
+        if (targetIdx < 0 || targetIdx >= trackIds.length) continue
+        const track = draft.entities.tracks[trackIds[targetIdx]]
+        if (!track) continue
+        const col = clip[ti]
+        for (let ri = 0; ri < col.length; ri++) {
+          const targetRow = atRow + ri
+          if (targetRow < 0 || targetRow >= pattern.length) continue
+          track.cells[targetRow] = { ...col[ri] }
+        }
+      }
+    })
+  },
 
   addInstrument: (kind) => {
     let inst: Instrument
@@ -434,6 +542,122 @@ export const useDocStore = create<DocState>((set, get) => ({
       const inst = draft.entities.instruments[instrumentId]
       if (inst?.kind !== 'drumkit') return
       if (key in inst.params) (inst.params as Record<string, number>)[key] = value
+    }),
+
+  // --- Pattern operations ---
+
+  setPatternLength: (patternId, length) =>
+    get().mutate((draft) => {
+      const pattern = draft.entities.patterns[patternId]
+      if (!pattern || length < 1 || length > 256) return
+      pattern.length = length
+      for (const trackId of pattern.trackIds) {
+        const track = draft.entities.tracks[trackId]
+        if (track) track.cells = fitCells(track.cells, length)
+      }
+    }),
+
+  renamePattern: (patternId, name) =>
+    get().mutate((draft) => {
+      const pattern = draft.entities.patterns[patternId]
+      if (pattern) pattern.name = name
+    }),
+
+  addPattern: (name, length) => {
+    const patName = name ?? `Pattern ${String(Object.keys(get().doc.entities.patterns).length + 1).padStart(2, '0')}`
+    const patLen = length ?? 64
+    const patternId = makeId('pat')
+    get().mutate((draft) => {
+      const pattern: Pattern = { id: patternId, name: patName, length: patLen, trackIds: [] }
+      draft.entities.patterns[patternId] = pattern
+    })
+    return patternId
+  },
+
+  removePattern: (patternId) =>
+    get().mutate((draft) => {
+      const pattern = draft.entities.patterns[patternId]
+      if (!pattern) return
+      // Don't delete the last pattern.
+      if (Object.keys(draft.entities.patterns).length <= 1) return
+      // Delete tracks owned by this pattern.
+      for (const trackId of pattern.trackIds) {
+        delete draft.entities.tracks[trackId]
+      }
+      delete draft.entities.patterns[patternId]
+      // Remove from all sections that reference it.
+      for (const section of Object.values(draft.entities.sections)) {
+        section.patternIds = section.patternIds.filter((id) => id !== patternId)
+      }
+      // If the deleted pattern was current, switch to the first available.
+      if (draft.patternId === patternId) {
+        draft.patternId = Object.keys(draft.entities.patterns)[0]
+      }
+    }),
+
+  setCurrentPattern: (patternId) =>
+    get().mutate((draft) => {
+      if (draft.entities.patterns[patternId]) draft.patternId = patternId
+    }),
+
+  // --- Section operations ---
+
+  addSection: (name) => {
+    const sec = newSection(name ?? `Section ${Object.keys(get().doc.entities.sections).length + 1}`)
+    get().mutate((draft) => {
+      draft.entities.sections[sec.id] = sec
+      draft.sectionIds.push(sec.id)
+    })
+    return sec.id
+  },
+
+  removeSection: (sectionId) =>
+    get().mutate((draft) => {
+      const idx = draft.sectionIds.indexOf(sectionId)
+      if (idx < 0) return
+      // Don't delete the last section.
+      if (draft.sectionIds.length <= 1) return
+      draft.sectionIds.splice(idx, 1)
+      delete draft.entities.sections[sectionId]
+    }),
+
+  renameSection: (sectionId, name) =>
+    get().mutate((draft) => {
+      const section = draft.entities.sections[sectionId]
+      if (section) section.name = name
+    }),
+
+  addPatternToSection: (sectionId, patternId, atIndex) =>
+    get().mutate((draft) => {
+      const section = draft.entities.sections[sectionId]
+      if (!section || !draft.entities.patterns[patternId]) return
+      const idx = atIndex ?? section.patternIds.length
+      section.patternIds.splice(clamp(idx, 0, section.patternIds.length), 0, patternId)
+    }),
+
+  removePatternFromSection: (sectionId, patternIndex) =>
+    get().mutate((draft) => {
+      const section = draft.entities.sections[sectionId]
+      if (!section || patternIndex < 0 || patternIndex >= section.patternIds.length) return
+      section.patternIds.splice(patternIndex, 1)
+    }),
+
+  reorderSections: (fromIdx, toIdx) =>
+    get().mutate((draft) => {
+      const ids = draft.sectionIds
+      if (fromIdx < 0 || fromIdx >= ids.length || toIdx < 0 || toIdx >= ids.length || fromIdx === toIdx) return
+      const [id] = ids.splice(fromIdx, 1)
+      ids.splice(toIdx, 0, id)
+    }),
+
+  reorderPatternsInSection: (sectionId, fromIdx, toIdx) =>
+    get().mutate((draft) => {
+      const section = draft.entities.sections[sectionId]
+      if (!section) return
+      const ids = section.patternIds
+      if (fromIdx < 0 || fromIdx >= ids.length || toIdx < 0 || toIdx >= ids.length || fromIdx === toIdx) return
+      const [id] = ids.splice(fromIdx, 1)
+      ids.splice(toIdx, 0, id)
     }),
 
 }))

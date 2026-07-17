@@ -10,10 +10,14 @@
 
 export type Id = string
 
-/** A single step in a track lane. For the slice, only `note` exists. */
+/** A single step in a track lane. */
 export interface Cell {
   /** MIDI note number (60 = C4), or null for an empty step. */
   note: number | null
+  /** Per-cell volume modifier, 0..1. Null means default (full volume). */
+  volume: number | null
+  /** When true, triggers note-off (release) on this row regardless of note. */
+  noteOff: boolean
 }
 
 /** The original built-in instrument: a simple saw oscillator through an ADSR. */
@@ -35,6 +39,7 @@ export interface OscInstrument {
 export type ModuleType =
   | 'note' // source: the track's per-row frequency (Hz)
   | 'gate' // source: the track's per-row gate (0/1)
+  | 'volume' // source: the track's per-row volume (0..1)
   | 'osc' // oscillator (saw/square/triangle/sine)
   | 'filter' // state-variable filter (lp/hp/bp)
   | 'adsr' // envelope generator
@@ -146,10 +151,18 @@ export interface Pattern {
   trackIds: Id[]
 }
 
+/** A section is a named sequence of pattern references. */
+export interface Section {
+  id: Id
+  name: string
+  patternIds: Id[]
+}
+
 export interface Entities {
   instruments: Record<Id, Instrument>
   tracks: Record<Id, Track>
   patterns: Record<Id, Pattern>
+  sections: Record<Id, Section>
   samples: Record<Id, SampleEntity>
 }
 
@@ -158,4 +171,6 @@ export interface Doc {
   entities: Entities
   /** The pattern currently open in the editor. */
   patternId: Id
+  /** Ordered sections that form the song arrangement. */
+  sectionIds: Id[]
 }

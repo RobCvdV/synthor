@@ -109,16 +109,17 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
   const voices = pattern.trackIds.map((trackId) => {
     const track = doc.entities.tracks[trackId]
     const inst = doc.entities.instruments[track.instrumentId]
-    const { freqSeq, gateSeq, noteSeq } = buildSequences(track, pattern.length)
+    const { freqSeq, gateSeq, volumeSeq, noteSeq } = buildSequences(track, pattern.length)
 
     const freq = el.seq2({ key: `${trackId}:freq`, seq: freqSeq, hold: true, loop: true }, clock, reset)
     const gate = el.seq2({ key: `${trackId}:gate`, seq: gateSeq, hold: true, loop: true }, clock, reset)
+    const vol = el.seq2({ key: `${trackId}:vol`, seq: volumeSeq, hold: true, loop: true }, clock, reset)
     // Only drumkit instruments need the raw MIDI note signal.
     const noteSig = inst.kind === 'drumkit'
       ? el.seq2({ key: `${trackId}:note`, seq: noteSeq.map((n) => n ?? 0), hold: true, loop: true }, clock, reset)
       : 0
 
-    const voice = renderInstrument(inst, freq, gate, trackId, sampleMeta, noteSig, sampleHashById)
+    const voice = renderInstrument(inst, freq, gate, trackId, sampleMeta, noteSig, sampleHashById, 0, vol)
     const muted = ctx.mutedTracks?.[trackId] === true
     return muted
       ? { left: el.mul(voice.left, 0), right: el.mul(voice.right, 0) }

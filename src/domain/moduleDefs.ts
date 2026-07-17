@@ -58,6 +58,14 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     params: [],
     singleton: true,
   },
+  volume: {
+    type: 'volume',
+    label: 'Volume',
+    inlets: [],
+    outlets: ['vol'],
+    params: [],
+    singleton: true,
+  },
   osc: {
     type: 'osc',
     label: 'Oscillator',

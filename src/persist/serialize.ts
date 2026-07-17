@@ -20,7 +20,7 @@ import type { Doc } from '../domain/types'
  * (osc-only) and new files with modular instruments both satisfy the same
  * schema. A bump is only needed for a *breaking* shape change (e.g. sections).
  */
-export const CURRENT_SCHEMA_VERSION = 2
+export const CURRENT_SCHEMA_VERSION = 3
 
 export interface SongMeta {
   name: string
@@ -79,11 +79,19 @@ export function migrate(raw: unknown): SongFile {
   // v1→v2: samples entity map added (sample playback + drum kit).
   if (version < 2) raw = upgradeV1toV2(raw)
 
+  // v2→v3: sections entity map, sectionIds on doc, volume+noteOff on cells.
+  if (version < 3) raw = upgradeV2toV3(raw)
+
   // v1→v1 migration: when the stereo output was added (commit b3917fc), the
   // output module's inlet changed from 'in' to 'inL'. Old modular instruments
   // with connections targeting 'in' would silently produce silence because
   // nothing feeds 'inL'. Fix those connections in-place on load.
   raw = fixOutputPortMigrate(raw)
+
+  // Always ensure every modular instrument has the `volume` singleton source
+  // module. This runs on every load (not version-gated) because v3 files saved
+  // before the volume module was added also need the fixup.
+  raw = ensureVolumeModule(raw)
 
   assertShape(raw)
   return raw
@@ -101,6 +109,12 @@ function assertShape(raw: unknown): asserts raw is SongFile {
   if (!isRecord(raw.doc.entities.samples)) {
     throw new Error('Not a valid song file: missing doc.entities.samples')
   }
+  if (!isRecord(raw.doc.entities.sections)) {
+    throw new Error('Not a valid song file: missing doc.entities.sections')
+  }
+  if (!Array.isArray(raw.doc.sectionIds)) {
+    throw new Error('Not a valid song file: missing doc.sectionIds')
+  }
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -115,6 +129,58 @@ function upgradeV1toV2(raw: any): any {
     return { ...raw, doc: { ...doc, entities: { ...doc.entities, samples: {} } } }
   }
   return raw
+}
+
+/** v2→v3: sections, sectionIds, and cell volume+noteOff fields. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function upgradeV2toV3(raw: any): any {
+  const doc = raw.doc
+  if (!doc || !isRecord(doc.entities)) return raw
+
+  const entities = { ...doc.entities }
+
+  // Add sections entity map if missing.
+  if (!entities.sections || !isRecord(entities.sections)) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sections: Record<string, any> = {}
+    // If there's a pattern, wrap it in a default section so the song plays.
+    const patternIds = entities.patterns ? Object.keys(entities.patterns) : []
+    if (patternIds.length > 0) {
+      const secId = 'sec_migrated'
+      sections[secId] = { id: secId, name: 'Section 1', patternIds }
+    }
+    entities.sections = sections
+  }
+
+  // Add sectionIds if missing.
+  const sectionIds = Array.isArray(raw.doc.sectionIds) ? raw.doc.sectionIds : []
+  if (sectionIds.length === 0 && entities.sections) {
+    const ids = Object.keys(entities.sections)
+    if (ids.length > 0) sectionIds.push(ids[0])
+  }
+
+  // Add volume + noteOff to all cells in all tracks.
+  if (entities.tracks && isRecord(entities.tracks)) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const tracks: Record<string, any> = {}
+    for (const [tid, track] of Object.entries(entities.tracks)) {
+      if (isRecord(track) && Array.isArray(track.cells)) {
+        tracks[tid] = {
+          ...track,
+          cells: track.cells.map((c: unknown) =>
+            isRecord(c)
+              ? { note: c.note ?? null, volume: c.volume ?? null, noteOff: c.noteOff ?? false }
+              : { note: null, volume: null, noteOff: false },
+          ),
+        }
+      } else {
+        tracks[tid] = track
+      }
+    }
+    entities.tracks = tracks
+  }
+
+  return { ...raw, schemaVersion: 3, doc: { ...doc, entities, sectionIds } }
 }
 
 /**
@@ -153,6 +219,61 @@ function fixOutputPortMigrate(raw: any): any {
       fixedConns[cid] = c
     }
     fixed[id] = { ...inst, connections: fixedConns }
+  }
+
+  if (!changed) return raw
+  return {
+    ...raw,
+    doc: { ...raw.doc, entities: { ...raw.doc.entities, instruments: fixed } },
+  }
+}
+
+/**
+ * Ensure every modular instrument has the `volume` singleton source module.
+ * Runs on every load (not version-gated) so even v3 files saved before the
+ * volume module was added get the fixup.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+/**
+ * Ensure every modular instrument has the `volume` singleton source module.
+ * Also cleans up the `mod_volume_migrated` ID from an earlier broken migration.
+ * Runs on every load (not version-gated).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function ensureVolumeModule(raw: any): any {
+  const insts = raw.doc?.entities?.instruments
+  if (!insts || !isRecord(insts)) return raw
+
+  let changed = false
+  const fixed: Record<string, unknown> = {}
+  for (const [id, inst] of Object.entries(insts)) {
+    if (!isRecord(inst) || inst.kind !== 'modular' || !isRecord(inst.modules)) {
+      fixed[id] = inst
+      continue
+    }
+    const mods = inst.modules as Record<string, unknown>
+    const hasVolume = Object.values(mods).some(
+      (m) => isRecord(m) && m.type === 'volume' && m.id !== 'mod_volume_migrated',
+    )
+    // Clean up broken migration ID if present.
+    const cleaned: Record<string, unknown> = {}
+    for (const [mid, m] of Object.entries(mods)) {
+      if (mid === 'mod_volume_migrated' && isRecord(m) && m.type === 'volume') {
+        changed = true
+        continue // drop this module
+      }
+      cleaned[mid] = m
+    }
+    if (!hasVolume) {
+      const volId = `vol_${crypto.randomUUID()}`
+      cleaned[volId] = { id: volId, type: 'volume', params: {}, pos: { x: 40, y: 440 } }
+      changed = true
+    }
+    if (changed) {
+      fixed[id] = { ...inst, modules: cleaned }
+    } else {
+      fixed[id] = inst
+    }
   }
 
   if (!changed) return raw

@@ -12,6 +12,7 @@ import type {
   Pattern,
   Port,
   SampleEntity,
+  Section,
   Track,
 } from './types'
 import { defaultParams } from './moduleDefs'
@@ -26,13 +27,13 @@ export function makeId(prefix: string): string {
 }
 
 export function emptyCells(length: number): Cell[] {
-  return Array.from({ length }, () => ({ note: null }))
+  return Array.from({ length }, () => ({ note: null, volume: null, noteOff: false }))
 }
 
 /** Fit a cell list to a target length: truncate if longer, pad empty if shorter. */
 export function fitCells(cells: Cell[], length: number): Cell[] {
-  const out = cells.slice(0, length).map((c) => ({ ...c }))
-  while (out.length < length) out.push({ note: null })
+  const out = cells.slice(0, length).map((c) => ({ note: c.note, volume: c.volume, noteOff: c.noteOff }))
+  while (out.length < length) out.push({ note: null, volume: null, noteOff: false })
   return out
 }
 
@@ -74,13 +75,14 @@ function connect(from: Port, to: Port, gain = 1): Connection {
 export function newModularInstrument(name: string): ModularInstrument {
   const note = newModule('note', 40, 40)
   const gate = newModule('gate', 40, 240)
+  const volume = newModule('volume', 40, 440)
   const osc = newModule('osc', 260, 40)
   const filter = newModule('filter', 480, 40)
   const adsr = newModule('adsr', 260, 240)
   const gain = newModule('gain', 720, 140)
   const output = newModule('output', 960, 160)
 
-  const modules = [note, gate, osc, filter, adsr, gain, output]
+  const modules = [note, gate, volume, osc, filter, adsr, gain, output]
   const connections = [
     connect({ moduleId: note.id, port: 'freq' }, { moduleId: osc.id, port: 'freq' }),
     connect({ moduleId: osc.id, port: 'out' }, { moduleId: filter.id, port: 'in' }),
@@ -148,9 +150,16 @@ export function newTrack(instrumentId: string, length: number): Track {
   return { id: makeId('trk'), instrumentId, cells: emptyCells(length) }
 }
 
+/** A fresh section with a given name and no pattern references. */
+export function newSection(name: string): Section {
+  return { id: makeId('sec'), name, patternIds: [] }
+}
+
 /**
- * A minimal starter document: one 16-row pattern, two saw tracks, with a few
+ * A minimal starter document: one 64-row pattern, two saw tracks, with a few
  * notes already placed so playback makes sound the moment you hit play.
+ * This is the INITIAL state before any saved song loads; once a song loads,
+ * `loadDoc` replaces this entirely.
  */
 export function createDefaultDoc(): Doc {
   const instA: Instrument = { id: makeId('inst'), kind: 'osc', name: 'Saw Lead', params: { gain: 0.8 } }
@@ -177,13 +186,18 @@ export function createDefaultDoc(): Doc {
     trackIds: [trackA.id, trackB.id],
   }
 
+  const section = newSection('Intro')
+  section.patternIds = [pattern.id]
+
   return {
     entities: {
       instruments: { [instA.id]: instA, [instB.id]: instB },
       tracks: { [trackA.id]: trackA, [trackB.id]: trackB },
       patterns: { [pattern.id]: pattern },
+      sections: { [section.id]: section },
       samples: {},
     },
     patternId: pattern.id,
+    sectionIds: [section.id],
   }
 }

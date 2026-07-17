@@ -82,6 +82,8 @@ export function compileModular(
   sampleMeta: SampleMeta[] = [],
   /** Base frequency in Hz for pitch tracking. 0 = use original rate. */
   baseFreq: number = 0,
+  /** Per-cell volume signal (0..1), available to the `volume` source module. */
+  vol: Node = 1,
 ): StereoOut {
   const memo = new Map<string, Node>()
   const visiting = new Set<string>()
@@ -141,6 +143,8 @@ export function compileModular(
         return freq
       case 'gate':
         return gate
+      case 'volume':
+        return vol
 
       case 'osc': {
         const f = inlet(m.id, 'freq') ?? 440

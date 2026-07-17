@@ -84,6 +84,7 @@ function withExtraTrack(doc: Doc): Doc {
       tracks: { ...doc.entities.tracks, [trk.id]: trk },
       patterns: { ...doc.entities.patterns, [doc.patternId]: { ...pat, trackIds: [...pat.trackIds, trk.id] } },
       samples: doc.entities.samples,
+      sections: doc.entities.sections,
     },
   }
 }
@@ -98,7 +99,8 @@ describe('compileGraph sequencer phase alignment', () => {
     const doc = createDefaultDoc()
     const seqs = collect(g(doc), 'seq2')
 
-    expect(seqs.length).toBe(4)
+    // 2 tracks × 3 signals (freq, gate, vol) = 6 seq2 nodes
+    expect(seqs.length).toBe(6)
 
     const resets = seqs.map((s) => seqInputs(s).reset)
     for (const r of resets) {
@@ -125,7 +127,8 @@ describe('compileGraph sequencer phase alignment', () => {
     const doc = withExtraTrack(createDefaultDoc())
     const seqs = collect(g(doc), 'seq2')
 
-    expect(seqs.length).toBe(6)
+    // 3 tracks × 3 signals = 9 seq2 nodes
+    expect(seqs.length).toBe(9)
     const resetHashes = new Set(seqs.map((s) => (seqInputs(s).reset as ElNode).hash))
     expect(resetHashes.size).toBe(1)
   })
@@ -143,7 +146,7 @@ describe('compileGraph preview', () => {
     const instrumentId = previewInst(doc)
     const empty: Doc = {
       ...doc,
-      entities: { ...doc.entities, patterns: { [doc.patternId]: { ...doc.entities.patterns[doc.patternId], trackIds: [] } } },
+      entities: { ...doc.entities, patterns: { [doc.patternId]: { ...doc.entities.patterns[doc.patternId], trackIds: [] } }, sections: doc.entities.sections },
     }
     const silent = mono(compileGraph(empty, { rowHz: 8, playing: 0 }))
     expect(collect(silent, 'blepsaw')).toHaveLength(0)
@@ -179,6 +182,7 @@ describe('compileGraph mute', () => {
     const doc = createDefaultDoc()
     const first = doc.entities.patterns[doc.patternId].trackIds[0]
     const seqs = collect(mono(compileGraph(doc, { rowHz: 8, playing: 1, mutedTracks: { [first]: true } })), 'seq2')
-    expect(seqs.length).toBe(4)
+    // 2 tracks × 2 signals = 4 seq2 nodes
+    expect(seqs.length).toBe(6)
   })
 })

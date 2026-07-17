@@ -90,4 +90,66 @@ describe('song serialization', () => {
       }
     }
   })
+
+  // --- v2 → v3 migration ---
+
+  it('migrates a v2 file: adds sections, sectionIds, volume, and noteOff', () => {
+    const doc = createDefaultDoc()
+    const v2: SongFile = {
+      schemaVersion: 2,
+      meta: { name: 'v2 song', createdAt: '2026-01-01T00:00:00.000Z', modifiedAt: '2026-01-01T00:00:00.000Z' },
+      doc: {
+        entities: { ...doc.entities, sections: undefined as never, samples: doc.entities.samples },
+        patternId: doc.patternId,
+        sectionIds: undefined as never,
+      },
+    }
+    // Strip sections/sectionIds to simulate a v2 file.
+    const v2raw = JSON.parse(JSON.stringify(v2))
+    delete v2raw.doc.entities.sections
+    delete v2raw.doc.sectionIds
+
+    const migrated = migrate(v2raw)
+    expect(migrated.schemaVersion).toBe(3)
+    // Should have a sections map.
+    expect(migrated.doc.entities.sections).toBeTruthy()
+    expect(Object.keys(migrated.doc.entities.sections).length).toBeGreaterThan(0)
+    // Should have sectionIds.
+    expect(migrated.doc.sectionIds.length).toBeGreaterThan(0)
+    // First section should reference existing patterns.
+    const firstSecId = migrated.doc.sectionIds[0]
+    const firstSec = migrated.doc.entities.sections[firstSecId]
+    expect(firstSec.patternIds.length).toBeGreaterThan(0)
+  })
+
+  it('migrates v2 cells: adds volume and noteOff fields', () => {
+    const doc = createDefaultDoc()
+    const v2: SongFile = {
+      schemaVersion: 2,
+      meta: { name: 'v2 song', createdAt: '2026-01-01T00:00:00.000Z', modifiedAt: '2026-01-01T00:00:00.000Z' },
+      doc: {
+        entities: { ...doc.entities, sections: undefined as never, samples: doc.entities.samples },
+        patternId: doc.patternId,
+        sectionIds: undefined as never,
+      },
+    }
+    const v2raw = JSON.parse(JSON.stringify(v2))
+    delete v2raw.doc.entities.sections
+    delete v2raw.doc.sectionIds
+
+    // Remove new fields from cells to simulate v2.
+    for (const track of Object.values(v2raw.doc.entities.tracks) as Array<Record<string, unknown>>) {
+      if (Array.isArray(track.cells)) {
+        track.cells = (track.cells as Array<Record<string, unknown>>).map((c: Record<string, unknown>) => ({
+          note: c.note,
+        }))
+      }
+    }
+
+    const migrated = migrate(v2raw)
+    // Check that cells now have volume and noteOff.
+    const restoredTrack = Object.values(migrated.doc.entities.tracks)[0] as { cells: Array<{ volume: unknown; noteOff: unknown }> }
+    expect(restoredTrack.cells[0].volume).toBeNull()
+    expect(restoredTrack.cells[0].noteOff).toBe(false)
+  })
 })

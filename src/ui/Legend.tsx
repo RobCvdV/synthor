@@ -9,13 +9,16 @@ const NOTE_ENTRY: Row[] = [
   { keys: 'S D G H J …', label: 'sharps (lower)' },
   { keys: '2 3 5 6 7 …', label: 'sharps (upper)' },
   { keys: '− / =', label: 'octave down / up' },
+  { keys: '`', label: 'note-off (toggle)' },
+  { keys: '[ / ]', label: 'volume down / up' },
   { keys: 'Del', label: 'clear cell' },
 ]
 
 const TRANSPORT: Row[] = [
   { keys: 'Space', label: 'play / stop' },
   { keys: '↑ ↓', label: 'move row' },
-  { keys: '← →', label: 'move track' },
+  { keys: '← →', label: 'note ↔ vol ↔ track' },
+  { keys: '⇧ arrows', label: 'select region' },
   { keys: '⌘Z / ⌘⇧Z', label: 'undo / redo' },
 ]
 
@@ -24,11 +27,12 @@ const TRACK_OPS: Row[] = [
   { keys: 'Ctrl ⇧ .', label: 'insert track right' },
   { keys: 'Ctrl ,', label: 'move track left' },
   { keys: 'Ctrl .', label: 'move track right' },
-  { keys: 'Ctrl C', label: 'copy track' },
-  { keys: 'Ctrl X', label: 'cut track (to pasteboard)' },
-  { keys: 'Ctrl V', label: 'paste track (right)' },
+  { keys: 'Ctrl C', label: 'copy track / selection' },
+  { keys: 'Ctrl X', label: 'cut track / selection' },
+  { keys: 'Ctrl V', label: 'paste track / selection' },
   { keys: 'Ctrl D', label: 'duplicate track' },
-  { keys: 'Ctrl ⌫', label: 'delete track (no pasteboard)' },
+  { keys: 'Ctrl ⌫', label: 'delete track' },
+  { keys: 'Del', label: 'clear cell / selection' },
   { keys: 'Ctrl ↑ / ↓', label: 'shift notes up / down' },
 ]
 

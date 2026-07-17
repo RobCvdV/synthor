@@ -27,18 +27,20 @@ export function renderInstrument(
   sampleHashById: Record<string, string> = {},
   /** Base frequency in Hz for sample pitch tracking (preview only). */
   baseFreq: number = 0,
+  /** Per-cell volume signal (0..1). Defaults to 1 (no attenuation). */
+  volume: NodeRepr_t | number = 1,
 ): StereoOut {
   switch (inst.kind) {
     case 'osc': {
       void voiceKey; void note; void baseFreq
       const env = makeAdsr(0.005, 0.12, 0.7, 0.25, gate)
       const tone = el.blepsaw(freq)
-      const out = el.mul(tone, env, inst.params.gain)
+      const out = el.mul(tone, env, inst.params.gain, volume)
       return { left: out, right: out }
     }
     case 'modular': {
       void note
-      return compileModular(inst, freq, gate, voiceKey, sampleMeta, baseFreq)
+      return compileModular(inst, freq, gate, voiceKey, sampleMeta, baseFreq, volume)
     }
     case 'drumkit': {
       void voiceKey; void freq
@@ -64,7 +66,7 @@ export function renderInstrument(
       }
 
       const masterGain = el.const({ value: inst.params.gain })
-      return { left: el.mul(mixL, masterGain), right: el.mul(mixR, masterGain) }
+      return { left: el.mul(mixL, masterGain, volume), right: el.mul(mixR, masterGain, volume) }
     }
   }
 }
