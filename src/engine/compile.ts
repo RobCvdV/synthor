@@ -1,8 +1,9 @@
-import { el } from '@elemaudio/core'
+import { el, type NodeRepr_t } from '@elemaudio/core'
 import type { Doc, Id, SampleEntity } from '../domain/types'
+import { getSlotForNote } from '../domain/types'
 import { midiToFreq } from '../domain/notes'
-import { buildSequences } from './sequences'
-import { renderInstrument } from './instruments'
+import { buildDrumKitSlotSequences, buildSequences } from './sequences'
+import { renderDrumKitSlot, renderInstrument } from './instruments'
 import type { StereoOut } from './modular'
 
 /** Build the sorted sample metadata list for sampleIndex → VFS key + channels resolution.
@@ -67,17 +68,32 @@ function compilePreview(
 
   const sampleMeta = buildSampleMeta(doc.entities.samples, vfsLoaded)
   const sampleHashById = buildSampleHashById(doc.entities.samples)
+  const zero = el.const({ value: 0 })
+
+  // Drumkit preview: each voice maps to a single slot via getSlotForNote.
+  if (inst.kind === 'drumkit') {
+    const voices = preview.voices.map((v) => {
+      const slot = getSlotForNote(inst, v.note)
+      if (!slot) return { left: zero, right: zero }
+      const voiceKey = `preview:${inst.id}:${v.note}`
+      const freq = el.const({ key: `${voiceKey}:freq`, value: midiToFreq(v.note + slot.pitchOffset) })
+      const gate = el.const({ key: `${voiceKey}:gate`, value: v.gate })
+      return renderDrumKitSlot(slot, doc.entities.instruments, gate, freq, voiceKey, sampleMeta, sampleHashById)
+    })
+    const masterGain = el.const({ value: inst.params.gain })
+    return {
+      left: el.mul(voices.reduce((a, v) => el.add(a, v.left), zero), 0.3, masterGain),
+      right: el.mul(voices.reduce((a, v) => el.add(a, v.right), zero), 0.3, masterGain),
+    }
+  }
 
   const voices = preview.voices.map((v) => {
     const voiceKey = `preview:${inst.id}:${v.note}`
     const freq = el.const({ key: `${voiceKey}:freq`, value: midiToFreq(v.note) })
     const gate = el.const({ key: `${voiceKey}:gate`, value: v.gate })
-    const note = inst.kind === 'drumkit'
-      ? el.const({ key: `${voiceKey}:note`, value: v.note })
-      : 0
+    const note = 0
     return renderInstrument(inst, freq, gate, voiceKey, sampleMeta, note, sampleHashById, midiToFreq(v.note))
   })
-  const zero = el.const({ value: 0 })
   return {
     left: el.mul(voices.reduce((a, v) => el.add(a, v.left), zero), 0.3),
     right: el.mul(voices.reduce((a, v) => el.add(a, v.right), zero), 0.3),
@@ -106,32 +122,54 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
   const sampleMeta = buildSampleMeta(doc.entities.samples, ctx.vfsLoadedHashes)
   const sampleHashById = buildSampleHashById(doc.entities.samples)
 
-  const voices = pattern.trackIds.map((trackId) => {
+  const zero = el.const({ value: 0 })
+  const voices: StereoOut[] = []
+
+  for (const trackId of pattern.trackIds) {
     const track = doc.entities.tracks[trackId]
     const inst = doc.entities.instruments[track.instrumentId]
-    const { freqSeq, gateSeq, volumeSeq, noteSeq } = buildSequences(track, pattern.length)
+    const muted = ctx.mutedTracks?.[trackId] === true
 
-    // Compute a base frequency from the first note in the track, so sample
-    // modules with pitch tracking enabled play at the right rate.
+    if (inst.kind === 'drumkit') {
+      // Per-slot sequencing: each slot gets its own gate + freq sequences.
+      const { slotGateSeqs, slotFreqSeqs } = buildDrumKitSlotSequences(track, pattern.length, inst)
+      const { volumeSeq } = buildSequences(track, pattern.length)
+      const vol = el.seq2({ key: `${trackId}:vol`, seq: volumeSeq, hold: true, loop: true }, clock, reset)
+      const masterGain = el.const({ value: inst.params.gain })
+
+      let mixL: NodeRepr_t = zero
+      let mixR: NodeRepr_t = zero
+      for (const slot of inst.slots) {
+        const slotGate = el.seq2({ key: `${trackId}:${slot.id}:gate`, seq: slotGateSeqs[slot.id], hold: true, loop: true }, clock, reset)
+        const slotFreq = el.seq2({ key: `${trackId}:${slot.id}:freq`, seq: slotFreqSeqs[slot.id], hold: true, loop: true }, clock, reset)
+        const voice = renderDrumKitSlot(slot, doc.entities.instruments, slotGate, slotFreq, trackId, sampleMeta, sampleHashById)
+        mixL = el.add(mixL, voice.left)
+        mixR = el.add(mixR, voice.right)
+      }
+
+      voices.push(muted
+        ? { left: el.mul(mixL, 0), right: el.mul(mixR, 0) }
+        : { left: el.mul(mixL, vol, masterGain), right: el.mul(mixR, vol, masterGain) },
+      )
+      continue
+    }
+
+    // Osc / modular: single instrument per track.
+    const { freqSeq, gateSeq, volumeSeq } = buildSequences(track, pattern.length)
     const firstNote = track.cells.find((c) => c.note != null)?.note
     const trackBaseFreq = firstNote != null ? midiToFreq(firstNote) : 0
 
     const freq = el.seq2({ key: `${trackId}:freq`, seq: freqSeq, hold: true, loop: true }, clock, reset)
     const gate = el.seq2({ key: `${trackId}:gate`, seq: gateSeq, hold: true, loop: true }, clock, reset)
     const vol = el.seq2({ key: `${trackId}:vol`, seq: volumeSeq, hold: true, loop: true }, clock, reset)
-    // Only drumkit instruments need the raw MIDI note signal.
-    const noteSig = inst.kind === 'drumkit'
-      ? el.seq2({ key: `${trackId}:note`, seq: noteSeq.map((n) => n ?? 0), hold: true, loop: true }, clock, reset)
-      : 0
 
-    const voice = renderInstrument(inst, freq, gate, trackId, sampleMeta, noteSig, sampleHashById, trackBaseFreq, vol)
-    const muted = ctx.mutedTracks?.[trackId] === true
-    return muted
+    const voice = renderInstrument(inst, freq, gate, trackId, sampleMeta, 0, sampleHashById, trackBaseFreq, vol)
+    voices.push(muted
       ? { left: el.mul(voice.left, 0), right: el.mul(voice.right, 0) }
-      : voice
-  })
+      : voice,
+    )
+  }
 
-  const zero = el.const({ value: 0 })
   const mixL = voices.reduce((acc, v) => el.add(acc, v.left), zero)
   const mixR = voices.reduce((acc, v) => el.add(acc, v.right), zero)
 

@@ -20,7 +20,7 @@ import type { Doc } from '../domain/types'
  * (osc-only) and new files with modular instruments both satisfy the same
  * schema. A bump is only needed for a *breaking* shape change (e.g. sections).
  */
-export const CURRENT_SCHEMA_VERSION = 3
+export const CURRENT_SCHEMA_VERSION = 4
 
 export interface SongMeta {
   name: string
@@ -81,6 +81,9 @@ export function migrate(raw: unknown): SongFile {
 
   // v2→v3: sections entity map, sectionIds on doc, volume+noteOff on cells.
   if (version < 3) raw = upgradeV2toV3(raw)
+
+  // v3→v4: drumkit slots changed from noteLo/noteHi ranges to single-note inheritance.
+  if (version < 4) raw = upgradeV3toV4(raw)
 
   // v1→v1 migration: when the stereo output was added (commit b3917fc), the
   // output module's inlet changed from 'in' to 'inL'. Old modular instruments
@@ -181,6 +184,55 @@ function upgradeV2toV3(raw: any): any {
   }
 
   return { ...raw, schemaVersion: 3, doc: { ...doc, entities, sectionIds } }
+}
+
+/** v3→v4: drumkit slots from note-range (noteLo/noteHi) to single-note inheritance. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function upgradeV3toV4(raw: any): any {
+  const insts = raw.doc?.entities?.instruments
+  if (!insts || !isRecord(insts)) return raw
+
+  let changed = false
+  const fixed: Record<string, unknown> = {}
+  for (const [id, inst] of Object.entries(insts)) {
+    if (!isRecord(inst) || inst.kind !== 'drumkit') {
+      fixed[id] = inst
+      continue
+    }
+    const oldSlots = Array.isArray(inst.slots) ? inst.slots : []
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const newSlots: any[] = []
+    for (const s of oldSlots) {
+      if (!isRecord(s)) continue
+      // Convert noteLo → note, drop noteHi. Use noteLo if present, fall back to note for forward compat.
+      const note = typeof s.noteLo === 'number' ? s.noteLo : typeof s.note === 'number' ? s.note : 36
+      newSlots.push({
+        id: typeof s.id === 'string' ? s.id : `slot_${crypto.randomUUID()}`,
+        note,
+        sampleId: typeof s.sampleId === 'string' ? s.sampleId : null,
+        instrumentId: typeof s.instrumentId === 'string' ? s.instrumentId : null,
+        pitchOffset: typeof s.pitchOffset === 'number' ? s.pitchOffset : 0,
+        gain: typeof s.gain === 'number' ? s.gain : 1,
+        pan: typeof s.pan === 'number' ? s.pan : 0,
+      })
+    }
+    // Sort by note ascending so the inheritance model is correct.
+    newSlots.sort((a: any, b: any) => a.note - b.note)
+    fixed[id] = {
+      ...inst,
+      slots: newSlots,
+      keyLo: typeof inst.keyLo === 'number' ? inst.keyLo : 36,
+      keyHi: typeof inst.keyHi === 'number' ? inst.keyHi : 60,
+    }
+    changed = true
+  }
+
+  if (!changed) return raw
+  return {
+    ...raw,
+    schemaVersion: 4,
+    doc: { ...raw.doc, entities: { ...raw.doc.entities, instruments: fixed } },
+  }
 }
 
 /**

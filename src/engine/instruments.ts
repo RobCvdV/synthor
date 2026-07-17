@@ -1,5 +1,6 @@
-import { el, type NodeRepr_t } from '@elemaudio/core'
-import type { Instrument } from '../domain/types'
+import { createNode, el, resolve, unpack, type NodeRepr_t } from '@elemaudio/core'
+import type { DrumKitSlot, Id, Instrument } from '../domain/types'
+import { midiToFreq } from '../domain/notes'
 import { compileModular, makeAdsr, type StereoOut } from './modular'
 
 /**
@@ -47,30 +48,100 @@ export function renderInstrument(
       return compileModular(inst, freq, gate, voiceKey, sampleMeta, baseFreq, volume)
     }
     case 'drumkit': {
-      void voiceKey; void freq
-      const zero = el.const({ value: 0 })
-      let mixL: NodeRepr_t = zero
-      let mixR: NodeRepr_t = zero
-
-      for (const slot of inst.slots) {
-        const path = sampleHashById[slot.sampleId]
-        if (!path) continue
-
-        const [sampleNode] = el.mc.sample(
-          { key: `${voiceKey}:${slot.id}`, path, channels: 1, playbackRate: Math.pow(2, slot.pitchOffset / 12) },
-          gate,
-        )
-        // Pan: left = gain*(1-pan)/2, right = gain*(1+pan)/2
-        const g = el.const({ value: slot.gain })
-        const p = el.const({ value: slot.pan })
-        const half = el.const({ value: 0.5 })
-        const one = el.const({ value: 1 })
-        mixL = el.add(mixL, el.mul(sampleNode, el.mul(g, el.mul(half, el.sub(one, p)))))
-        mixR = el.add(mixR, el.mul(sampleNode, el.mul(g, el.mul(half, el.add(one, p)))))
-      }
-
-      const masterGain = el.const({ value: inst.params.gain })
-      return { left: el.mul(mixL, masterGain, volume), right: el.mul(mixR, masterGain, volume) }
+      // Drumkit rendering is handled at the compile level via renderDrumKitSlot,
+      // so per-slot sequencer signals (gate + freq) can be used.
+      void voiceKey; void freq; void note; void baseFreq; void sampleMeta; void sampleHashById; void volume; void gate
+      return { left: el.const({ value: 0 }), right: el.const({ value: 0 }) }
     }
+  }
+}
+
+/**
+ * Render a single drumkit slot as a stereo pair.
+ *
+ * For sample-based slots the sample is played back with pitch tracking via a
+ * table + phasor, so the per-row frequency signal from the slot sequencer
+ * controls pitch. For instrument-based slots the assigned instrument is
+ * rendered with the slot's gate and frequency signals.
+ */
+export function renderDrumKitSlot(
+  slot: DrumKitSlot,
+  instruments: Record<Id, Instrument>,
+  slotGate: NodeRepr_t | number,
+  slotFreq: NodeRepr_t | number,
+  voiceKey: string,
+  sampleMeta: SampleMeta[],
+  sampleHashById: Record<Id, string>,
+): StereoOut {
+  const zero = el.const({ value: 0 })
+  let rawL: NodeRepr_t = zero
+  let rawR: NodeRepr_t = zero
+
+  if (slot.sampleId) {
+    const hash = sampleHashById[slot.sampleId]
+    if (hash) {
+      const meta = sampleMeta.find((s) => s.hash === hash)
+      if (meta) {
+        const key = `${voiceKey}:slot:${slot.id}:${hash}`
+        const gain = el.const({ value: 1 })
+
+        // Pitch-tracked sample playback via table + syncphasor.
+        // The per-row frequency controls playback rate relative to the
+        // slot's base note. We create a rising-edge trigger from the gate
+        // so syncphasor works with both seq2 gates (natural 0→1 edges) and
+        // constant preview gates (where a 1-sample edge is synthesised).
+        const centerFreq = midiToFreq(slot.note)
+        const rateFactor = meta.sampleRate / (meta.frames * centerFreq)
+        const rate = el.mul(slotFreq, el.const({ key: `${key}:rf`, value: rateFactor }))
+        // Rising-edge detector: trigger = max(gate - delay1(gate), 0).
+        // When gate jumps 0→1 the first sample produces a 1-sample pulse;
+        // when gate stays constant the subtraction cancels out.
+        // For pattern gates (seq2) this fires on every row trigger;
+        // for preview gates (constant 1) this fires once at note-on.
+        const delayed = el.delay({ size: 2 }, 1, 0, slotGate)
+        const trigger = el.max(el.sub(slotGate, delayed), 0)
+        const phase = el.syncphasor(rate, trigger)
+        const sampleDur = meta.frames / meta.sampleRate
+        const time = el.mul(phase, el.const({ key: `${key}:dur`, value: sampleDur }))
+        const tbl = createNode('table', {
+          key: `${key}:tbl`,
+          path: hash,
+          channels: meta.channels,
+        }, [resolve(time)])
+        const ch = unpack(tbl as NodeRepr_t, meta.channels)
+        // Fast envelope to prevent ringing after gate-off.
+        const env = makeAdsr(0.001, 0.02, 1, 0.02, slotGate)
+
+        rawL = el.mul(ch[0], gain, env)
+        rawR = meta.channels === 2 ? el.mul(ch[1], gain, env) : rawL
+      }
+    }
+  } else if (slot.instrumentId) {
+    const inst = instruments[slot.instrumentId]
+    if (inst) {
+      const voice = renderInstrument(
+        inst,
+        slotFreq,
+        slotGate,
+        `${voiceKey}:${slot.id}`,
+        sampleMeta,
+        0,
+        sampleHashById,
+        midiToFreq(slot.note),
+        1,
+      )
+      rawL = voice.left
+      rawR = voice.right
+    }
+  }
+
+  // Apply per-slot gain and constant-power pan.
+  const g = el.const({ value: slot.gain })
+  const p = el.const({ value: slot.pan })
+  const half = el.const({ value: 0.5 })
+  const one = el.const({ value: 1 })
+  return {
+    left: el.mul(rawL, g, el.mul(half, el.sub(one, p))),
+    right: el.mul(rawR, g, el.mul(half, el.add(one, p))),
   }
 }

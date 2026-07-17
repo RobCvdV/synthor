@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { applyPatches, enablePatches, type Patch, produceWithPatches } from 'immer'
-import type { Cell, Connection, Doc, Id, Instrument, Module, ModuleType, Pattern, Port, SampleEntity } from '../domain/types'
+import type { Cell, Connection, Doc, DrumKitSlot, Id, Instrument, Module, ModuleType, Pattern, Port, SampleEntity } from '../domain/types'
 import {
   cloneInstrument,
   createDefaultDoc,
@@ -97,10 +97,12 @@ interface DocState {
   removeSampleEntity: (id: Id) => void
 
   // --- Drum kit operations ---
-  addDrumKitSlot: (instrumentId: Id, noteLo: number, noteHi: number, sampleId: Id) => void
+  addDrumKitSlot: (instrumentId: Id, note: number, sampleId?: Id, slotInstrumentId?: Id) => void
   removeDrumKitSlot: (instrumentId: Id, slotId: Id) => void
-  setDrumKitSlotParam: (instrumentId: Id, slotId: Id, key: string, value: number) => void
+  setDrumKitSlotParam: (instrumentId: Id, slotId: Id, key: 'note' | 'pitchOffset' | 'gain' | 'pan', value: number) => void
+  setDrumKitSlotSource: (instrumentId: Id, slotId: Id, sampleId: Id | null, slotInstrumentId: Id | null) => void
   setDrumKitParam: (instrumentId: Id, key: string, value: number) => void
+  setDrumKitKeyRange: (instrumentId: Id, keyLo: number, keyHi: number) => void
 
   // --- Track operations (atIndex = position within the current pattern) ---
   addTrack: (atIndex: number, instrumentId: Id) => void
@@ -501,19 +503,24 @@ export const useDocStore = create<DocState>((set, get) => ({
 
   // --- Drum kit operations ---
 
-  addDrumKitSlot: (instrumentId, noteLo, noteHi, sampleId) =>
+  addDrumKitSlot: (instrumentId, note, sampleId, slotInstrumentId) =>
     get().mutate((draft) => {
       const inst = draft.entities.instruments[instrumentId]
       if (inst?.kind !== 'drumkit') return
-      inst.slots.push({
+      if (!sampleId && !slotInstrumentId) return // at least one source required
+      const slot: DrumKitSlot = {
         id: makeId('slot'),
-        noteLo,
-        noteHi,
-        sampleId,
+        note,
+        sampleId: sampleId ?? null,
+        instrumentId: slotInstrumentId ?? null,
         pitchOffset: 0,
         gain: 1,
         pan: 0,
-      })
+      }
+      // Insert in sorted position by note.
+      const idx = inst.slots.findIndex((s) => s.note > note)
+      if (idx === -1) inst.slots.push(slot)
+      else inst.slots.splice(idx, 0, slot)
     }),
 
   removeDrumKitSlot: (instrumentId, slotId) =>
@@ -529,12 +536,21 @@ export const useDocStore = create<DocState>((set, get) => ({
       if (inst?.kind !== 'drumkit') return
       const slot = inst.slots.find((s) => s.id === slotId)
       if (!slot) return
-      // Type-safe key access for the numeric slot params.
-      if (key === 'noteLo') slot.noteLo = value
-      else if (key === 'noteHi') slot.noteHi = value
-      else if (key === 'pitchOffset') slot.pitchOffset = value
-      else if (key === 'gain') slot.gain = value
-      else if (key === 'pan') slot.pan = value
+      slot[key] = value
+      // If the note changed, re-sort slots to keep them in note order.
+      if (key === 'note') {
+        inst.slots.sort((a, b) => a.note - b.note)
+      }
+    }),
+
+  setDrumKitSlotSource: (instrumentId, slotId, sampleId, slotInstrumentId) =>
+    get().mutate((draft) => {
+      const inst = draft.entities.instruments[instrumentId]
+      if (inst?.kind !== 'drumkit') return
+      const slot = inst.slots.find((s) => s.id === slotId)
+      if (!slot) return
+      slot.sampleId = sampleId
+      slot.instrumentId = slotInstrumentId
     }),
 
   setDrumKitParam: (instrumentId, key, value) =>
@@ -542,6 +558,14 @@ export const useDocStore = create<DocState>((set, get) => ({
       const inst = draft.entities.instruments[instrumentId]
       if (inst?.kind !== 'drumkit') return
       if (key in inst.params) (inst.params as Record<string, number>)[key] = value
+    }),
+
+  setDrumKitKeyRange: (instrumentId, keyLo, keyHi) =>
+    get().mutate((draft) => {
+      const inst = draft.entities.instruments[instrumentId]
+      if (inst?.kind !== 'drumkit') return
+      inst.keyLo = Math.max(0, Math.min(127, keyLo))
+      inst.keyHi = Math.max(0, Math.min(127, keyHi))
     }),
 
   // --- Pattern operations ---

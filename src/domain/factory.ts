@@ -42,9 +42,9 @@ export function newOscInstrument(name: string): OscInstrument {
   return { id: makeId('inst'), kind: 'osc', name, params: { gain: 0.8 } }
 }
 
-/** A fresh empty drum kit. */
+/** A fresh empty drum kit with a default key range of C-2 to C-4. */
 export function newDrumKitInstrument(name: string): DrumKitInstrument {
-  return { id: makeId('inst'), kind: 'drumkit', name, slots: [], params: { gain: 1 } }
+  return { id: makeId('inst'), kind: 'drumkit', name, slots: [], keyLo: 36, keyHi: 60, params: { gain: 1 } }
 }
 
 /** A new sample entity (metadata only — binary data is stored in OPFS). */
@@ -114,11 +114,15 @@ export function cloneInstrument(inst: Instrument, name: string): Instrument {
 
   if (inst.kind === 'drumkit') {
     const slots: DrumKitSlot[] = inst.slots.map((s) => ({
-      ...s,
       id: makeId('slot'),
-      sampleId: s.sampleId, // keep same sample reference
+      note: s.note,
+      sampleId: s.sampleId,
+      instrumentId: s.instrumentId ?? null,
+      pitchOffset: s.pitchOffset,
+      gain: s.gain,
+      pan: s.pan,
     }))
-    return { id: makeId('inst'), kind: 'drumkit', name, slots, params: { ...inst.params } }
+    return { id: makeId('inst'), kind: 'drumkit', name, slots, keyLo: inst.keyLo ?? 36, keyHi: inst.keyHi ?? 60, params: { ...inst.params } }
   }
 
   const idMap = new Map<string, string>()

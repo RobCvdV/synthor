@@ -105,16 +105,18 @@ export interface SampleEntity {
   frames: number
 }
 
-/** A drum kit slot: maps a MIDI note range to a sample with per-slot controls. */
+/** A drum kit slot: an assignment at a specific MIDI note.
+ *  The slot covers its own note and all higher notes up to the next slot's
+ *  note (inheritance). Slots can reference either a sample or an instrument. */
 export interface DrumKitSlot {
   id: Id
-  /** Lowest MIDI note that triggers this slot (inclusive). */
-  noteLo: number
-  /** Highest MIDI note that triggers this slot (inclusive). */
-  noteHi: number
-  /** Which sample entity to play. */
-  sampleId: Id
-  /** Pitch offset in semitones applied to playback rate. */
+  /** MIDI note where this assignment starts. */
+  note: number
+  /** Sample to play (mutually exclusive with instrumentId). */
+  sampleId: Id | null
+  /** Instrument to play (mutually exclusive with sampleId). */
+  instrumentId: Id | null
+  /** Pitch offset in semitones applied ON TOP of the tracker note. */
   pitchOffset: number
   /** Per-slot gain, 0..1. */
   gain: number
@@ -122,16 +124,33 @@ export interface DrumKitSlot {
   pan: number
 }
 
-/** A drum kit instrument: MIDI note ranges mapped to sample slots. */
+/** A drum kit instrument: key-mapped with inheritance-based ranges.
+ *  Slots are sorted by note; unassigned notes inherit from the nearest
+ *  lower assigned note. */
 export interface DrumKitInstrument {
   id: Id
   kind: 'drumkit'
   name: string
   slots: DrumKitSlot[]
+  /** Lowest note in the editable key range (default 36 = C-2). */
+  keyLo: number
+  /** Highest note in the editable key range (default 60 = C-4). */
+  keyHi: number
   params: {
     /** Master output gain, 0..1. */
     gain: number
   }
+}
+
+/** Find the slot that covers a given MIDI note (highest slot.note <= note).
+ *  Returns null when no slot is at or below the note, meaning silence. */
+export function getSlotForNote(kit: DrumKitInstrument, note: number): DrumKitSlot | null {
+  let best: DrumKitSlot | null = null
+  for (const slot of kit.slots) {
+    if (slot.note <= note) best = slot
+    else break // slots are sorted, no need to continue
+  }
+  return best
 }
 
 export type Instrument = OscInstrument | ModularInstrument | DrumKitInstrument

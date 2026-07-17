@@ -8,3 +8,5 @@ dev-dist
 coverage
 .idea/
 screenshot.png
+electron-dist
+release

@@ -1,4 +1,5 @@
-import type { Track } from '../domain/types'
+import type { DrumKitInstrument, Track } from '../domain/types'
+import { getSlotForNote } from '../domain/types'
 import { midiToFreq } from '../domain/notes'
 
 /**
@@ -45,4 +46,44 @@ export function buildSequences(track: Track, length: number): TrackSequences {
   }
 
   return { freqSeq, gateSeq, volumeSeq, noteSeq }
+}
+
+/** Per-slot sequences for a drumkit track: one gate + freq per slot. */
+export interface DrumKitSlotSequences {
+  slotGateSeqs: Record<string, number[]>
+  slotFreqSeqs: Record<string, number[]>
+}
+
+/**
+ * Build per-slot gate and frequency sequences for a drumkit track.
+ * Each row is dispatched to exactly one slot based on the cell's MIDI note
+ * (nearest slot.note <= cell.note). Rows with no note or no matching slot
+ * produce silence for that slot.
+ */
+export function buildDrumKitSlotSequences(
+  track: Track,
+  length: number,
+  drumkit: DrumKitInstrument,
+): DrumKitSlotSequences {
+  const slotGateSeqs: Record<string, number[]> = {}
+  const slotFreqSeqs: Record<string, number[]> = {}
+
+  // Initialise empty arrays for every slot.
+  for (const slot of drumkit.slots) {
+    slotGateSeqs[slot.id] = new Array(length).fill(0)
+    slotFreqSeqs[slot.id] = new Array(length).fill(0)
+  }
+
+  for (let row = 0; row < length; row++) {
+    const note = track.cells[row]?.note ?? null
+    if (note === null) continue
+
+    const slot = getSlotForNote(drumkit, note)
+    if (!slot) continue
+
+    slotGateSeqs[slot.id][row] = 1
+    slotFreqSeqs[slot.id][row] = midiToFreq(note + slot.pitchOffset)
+  }
+
+  return { slotGateSeqs, slotFreqSeqs }
 }

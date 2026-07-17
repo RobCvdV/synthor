@@ -43,12 +43,28 @@ export function InstrumentsView({ host }: { host: AudioHost }) {
   const instruments = Object.values(doc.entities.instruments)
   const [selectedId, setSelectedId] = useState<Id | null>(instruments[0]?.id ?? null)
   const [octave, setOctave] = useState(5)
+  // Track whether the user has manually adjusted the octave since the last
+  // instrument switch, so we don't fight their preference.
+  const octaveManualRef = useRef(false)
 
   // Keep a valid selection as instruments come and go.
   useEffect(() => {
     if (selectedId && doc.entities.instruments[selectedId]) return
     setSelectedId(Object.keys(doc.entities.instruments)[0] ?? null)
   }, [doc.entities.instruments, selectedId])
+
+  // Auto-adjust octave when switching instruments: drumkits default to their
+  // keyLo so the keyboard covers the full key range.
+  useEffect(() => {
+    octaveManualRef.current = false
+    if (!selectedId) return
+    // Read directly from the store to avoid depending on the reference-changing
+    // `doc.entities.instruments` object.
+    const inst = useDocStore.getState().doc.entities.instruments[selectedId]
+    if (inst?.kind === 'drumkit') {
+      setOctave(Math.floor(inst.keyLo / 12))
+    }
+  }, [selectedId])
 
   const selected = selectedId ? doc.entities.instruments[selectedId] : undefined
 
@@ -78,8 +94,8 @@ export function InstrumentsView({ host }: { host: AudioHost }) {
         panic()
         return
       }
-      if (e.code === 'Minus') { e.preventDefault(); setOctave((o) => Math.max(0, o - 1)); return }
-      if (e.code === 'Equal') { e.preventDefault(); setOctave((o) => Math.min(9, o + 1)); return }
+      if (e.code === 'Minus') { e.preventDefault(); octaveManualRef.current = true; setOctave((o) => Math.max(0, o - 1)); return }
+      if (e.code === 'Equal') { e.preventDefault(); octaveManualRef.current = true; setOctave((o) => Math.min(9, o + 1)); return }
 
       if (e.repeat) return // ignore auto-repeat: one attack per physical press
       const semi = codeToSemitone(e.code)
@@ -212,9 +228,9 @@ export function InstrumentsView({ host }: { host: AudioHost }) {
             <div className="preview-bar">
               <span className="muted">Play keys to preview</span>
               <span className="preview-oct">
-                <button onClick={() => setOctave((o) => Math.max(0, o - 1))}>oct −</button>
+                <button onClick={() => { octaveManualRef.current = true; setOctave((o) => Math.max(0, o - 1)) }}>oct −</button>
                 <span className="preview-oct-val">oct {octave}</span>
-                <button onClick={() => setOctave((o) => Math.min(9, o + 1))}>oct +</button>
+                <button onClick={() => { octaveManualRef.current = true; setOctave((o) => Math.min(9, o + 1)) }}>oct +</button>
               </span>
               <span className="spacer" />
               <span className={'preview-voices' + (activeVoices ? ' on' : '')}>{activeVoices} voice{activeVoices === 1 ? '' : 's'}</span>
