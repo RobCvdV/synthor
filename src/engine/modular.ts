@@ -335,9 +335,10 @@ export function compileModular(
 
         if (!pitchTrack || freqIn === null) {
           // No pitch tracking — fire-once trigger at static rate.
+          // Include sample hash in key so Elementary reloads when sample changes.
           const ch = el.mc.sample(
             {
-              key: `${keyPrefix}:${m.id}`,
+              key: `${keyPrefix}:${m.id}:${meta.hash}`,
               path: meta.hash,
               channels: meta.channels,
               playbackRate: baseFreq > 0 ? baseFreq / centerFreq : 1,
@@ -354,7 +355,7 @@ export function compileModular(
         // rate = freqIn * sampleRate / (frames * centerFreq)
         // At centerNote: sweeps 0→sampleDur in sampleDur seconds (1× speed).
         const rateFactor = meta.sampleRate / (meta.frames * centerFreq)
-        const rate = el.mul(freqIn, el.const({ key: `${keyPrefix}:${m.id}:rf`, value: rateFactor }))
+        const rate = el.mul(freqIn, el.const({ key: `${keyPrefix}:${m.id}:rf:${meta.hash}`, value: rateFactor }))
 
         const phase = loop
           ? el.phasor(rate)
@@ -362,8 +363,9 @@ export function compileModular(
 
         const sampleDur = meta.frames / meta.sampleRate
         const time = el.mul(phase, el.const({ key: `${keyPrefix}:${m.id}:dur`, value: sampleDur }))
+        // Include sample hash in key so Elementary reloads when sample changes.
         const tbl = createNode('table', {
-          key: `${keyPrefix}:${m.id}:tbl`,
+          key: `${keyPrefix}:${m.id}:tbl:${meta.hash}`,
           path: meta.hash,
           channels: meta.channels,
         }, [resolve(time)])
