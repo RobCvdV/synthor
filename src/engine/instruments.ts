@@ -126,7 +126,7 @@ export function renderDrumKitSlot(
 
         // One-shot gate: 1 until phase passes 1, then 0 (stays 0 until
         // the next trigger resets phase back below 1).
-        const oneShotGate = el.sub(1, el.geq(phase, el.const({ value: 0.9999 })))
+        const oneShotGate = el.sub(el.const({ value: 1 }), el.geq(phase, el.const({ value: 0.9999 })))
         const tbl = createNode('table', {
           key: `${key}:tbl`,
           path: hash,
@@ -138,7 +138,7 @@ export function renderDrumKitSlot(
         const env = makeAdsr(0.001, 0.02, 1, 0.02, oneShotGate)
 
         rawL = el.mul(ch[0], gain, env)
-        rawR = meta.channels === 2 ? el.mul(ch[1], gain, env) : rawL
+        rawR = el.mul(ch[meta.channels === 2 ? 1 : 0], gain, env)
       }
     }
   } else if (slot.instrumentId) {

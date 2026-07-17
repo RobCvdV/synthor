@@ -82,7 +82,11 @@ export function buildDrumKitSlotSequences(
     if (!slot) continue
 
     slotGateSeqs[slot.id][row] = 1
-    slotFreqSeqs[slot.id][row] = midiToFreq(note + slot.pitchOffset)
+    // Drum samples don't pitch-track to the cell note — the note only selects
+    // which slot fires. The playback speed is determined by the slot's own
+    // note + pitchOffset, so a kick always sounds like a kick regardless of
+    // which MIDI note triggers it.
+    slotFreqSeqs[slot.id][row] = midiToFreq(slot.note + slot.pitchOffset)
   }
 
   return { slotGateSeqs, slotFreqSeqs }

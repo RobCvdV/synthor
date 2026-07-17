@@ -76,7 +76,9 @@ function compilePreview(
       const slot = getSlotForNote(inst, v.note)
       if (!slot) return { left: zero, right: zero }
       const voiceKey = `preview:${inst.id}:${v.note}`
-      const freq = el.const({ key: `${voiceKey}:freq`, value: midiToFreq(v.note + slot.pitchOffset) })
+      // Drum samples don't pitch-track to the played key — the note only
+      // selects which slot fires. Playback speed = slot.note + pitchOffset.
+      const freq = el.const({ key: `${voiceKey}:freq`, value: midiToFreq(slot.note + slot.pitchOffset) })
       const gate = el.const({ key: `${voiceKey}:gate`, value: v.gate })
       return renderDrumKitSlot(slot, doc.entities.instruments, gate, freq, voiceKey, sampleMeta, sampleHashById)
     })
