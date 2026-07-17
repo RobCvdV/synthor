@@ -28,9 +28,13 @@ export async function saveCurrentSong(): Promise<void> {
 
     // If the slug changed (song was renamed), move the old directory.
     if (oldSlug && oldSlug !== newSlug) {
-      await moveSongDir(oldSlug, newSlug).catch(() => {
-        // Non-critical — if the old directory doesn't exist, just write fresh.
-      })
+      try {
+        await moveSongDir(oldSlug, newSlug)
+      } catch (err) {
+        console.error('Failed to move song directory during rename:', err)
+        // Don't fail the save — the song JSON still writes to the new slug.
+        // Samples will need to be re-imported or moved manually.
+      }
     }
 
     const slug = await writeSong(file, newSlug)

@@ -133,7 +133,9 @@ async function copyDir(
   src: FileSystemDirectoryHandle,
   dst: FileSystemDirectoryHandle,
 ): Promise<void> {
-  for await (const [name, handle] of (src as any).entries() as AsyncIterable<[string, FileSystemHandle]>) {
+  // FileSystemDirectoryHandle is async-iterable in all modern browsers,
+  // but the TypeScript DOM types lag behind — cast through unknown.
+  for await (const [name, handle] of src as unknown as AsyncIterable<[string, FileSystemHandle]>) {
     if (handle.kind === 'file') {
       const srcFile = await (handle as FileSystemFileHandle).getFile()
       const dstFile = await dst.getFileHandle(name, { create: true })
