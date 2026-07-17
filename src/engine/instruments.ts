@@ -91,23 +91,36 @@ export function renderDrumKitSlot(
         const key = `${voiceKey}:slot:${slot.id}:${hash}`
         const gain = el.const({ value: 1 })
 
-        // Pitch-tracked sample playback via table + syncphasor.
-        // The per-row frequency controls playback rate relative to the
-        // slot's base note. We create a rising-edge trigger from the gate
-        // so syncphasor works with both seq2 gates (natural 0→1 edges) and
-        // constant preview gates (where a 1-sample edge is synthesised).
+        // Pitch-tracked one-shot sample playback via table + syncphasor.
+        //
+        // Drum hits always play to completion regardless of how long the key
+        // is held. We derive a one-shot gate from the trigger whose length
+        // matches the sample duration, so the envelope gates the output to
+        // silence after one pass through the sample.
+        //
+        // The per-note frequency controls playback rate relative to the
+        // slot's base note (higher note = faster playback = higher pitch).
         const centerFreq = midiToFreq(slot.note)
+        const sampleDur = meta.frames / meta.sampleRate
         const rateFactor = meta.sampleRate / (meta.frames * centerFreq)
         const rate = el.mul(slotFreq, el.const({ key: `${key}:rf`, value: rateFactor }))
+
         // Rising-edge detector: trigger = max(gate - delay1(gate), 0).
-        // When gate jumps 0→1 the first sample produces a 1-sample pulse;
-        // when gate stays constant the subtraction cancels out.
         // For pattern gates (seq2) this fires on every row trigger;
         // for preview gates (constant 1) this fires once at note-on.
         const delayed = el.delay({ size: 2 }, 1, 0, slotGate)
         const trigger = el.max(el.sub(slotGate, delayed), 0)
+
+        // One-shot timer: a ramp 0→1 over exactly the sample duration,
+        // reset by the trigger. The resulting gate is high for sampleDur
+        // seconds after each trigger, then low — making drum hits one-shot.
+        const osPhase = el.syncphasor(
+          el.const({ key: `${key}:osRate`, value: 1 / sampleDur }),
+          trigger,
+        )
+        const oneShotGate = el.sub(1, el.geq(osPhase, el.const({ value: 0.999 })))
+
         const phase = el.syncphasor(rate, trigger)
-        const sampleDur = meta.frames / meta.sampleRate
         const time = el.mul(phase, el.const({ key: `${key}:dur`, value: sampleDur }))
         const tbl = createNode('table', {
           key: `${key}:tbl`,
@@ -115,8 +128,9 @@ export function renderDrumKitSlot(
           channels: meta.channels,
         }, [resolve(time)])
         const ch = unpack(tbl as NodeRepr_t, meta.channels)
-        // Fast envelope to prevent ringing after gate-off.
-        const env = makeAdsr(0.001, 0.02, 1, 0.02, slotGate)
+        // Fast one-shot envelope: attack immediately, sustain at 1 for the
+        // sample duration (controlled by oneShotGate), then quick release.
+        const env = makeAdsr(0.001, 0.02, 1, 0.02, oneShotGate)
 
         rawL = el.mul(ch[0], gain, env)
         rawR = meta.channels === 2 ? el.mul(ch[1], gain, env) : rawL
