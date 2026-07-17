@@ -12,6 +12,7 @@ import { InstrumentsView } from './ui/InstrumentsView'
 import { SampleLibraryView } from './ui/SampleLibraryView'
 import { loadRecent, readSong } from './persist/opfsStore'
 import { useProjectStore } from './state/projectStore'
+import { usePreviewStore } from './state/previewStore'
 
 /** True when a keystroke should go to a focused form field, not the tracker.
  *  Range sliders are excluded — they can't receive text, and we want global
@@ -78,6 +79,8 @@ export default function App() {
   const mutedTracks = useDocStore((s) => s.mutedTracks)
 
   const projectName = useProjectStore((s) => s.name)
+  const noteOn = usePreviewStore((s) => s.noteOn)
+  const noteOff = usePreviewStore((s) => s.noteOff)
   const playing = useTransportStore((s) => s.playing)
   const bpm = useTransportStore((s) => s.bpm)
   const linesPerBeat = useTransportStore((s) => s.linesPerBeat)
@@ -441,12 +444,25 @@ export default function App() {
         if (semi !== undefined && trackId) {
           e.preventDefault()
           setSelection(null)
-          setCellNote(trackId, cur.row, octaveRef.current * 12 + semi)
+          const note = octaveRef.current * 12 + semi
+          setCellNote(trackId, cur.row, note)
+          // One-shot preview when editing while stopped: briefly trigger the
+          // track's instrument so the user hears what they're entering.
+          if (!useTransportStore.getState().playing) {
+            const doc = useDocStore.getState().doc
+            const instId = doc.entities.tracks[trackId]?.instrumentId
+            if (instId) {
+              void host.start().then(() => {
+                noteOn(instId, note)
+                setTimeout(() => noteOff(note), 120)
+              })
+            }
+          }
           setCursor((c) => ({ ...c, row: (c.row + 1) % pattern.length }))
         }
       }
     },
-    [view, pattern, host, toggle, undo, redo, setCellNote, setCellNoteOff, setCellVolume, addTrack, removeTrack, moveTrack, copyTrack, pasteTrack, duplicateTrack, shiftTrack, toggleMute, copyRect, cutRect, pasteRect],
+    [view, pattern, host, toggle, undo, redo, setCellNote, setCellNoteOff, setCellVolume, addTrack, removeTrack, moveTrack, copyTrack, pasteTrack, duplicateTrack, shiftTrack, toggleMute, copyRect, cutRect, pasteRect, noteOn, noteOff],
   )
 
   useEffect(() => {
