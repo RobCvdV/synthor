@@ -12,6 +12,10 @@ import { compileModular, makeAdsr, type StereoOut } from './modular'
 export interface SampleMeta {
   hash: string
   channels: number
+  /** Sample rate in Hz (e.g. 44100). */
+  sampleRate: number
+  /** Total frames per channel. */
+  frames: number
 }
 
 export function renderInstrument(

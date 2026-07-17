@@ -41,13 +41,14 @@ export function useEngine(): AudioHost {
 
   useEffect(() => {
     let frame = 0
-    const slug = slugify(useProjectStore.getState().name)
 
     const render = () => {
       frame = 0
       if (!host.isReady) return
 
       const { doc, mutedTracks } = useDocStore.getState()
+      // Read slug fresh each render — it changes when a different song is loaded.
+      const slug = slugify(useProjectStore.getState().name)
 
       // If samples changed, start loading them into VFS. The render happens
       // after the VFS is ready so Elementary doesn't reject unknown paths.

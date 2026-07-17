@@ -10,11 +10,11 @@ import type { StereoOut } from './modular'
 function buildSampleMeta(
   samples: Record<Id, SampleEntity>,
   vfsLoaded?: Set<string>,
-): { hash: string; channels: number }[] {
+): { hash: string; channels: number; sampleRate: number; frames: number }[] {
   return Object.values(samples)
     .filter((s) => !vfsLoaded || vfsLoaded.has(s.hash))
     .sort((a, b) => a.name.localeCompare(b.name))
-    .map((s) => ({ hash: s.hash, channels: s.channels }))
+    .map((s) => ({ hash: s.hash, channels: s.channels, sampleRate: s.sampleRate, frames: s.frames }))
 }
 
 /** Build a sampleId → hash lookup for drumkit slot resolution. */
@@ -111,6 +111,11 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
     const inst = doc.entities.instruments[track.instrumentId]
     const { freqSeq, gateSeq, volumeSeq, noteSeq } = buildSequences(track, pattern.length)
 
+    // Compute a base frequency from the first note in the track, so sample
+    // modules with pitch tracking enabled play at the right rate.
+    const firstNote = track.cells.find((c) => c.note != null)?.note
+    const trackBaseFreq = firstNote != null ? midiToFreq(firstNote) : 0
+
     const freq = el.seq2({ key: `${trackId}:freq`, seq: freqSeq, hold: true, loop: true }, clock, reset)
     const gate = el.seq2({ key: `${trackId}:gate`, seq: gateSeq, hold: true, loop: true }, clock, reset)
     const vol = el.seq2({ key: `${trackId}:vol`, seq: volumeSeq, hold: true, loop: true }, clock, reset)
@@ -119,7 +124,7 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
       ? el.seq2({ key: `${trackId}:note`, seq: noteSeq.map((n) => n ?? 0), hold: true, loop: true }, clock, reset)
       : 0
 
-    const voice = renderInstrument(inst, freq, gate, trackId, sampleMeta, noteSig, sampleHashById, 0, vol)
+    const voice = renderInstrument(inst, freq, gate, trackId, sampleMeta, noteSig, sampleHashById, trackBaseFreq, vol)
     const muted = ctx.mutedTracks?.[trackId] === true
     return muted
       ? { left: el.mul(voice.left, 0), right: el.mul(voice.right, 0) }

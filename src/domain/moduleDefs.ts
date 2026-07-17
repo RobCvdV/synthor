@@ -186,6 +186,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
       { key: 'loop', label: 'Loop', min: 0, max: 1, default: 0, step: 1, enumLabels: ['off', 'on'] },
       { key: 'loopStart', label: 'Loop start', min: 0, max: 1_000_000, default: 0, step: 1 },
       { key: 'pitchTrack', label: 'Pitch track', min: 0, max: 1, default: 0, step: 1, enumLabels: ['off', 'on'] },
+      { key: 'centerNote', label: 'Root note', min: 0, max: 127, default: 60, step: 1 },
       { key: 'gain', label: 'Level', min: 0, max: 2, default: 1, step: 0.01 },
     ],
   },

@@ -1,6 +1,7 @@
-import { el, type NodeRepr_t } from '@elemaudio/core'
+import { createNode, el, resolve, unpack, type NodeRepr_t } from '@elemaudio/core'
 import type { Connection, Module, ModularInstrument } from '../domain/types'
 import { FILTER_MODES } from '../domain/moduleDefs'
+import { midiToFreq } from '../domain/notes'
 import type { SampleMeta } from './instruments'
 
 type Node = NodeRepr_t | number
@@ -319,6 +320,7 @@ export function compileModular(
 
       case 'sample': {
         const gateSig = inlet(m.id, 'gate') ?? SILENCE
+        const freqIn = inlet(m.id, 'freq')
 
         // Resolve sample index → VFS path (hash) + channel count.
         const idx = Math.round(p.sampleIndex ?? 0)
@@ -326,32 +328,53 @@ export function compileModular(
         if (!meta?.hash) return SILENCE
 
         const pitchTrack = Math.round(p.pitchTrack ?? 0)
+        const loop = Math.round(p.loop ?? 0)
+        const centerNote = Math.round(p.centerNote ?? 60)
+        const centerFreq = midiToFreq(centerNote)
         const gain = kconst(key('gain'), p.gain ?? 1)
 
-        // Per-note playback rate (e.g. preview keyboard): scale so middle C
-        // (261.6 Hz) plays at 1×.  Falls back to 1 when unknown (sequencer).
-        const rate = pitchTrack && baseFreq > 0
-          ? baseFreq / 261.6256
-          : 1
-
-        const ch = el.mc.sample(
-          {
-            key: `${keyPrefix}:${m.id}`,
-            path: meta.hash,
-            channels: meta.channels,
-            playbackRate: rate,
-          },
-          gateSig,
-        )
-
-        if (meta.channels === 2) {
-          memo.set(`${m.id}:outR`, el.mul(ch[1], gain))
-          return el.mul(ch[0], gain)
+        if (!pitchTrack || freqIn === null) {
+          // No pitch tracking — fire-once trigger at static rate.
+          const ch = el.mc.sample(
+            {
+              key: `${keyPrefix}:${m.id}`,
+              path: meta.hash,
+              channels: meta.channels,
+              playbackRate: baseFreq > 0 ? baseFreq / centerFreq : 1,
+            },
+            gateSig,
+          )
+          const out = el.mul(ch[0], gain)
+          if (meta.channels === 2) memo.set(`${m.id}:outR`, el.mul(ch[1], gain))
+          else memo.set(`${m.id}:outR`, out)
+          return out
         }
 
-        const out = el.mul(ch[0], gain)
-        memo.set(`${m.id}:outR`, out)
-        return out
+        // Pitch-tracked: table + phasor for real frequency modulation.
+        // rate = freqIn * sampleRate / (frames * centerFreq)
+        // At centerNote: sweeps 0→sampleDur in sampleDur seconds (1× speed).
+        const rateFactor = meta.sampleRate / (meta.frames * centerFreq)
+        const rate = el.mul(freqIn, el.const({ key: `${keyPrefix}:${m.id}:rf`, value: rateFactor }))
+
+        const phase = loop
+          ? el.phasor(rate)
+          : el.syncphasor(rate, gateSig)
+
+        const sampleDur = meta.frames / meta.sampleRate
+        const time = el.mul(phase, el.const({ key: `${keyPrefix}:${m.id}:dur`, value: sampleDur }))
+        const tbl = createNode('table', {
+          key: `${keyPrefix}:${m.id}:tbl`,
+          path: meta.hash,
+          channels: meta.channels,
+        }, [resolve(time)])
+        const ch = unpack(tbl as NodeRepr_t, meta.channels)
+
+        // Gate with a fast envelope so the sample doesn't ring after release.
+        const env = makeAdsr(0.001, 0.05, 1, 0.05, gateSig)
+        const outL = el.mul(ch[0], gain, env)
+        if (meta.channels === 2) memo.set(`${m.id}:outR`, el.mul(ch[1], gain, env))
+        else memo.set(`${m.id}:outR`, outL)
+        return outL
       }
 
       // output is evaluated per-channel at the top level — render() for the
