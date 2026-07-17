@@ -161,12 +161,13 @@ export function renderDrumKitSlot(
   }
 
   // Apply per-slot gain and constant-power pan.
+  // Pan gains are computed in JS (static per slot) to keep the Elementary
+  // graph simple and avoid any nesting issues with el.add/el.sub.
   const g = el.const({ value: slot.gain })
-  const p = el.const({ value: slot.pan })
-  const half = el.const({ value: 0.5 })
-  const one = el.const({ value: 1 })
+  const panL = el.const({ value: 0.5 * (1 - slot.pan) })
+  const panR = el.const({ value: 0.5 * (1 + slot.pan) })
   return {
-    left: el.mul(rawL, g, el.mul(half, el.sub(one, p))),
-    right: el.mul(rawR, g, el.mul(half, el.add(one, p))),
+    left: el.mul(rawL, g, panL),
+    right: el.mul(rawR, g, panR),
   }
 }
