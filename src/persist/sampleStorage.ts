@@ -65,6 +65,26 @@ export async function readSampleAsset(
   return file.arrayBuffer()
 }
 
+/** Write raw sample bytes (from an ArrayBuffer, e.g. from a zip import). */
+export async function writeSampleData(
+  slug: string,
+  hash: string,
+  data: ArrayBuffer,
+): Promise<void> {
+  const { dir } = await samplesDir(slug)
+  // Skip if already present — content-addressed, same hash = same data.
+  try {
+    await dir.getFileHandle(`${hash}.bin`)
+    return
+  } catch {
+    // Not found — proceed with write.
+  }
+  const fh = await dir.getFileHandle(`${hash}.bin`, { create: true })
+  const writable = await fh.createWritable()
+  await writable.write(data)
+  await writable.close()
+}
+
 /** Delete a stored sample by hash. No-op if not found. */
 export async function deleteSampleAsset(slug: string, hash: string): Promise<void> {
   const { dir } = await samplesDir(slug)

@@ -765,3 +765,120 @@ body {
   width: 12px;
   text-align: center;
 }
+
+/* --- Sample Library View --- */
+
+.sample-library-view {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 24px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.slv-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.slv-toolbar button {
+  background: #222;
+  color: var(--fg);
+  border: 1px solid #333;
+  padding: 4px 12px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+
+.slv-toolbar button:hover {
+  background: #2a2a2a;
+}
+
+.slv-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  gap: 4px;
+}
+
+.slv-empty p { margin: 0; }
+
+.slv-table-wrap {
+  flex: 1;
+  min-height: 0;
+}
+
+.slv-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.slv-table th {
+  text-align: left;
+  padding: 6px 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  border-bottom: 1px solid #222;
+}
+
+.slv-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid #1a1a1a;
+  vertical-align: middle;
+}
+
+.slv-table tbody tr:hover {
+  background: #1a1d24;
+}
+
+.slv-name-input {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  padding: 2px 4px;
+  width: 100%;
+  border-radius: 2px;
+}
+
+.slv-name-input:hover {
+  border-color: #333;
+}
+
+.slv-name-input:focus {
+  border-color: var(--accent);
+  outline: none;
+  background: #0e1014;
+}
+
+.slv-original {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.slv-delete {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 16px;
+  padding: 2px 6px;
+  line-height: 1;
+}
+
+.slv-delete:hover {
+  color: #e55;
+}

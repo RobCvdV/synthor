@@ -3,7 +3,6 @@ import { useDocStore } from '../state/docStore'
 import { useProjectStore } from '../state/projectStore'
 import { loadAudioFile } from '../audio/sampleLoader'
 import { writeSampleAsset, deleteSampleAsset } from '../persist/sampleStorage'
-import { slugify } from '../persist/opfsStore'
 import { newSampleEntity } from '../domain/factory'
 
 /** Import and manage audio samples. File picker + list with delete. */
@@ -12,8 +11,7 @@ export function SampleLibrary() {
   const samples = useMemo(() => Object.values(sampleEntities), [sampleEntities])
   const removeSampleEntity = useDocStore((s) => s.removeSampleEntity)
   const addSampleEntity = useDocStore((s) => s.addSampleEntity)
-  const projectName = useProjectStore((s) => s.name)
-  const slug = slugify(projectName)
+  const slug = useProjectStore((s) => s.slug)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const doImport = useCallback(async () => {

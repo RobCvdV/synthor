@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { createDefaultDoc } from '../domain/factory'
 import { deleteSong, isOpfsSupported, listSongs, readSong, saveRecent } from '../persist/opfsStore'
 import { currentSongFile, saveCurrentSong } from '../persist/saveCurrent'
-import { deserializeSong, serializeSong, type SongFile } from '../persist/serialize'
+import { serializeSong, type SongFile } from '../persist/serialize'
+import { exportSongZip, importSongZip } from '../persist/songExport'
 import { useDocStore } from '../state/docStore'
 import { useProjectStore } from '../state/projectStore'
 
@@ -27,9 +28,9 @@ export function ProjectBar() {
   useEffect(refreshList, [refreshList])
 
   const loadFile = useCallback(
-    (file: SongFile) => {
+    (file: SongFile, slug?: string) => {
       loadDoc(file.doc)
-      reset(file.meta.name, file.meta.createdAt)
+      reset(file.meta.name, file.meta.createdAt, slug)
     },
     [loadDoc, reset],
   )
@@ -44,7 +45,7 @@ export function ProjectBar() {
     if (!slug) return
     const file = await readSong(slug)
     if (file) {
-      loadFile(file)
+      loadFile(file, slug)
       await saveRecent(slug) // remember for next startup
     }
   }
@@ -55,7 +56,27 @@ export function ProjectBar() {
     refreshList()
   }
 
-  const exportSong = () => {
+  const slug = useProjectStore((s) => s.slug)
+
+  /** Export as self-contained .synthor zip (song.json + sample binaries). */
+  const exportSongZipAction = async () => {
+    try {
+      const file = currentSongFile()
+      const blob = await exportSongZip(file, slug)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${name || 'song'}.synthor`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error('Export failed:', err)
+      alert(`Export failed: ${(err as Error).message}`)
+    }
+  }
+
+  /** Lightweight JSON-only export (no sample data). */
+  const exportSongJson = () => {
     const file = currentSongFile()
     const blob = new Blob([serializeSong(file)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
@@ -66,13 +87,17 @@ export function ProjectBar() {
     URL.revokeObjectURL(url)
   }
 
-  const importSong = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  /** Import a .synthor (zip) or .json file. Auto-detects format. */
+  const importSongAction = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]
     e.target.value = '' // allow re-importing the same file
     if (!f) return
     try {
-      loadFile(deserializeSong(await f.text()))
+      const data = await f.arrayBuffer()
+      const result = await importSongZip(data, slug)
+      loadFile(result.file, slug)
     } catch (err) {
+      console.error('Import failed:', err)
       alert(`Could not import song: ${(err as Error).message}`)
     }
   }
@@ -107,14 +132,15 @@ export function ProjectBar() {
       {opfs && (
         <button onClick={() => void saveCurrentSong().then(refreshList).catch(() => {})}>Save</button>
       )}
-      <button onClick={exportSong}>Export</button>
+      <button onClick={exportSongZipAction} title="Export as .synthor (includes samples)">Export</button>
+      <button onClick={exportSongJson} title="JSON only, no sample data">Export JSON</button>
       <button onClick={() => fileInput.current?.click()}>Import</button>
       <input
         ref={fileInput}
         type="file"
-        accept=".json,application/json"
+        accept=".synthor,.json,application/json,application/zip"
         hidden
-        onChange={(e) => void importSong(e)}
+        onChange={(e) => void importSongAction(e)}
       />
       {opfs && songs.length > 0 && (
         <select

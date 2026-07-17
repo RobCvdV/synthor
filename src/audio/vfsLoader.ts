@@ -29,7 +29,10 @@ export async function syncSamplesToVfs(
 
   for (const s of samples) {
     const raw = await readSampleAsset(slug, s.hash)
-    if (!raw) continue
+    if (!raw) {
+      console.warn(`Sample "${s.name}" (hash ${s.hash.slice(0, 8)}…) not found in OPFS — skipping VFS load`)
+      continue
+    }
 
     try {
       const ctx = sharedCtx()

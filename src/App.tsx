@@ -9,6 +9,7 @@ import { SongBar } from './ui/SongBar'
 import { ProjectBar } from './ui/ProjectBar'
 import { Legend } from './ui/Legend'
 import { InstrumentsView } from './ui/InstrumentsView'
+import { SampleLibraryView } from './ui/SampleLibraryView'
 import { loadRecent, readSong } from './persist/opfsStore'
 import { useProjectStore } from './state/projectStore'
 
@@ -48,9 +49,8 @@ export default function App() {
           if (firstPat) doc = { ...doc, patternId: firstPat }
         }
         // Update project identity BEFORE loading the doc, so the autosave that
-        // fires on loadDoc uses the right song name + doesn't overwrite the
-        // recent slug with "untitled".
-        useProjectStore.getState().reset(file.meta.name, file.meta.createdAt)
+        // fires on loadDoc uses the right song name + stable slug.
+        useProjectStore.getState().reset(file.meta.name, file.meta.createdAt, slug)
         useDocStore.getState().loadDoc(doc)
       } catch (err) {
         console.error('Failed to load recent song:', err)
@@ -88,7 +88,7 @@ export default function App() {
   const [selection, setSelection] = useState<Selection | null>(null)
   const [octave, setOctave] = useState(5)
   const [playhead, setPlayhead] = useState<number | null>(null)
-  const [view, setView] = useState<'tracker' | 'instruments'>('tracker')
+  const [view, setView] = useState<'tracker' | 'instruments' | 'samples'>('tracker')
 
   const cursorRef = useRef(cursor)
   cursorRef.current = cursor
@@ -167,9 +167,9 @@ export default function App() {
         return
       }
 
-      // In the instruments view the tracker keymap is inert (transport + undo
-      // above still work globally); form fields handle their own keys.
-      if (view === 'instruments') return
+      // In the instruments / samples views the tracker keymap is inert (transport
+      // + undo above still work globally); form fields handle their own keys.
+      if (view !== 'tracker') return
 
       // Mute toggle: F1..F12 -> tracks 1..12 (when they exist).
       const fkey = /^F([1-9]|1[0-2])$/.exec(e.code)
@@ -476,6 +476,12 @@ export default function App() {
         >
           Instruments
         </button>
+        <button
+          className={'octbtn' + (view === 'samples' ? ' active' : '')}
+          onClick={() => setView('samples')}
+        >
+          Samples
+        </button>
         {view === 'tracker' && (
           <>
             <button className="octbtn" onClick={() => setOctave((o) => Math.max(0, o - 1))}>oct −</button>
@@ -492,9 +498,13 @@ export default function App() {
           </main>
           <Legend />
         </div>
-      ) : (
+      ) : view === 'instruments' ? (
         <div className="layout">
           <InstrumentsView host={host} />
+        </div>
+      ) : (
+        <div className="layout">
+          <SampleLibraryView />
         </div>
       )}
     </div>

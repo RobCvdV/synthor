@@ -20,7 +20,8 @@ export async function saveCurrentSong(): Promise<void> {
   const project = useProjectStore.getState()
   project.markSaving()
   try {
-    const slug = await writeSong(file)
+    // Use the stable slug — never re-derive from name which may have changed.
+    const slug = await writeSong(file, project.slug)
     // Remember this song so it auto-loads on the next startup.
     await saveRecent(slug)
     useProjectStore.getState().markSaved(file.meta.modifiedAt)

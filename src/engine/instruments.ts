@@ -79,8 +79,14 @@ export function renderDrumKitSlot(
 
   if (slot.sampleId) {
     const hash = sampleHashById[slot.sampleId]
+    if (!hash) {
+      console.warn(`Drumkit slot "${slot.id}" references unknown sample "${slot.sampleId}" — no hash found`)
+    }
     if (hash) {
       const meta = sampleMeta.find((s) => s.hash === hash)
+      if (!meta) {
+        console.warn(`Sample hash "${hash.slice(0, 8)}…" (slot "${slot.id}") not loaded in VFS — sample may be missing from OPFS`)
+      }
       if (meta) {
         const key = `${voiceKey}:slot:${slot.id}:${hash}`
         const gain = el.const({ value: 1 })

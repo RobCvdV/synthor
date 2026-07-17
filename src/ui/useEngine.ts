@@ -5,7 +5,6 @@ import { syncSamplesToVfs } from '../audio/vfsLoader'
 import { useDocStore } from '../state/docStore'
 import { usePreviewStore } from '../state/previewStore'
 import { useProjectStore } from '../state/projectStore'
-import { slugify } from '../persist/opfsStore'
 import { rowHz, useTransportStore } from '../state/transportStore'
 
 /**
@@ -48,7 +47,7 @@ export function useEngine(): AudioHost {
 
       const { doc, mutedTracks } = useDocStore.getState()
       // Read slug fresh each render — it changes when a different song is loaded.
-      const slug = slugify(useProjectStore.getState().name)
+      const slug = useProjectStore.getState().slug
 
       // If samples changed, start loading them into VFS. The render happens
       // after the VFS is ready so Elementary doesn't reject unknown paths.

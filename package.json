@@ -21,6 +21,7 @@
     "@elemaudio/core": "^4.0.1",
     "@elemaudio/web-renderer": "^4.0.3",
     "@xyflow/react": "^12.11.2",
+    "fflate": "^0.8.3",
     "immer": "^11.1.11",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",

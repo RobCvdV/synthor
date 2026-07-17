@@ -37,7 +37,7 @@ function createWindow(): void {
 
   if (isDev) {
     // Vite dev server — use the ELECTRON_DEV_PORT env var or default to 5173.
-    const port = process.env.ELECTRON_DEV_PORT || '5173'
+    const port = process.env.ELECTRON_DEV_PORT || '5193'
     void win.loadURL(`http://localhost:${port}`)
     win.webContents.openDevTools({ mode: 'detach' })
   } else {

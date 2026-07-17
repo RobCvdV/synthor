@@ -95,6 +95,7 @@ interface DocState {
   // --- Sample management ---
   addSampleEntity: (entity: SampleEntity) => void
   removeSampleEntity: (id: Id) => void
+  renameSample: (id: Id, name: string) => void
 
   // --- Drum kit operations ---
   addDrumKitSlot: (instrumentId: Id, note: number, sampleId?: Id, slotInstrumentId?: Id) => void
@@ -499,6 +500,13 @@ export const useDocStore = create<DocState>((set, get) => ({
         }
       }
       delete draft.entities.samples[id]
+    }),
+
+  renameSample: (id, name) =>
+    get().mutate((draft) => {
+      const sample = draft.entities.samples[id]
+      if (!sample) return
+      sample.name = name.trim()
     }),
 
   // --- Drum kit operations ---
