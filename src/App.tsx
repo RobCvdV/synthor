@@ -82,6 +82,7 @@ export default function App() {
   const noteOn = usePreviewStore((s) => s.noteOn)
   const noteOff = usePreviewStore((s) => s.noteOff)
   const playing = useTransportStore((s) => s.playing)
+  const startTime = useTransportStore((s) => s.startTime)
   const bpm = useTransportStore((s) => s.bpm)
   const linesPerBeat = useTransportStore((s) => s.linesPerBeat)
   const toggle = useTransportStore((s) => s.toggle)
@@ -109,8 +110,8 @@ export default function App() {
     setCursor((c) => (c.track >= trackCount ? { ...c, track: Math.max(0, trackCount - 1) } : c))
   }, [trackCount])
 
-  // Visual playhead: derived from the shared AudioContext clock while playing.
-  // (A known approximation — will be replaced by an el.snapshot tap later.)
+  // Visual playhead: derived from the AudioContext clock, aligned to the
+  // moment playback started so it always begins at row 0.
   useEffect(() => {
     if (!playing) {
       setPlayhead(null)
@@ -118,12 +119,13 @@ export default function App() {
     }
     let raf = 0
     const tick = () => {
-      setPlayhead(Math.floor(host.currentTime * rowHz(bpm, linesPerBeat)) % pattern.length)
+      const elapsed = host.currentTime - startTime
+      setPlayhead(Math.floor(elapsed * rowHz(bpm, linesPerBeat)) % pattern.length)
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [playing, bpm, linesPerBeat, pattern.length, host])
+  }, [playing, startTime, bpm, linesPerBeat, pattern.length, host])
 
   /** Count of tracks in the current pattern right now (post-mutation reads). */
   const liveTrackCount = () => useDocStore.getState().doc.entities.patterns[doc.patternId].trackIds.length
@@ -158,7 +160,7 @@ export default function App() {
       // Transport (spacebar) — also the user gesture that boots audio.
       if (e.code === 'Space' && !e.ctrlKey && !e.metaKey) {
         e.preventDefault()
-        void host.start().then(toggle)
+        void host.start().then(() => toggle(host.currentTime))
         return
       }
 
@@ -349,8 +351,9 @@ export default function App() {
       if (e.code === 'Minus') { e.preventDefault(); setOctave((o) => Math.max(0, o - 1)); return }
       if (e.code === 'Equal') { e.preventDefault(); setOctave((o) => Math.min(9, o + 1)); return }
 
-      // Clear cell (or selection).
-      if (e.code === 'Delete') {
+      // Clear cell (or selection) — Delete or Backspace without modifiers.
+      // Ctrl+Backspace (delete track) is handled earlier in the Ctrl section.
+      if (e.code === 'Delete' || e.code === 'Backspace') {
         e.preventDefault()
         const sel = selectionRef.current
         if (sel) {

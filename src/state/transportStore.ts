@@ -9,10 +9,12 @@ interface TransportState {
   bpm: number
   /** Rows per beat (4 = sixteenth-note grid). */
   linesPerBeat: number
+  /** AudioContext.currentTime when playback was last started (for playhead alignment). */
+  startTime: number
 
-  play: () => void
+  play: (atTime: number) => void
   stop: () => void
-  toggle: () => void
+  toggle: (atTime: number) => void
   setBpm: (bpm: number) => void
 }
 
@@ -20,10 +22,11 @@ export const useTransportStore = create<TransportState>((set) => ({
   playing: false,
   bpm: 120,
   linesPerBeat: 4,
+  startTime: 0,
 
-  play: () => set({ playing: true }),
+  play: (atTime) => set({ playing: true, startTime: atTime }),
   stop: () => set({ playing: false }),
-  toggle: () => set((s) => ({ playing: !s.playing })),
+  toggle: (atTime) => set((s) => ({ playing: !s.playing, startTime: s.playing ? s.startTime : atTime })),
   setBpm: (bpm) => set({ bpm }),
 }))
 
