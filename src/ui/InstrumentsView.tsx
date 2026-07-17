@@ -3,7 +3,6 @@ import { useDocStore } from '../state/docStore'
 import { usePreviewStore } from '../state/previewStore'
 import { codeToSemitone } from './keymap'
 import { ModularEditor } from './ModularEditor'
-import { SampleLibrary } from './SampleLibrary'
 import { DrumKitEditor } from './DrumKitEditor'
 import { cloneInstrument } from '../domain/factory'
 import type { AudioHost } from '../audio/host'
@@ -192,7 +191,6 @@ export function InstrumentsView({ host }: { host: AudioHost }) {
             )
           })}
         </ul>
-        <SampleLibrary />
       </aside>
 
       <section className="inst-editor">
