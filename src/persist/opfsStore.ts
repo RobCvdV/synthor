@@ -96,6 +96,58 @@ export async function deleteSong(slug: string): Promise<void> {
   }
 }
 
+/**
+ * Rename a song directory — merges old data into the new slug directory.
+ *
+ * New samples may have already been written to the new slug (because the
+ * slug follows the name in real-time), so we merge rather than replace.
+ * Content-addressed samples (unique hashes) won't collide; `song.json`
+ * from the old directory is overwritten by the subsequent `writeSong`.
+ */
+export async function moveSongDir(oldSlug: string, newSlug: string): Promise<void> {
+  if (oldSlug === newSlug) return
+  const dir = await songsDir(false)
+
+  // Try native move first (Chromium 125+, Firefox). Native move fails if
+  // the target already exists, which is the common case here — but it's
+  // atomic and fast, so try it anyway.
+  try {
+    await (dir as any).move?.(oldSlug, newSlug)
+    return
+  } catch { /* target likely exists, fall through to merge */ }
+
+  // Merge: copy old → new (skip existing), then delete old.
+  let srcDir: FileSystemDirectoryHandle
+  try {
+    srcDir = await dir.getDirectoryHandle(oldSlug)
+  } catch {
+    return // old slug doesn't exist — nothing to move
+  }
+  const dstDir = await dir.getDirectoryHandle(newSlug, { create: true })
+  await copyDir(srcDir, dstDir)
+  await dir.removeEntry(oldSlug, { recursive: true })
+}
+
+/** Recursively copy all entries from src to dst directory handle. */
+async function copyDir(
+  src: FileSystemDirectoryHandle,
+  dst: FileSystemDirectoryHandle,
+): Promise<void> {
+  for await (const [name, handle] of (src as any).entries() as AsyncIterable<[string, FileSystemHandle]>) {
+    if (handle.kind === 'file') {
+      const srcFile = await (handle as FileSystemFileHandle).getFile()
+      const dstFile = await dst.getFileHandle(name, { create: true })
+      const w = await dstFile.createWritable()
+      await w.write(await srcFile.arrayBuffer())
+      await w.close()
+    } else if (handle.kind === 'directory') {
+      const subSrc = await src.getDirectoryHandle(name)
+      const subDst = await dst.getDirectoryHandle(name, { create: true })
+      await copyDir(subSrc, subDst)
+    }
+  }
+}
+
 function isNotFound(err: unknown): boolean {
   return err instanceof DOMException && err.name === 'NotFoundError'
 }
