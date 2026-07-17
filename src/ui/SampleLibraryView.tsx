@@ -7,7 +7,10 @@ import { newSampleEntity } from '../domain/factory'
 
 /** Full-screen sample library — browse, rename, import, and delete samples. */
 export function SampleLibraryView() {
-  const samples = useDocStore((s) => Object.values(s.doc.entities.samples))
+  // Read the raw record from the store — never call Object.values() inside a
+  // Zustand selector (it creates a new array every call → infinite re-render).
+  const sampleMap = useDocStore((s) => s.doc.entities.samples)
+  const samples = Object.values(sampleMap)
   const addSampleEntity = useDocStore((s) => s.addSampleEntity)
   const removeSampleEntity = useDocStore((s) => s.removeSampleEntity)
   const renameSample = useDocStore((s) => s.renameSample)
