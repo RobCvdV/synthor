@@ -349,6 +349,8 @@ body {
   white-space: pre;
   display: flex;
   gap: 2px;
+  user-select: none;
+  -webkit-user-select: none;
 }
 .cell.rownum { width: 40px; color: var(--muted); display: block; }
 .cell.cursor { background: var(--cursor); border-radius: 3px; }

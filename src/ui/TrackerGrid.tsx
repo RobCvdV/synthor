@@ -164,7 +164,7 @@ export function TrackerGrid({ doc, pattern, cursor, playhead, muted, selection, 
               <span
                 key={t.id}
                 className={'cell' + (active ? ' cursor' : '') + (sel ? ' selected' : '') + mutedClass + (noteOff ? ' noteoff' : '')}
-                onMouseDown={(e) => onCellClick(row, ti, e.shiftKey)}
+                onMouseDown={(e) => { e.preventDefault(); onCellClick(row, ti, e.shiftKey) }}
               >
                 <span className={'cell-note' + (noteActive ? ' sub-active' : '')}>{noteLabel}</span>
                 <span className={'cell-vol' + (volActive ? ' sub-active' : '')}>{volLabel}</span>
