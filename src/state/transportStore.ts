@@ -11,10 +11,14 @@ interface TransportState {
   linesPerBeat: number
   /** AudioContext.currentTime when playback was last started (for playhead alignment). */
   startTime: number
+  /** Pattern row at which playback started (0 = top, or cursor row for play-from-cursor). */
+  startRow: number
+  /** Incremented on each play start so the audio graph gets fresh clock/seq2 nodes. */
+  playEpoch: number
 
-  play: (atTime: number) => void
+  play: (atTime: number, startRow?: number) => void
   stop: () => void
-  toggle: (atTime: number) => void
+  toggle: (atTime: number, startRow?: number) => void
   setBpm: (bpm: number) => void
 }
 
@@ -23,10 +27,22 @@ export const useTransportStore = create<TransportState>((set) => ({
   bpm: 120,
   linesPerBeat: 4,
   startTime: 0,
+  startRow: 0,
+  playEpoch: 0,
 
-  play: (atTime) => set({ playing: true, startTime: atTime }),
+  play: (atTime, startRow = 0) => set((s) => ({
+    playing: true,
+    startTime: atTime,
+    startRow,
+    playEpoch: s.playEpoch + 1,
+  })),
   stop: () => set({ playing: false }),
-  toggle: (atTime) => set((s) => ({ playing: !s.playing, startTime: s.playing ? s.startTime : atTime })),
+  toggle: (atTime, startRow = 0) => set((s) => ({
+    playing: !s.playing,
+    startTime: s.playing ? s.startTime : atTime,
+    startRow: s.playing ? s.startRow : startRow,
+    playEpoch: s.playing ? s.playEpoch : s.playEpoch + 1,
+  })),
   setBpm: (bpm) => set({ bpm }),
 }))
 

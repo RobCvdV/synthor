@@ -63,13 +63,27 @@ export function useEngine(): AudioHost {
       }
 
       const doRender = () => {
-        const { bpm, linesPerBeat, playing } = useTransportStore.getState()
+        const { bpm, linesPerBeat, playing, startRow, playEpoch } = useTransportStore.getState()
         const { instrumentId, voices } = usePreviewStore.getState()
         const active = Object.values(voices)
+
+        // Capture the precise AudioContext time at render time so the UI
+        // playhead can stay in sync with the audio engine. We store it on
+        // the host so the UI can read it without triggering store re-renders.
+        if (playing && host.playStartTime === 0) {
+          host.playStartTime = host.currentTime
+          host.playStartRow = startRow
+        } else if (!playing) {
+          host.playStartTime = 0
+          host.playStartRow = 0
+        }
+
         host.render(
           compileGraph(doc, {
             rowHz: rowHz(bpm, linesPerBeat),
             playing: playing ? 1 : 0,
+            startRow,
+            playEpoch,
             mutedTracks,
             preview: instrumentId && active.length ? { instrumentId, voices: active } : undefined,
             vfsLoadedHashes: vfsLoadedRef.current,

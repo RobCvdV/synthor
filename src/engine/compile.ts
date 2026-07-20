@@ -40,6 +40,10 @@ export interface RenderContext {
   rowHz: number
   /** 1 while playing, 0 when stopped (silences output without tearing down). */
   playing: number
+  /** Pattern row at which playback started (0 = top, or cursor row). */
+  startRow: number
+  /** Incremented on each play start so the audio graph gets fresh clock/seq2 nodes. */
+  playEpoch: number
   /** Muted track ids. Muted voices are gained to 0 but kept in the graph so
    *  their sequencer phase is preserved across mute/unmute. */
   mutedTracks?: Record<string, boolean>
@@ -103,6 +107,17 @@ function compilePreview(
 }
 
 /**
+ * Rotate an array so that index `offset` becomes index 0.
+ * newSeq[i] = oldSeq[(i + offset) % len]
+ */
+function rotateSeq<T>(seq: T[], offset: number): T[] {
+  if (offset === 0 || seq.length === 0) return seq
+  const len = seq.length
+  const off = ((offset % len) + len) % len
+  return seq.slice(off).concat(seq.slice(0, off))
+}
+
+/**
  * Compile the full document into a stereo pair. No React, no Zustand, no
  * AudioContext — pure, unit-testable, and reusable for offline bounce.
  */
@@ -118,9 +133,18 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
     return preview ?? silence
   }
 
-  const clock = el.train(ctx.rowHz)
+  // The clock is gated by the playing signal so the sequencer only advances
+  // while the transport is running. This ensures the sequencer pauses in place
+  // when stopped and resumes from the same position when started again.
+  // The seq2 keys include playEpoch, so on play-start we get fresh sequencers;
+  // on doc edits while playing the keys match and Elementary preserves position.
+  const rawClock = el.train(ctx.rowHz)
+  const clock = el.mul(rawClock, ctx.playing)
+
   const loopHz = ctx.rowHz / pattern.length
-  const reset = el.train(loopHz)
+  const rawReset = el.train(loopHz)
+  const reset = el.mul(rawReset, ctx.playing)
+
   const sampleMeta = buildSampleMeta(doc.entities.samples, ctx.vfsLoadedHashes)
   const sampleHashById = buildSampleHashById(doc.entities.samples)
 
@@ -136,16 +160,20 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
       // Per-slot sequencing: each slot gets its own gate + freq sequences.
       const { slotGateSeqs, slotFreqSeqs } = buildDrumKitSlotSequences(track, pattern.length, inst)
       const { volumeSeq } = buildSequences(track, pattern.length)
-      const vol = el.seq2({ key: `${trackId}:vol`, seq: volumeSeq, hold: true, loop: true }, clock, reset)
+      // Rotate sequences so playback starts at ctx.startRow.
+      const rotatedVol = rotateSeq(volumeSeq, ctx.startRow)
+      const vol = el.seq2({ key: `${trackId}:vol:${ctx.playEpoch}`, seq: rotatedVol, hold: true, loop: true }, clock, reset)
       const masterGain = el.const({ value: inst.params.gain })
 
       let mixL: NodeRepr_t = zero
       let mixR: NodeRepr_t = zero
       for (const slot of inst.slots) {
+        const rotatedGate = rotateSeq(slotGateSeqs[slot.id], ctx.startRow)
+        const rotatedFreq = rotateSeq(slotFreqSeqs[slot.id], ctx.startRow)
         // hold:false so each hit produces a clean 0→1 edge for el.sample triggers.
-        const slotGate = el.seq2({ key: `${trackId}:${slot.id}:gate`, seq: slotGateSeqs[slot.id], hold: false, loop: true }, clock, reset)
+        const slotGate = el.seq2({ key: `${trackId}:${slot.id}:gate:${ctx.playEpoch}`, seq: rotatedGate, hold: false, loop: true }, clock, reset)
         // hold:true so instrument release tails keep the correct frequency.
-        const slotFreq = el.seq2({ key: `${trackId}:${slot.id}:freq`, seq: slotFreqSeqs[slot.id], hold: true, loop: true }, clock, reset)
+        const slotFreq = el.seq2({ key: `${trackId}:${slot.id}:freq:${ctx.playEpoch}`, seq: rotatedFreq, hold: true, loop: true }, clock, reset)
         const voice = renderDrumKitSlot(slot, doc.entities.instruments, slotGate, slotFreq, trackId, sampleMeta, sampleHashById)
         mixL = el.add(mixL, voice.left)
         mixR = el.add(mixR, voice.right)
@@ -163,9 +191,14 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
     const firstNote = track.cells.find((c) => c.note != null)?.note
     const trackBaseFreq = firstNote != null ? midiToFreq(firstNote) : 0
 
-    const freq = el.seq2({ key: `${trackId}:freq`, seq: freqSeq, hold: true, loop: true }, clock, reset)
-    const gate = el.seq2({ key: `${trackId}:gate`, seq: gateSeq, hold: true, loop: true }, clock, reset)
-    const vol = el.seq2({ key: `${trackId}:vol`, seq: volumeSeq, hold: true, loop: true }, clock, reset)
+    // Rotate sequences so playback starts at ctx.startRow.
+    const rotatedFreq = rotateSeq(freqSeq, ctx.startRow)
+    const rotatedGate = rotateSeq(gateSeq, ctx.startRow)
+    const rotatedVolume = rotateSeq(volumeSeq, ctx.startRow)
+
+    const freq = el.seq2({ key: `${trackId}:freq:${ctx.playEpoch}`, seq: rotatedFreq, hold: true, loop: true }, clock, reset)
+    const gate = el.seq2({ key: `${trackId}:gate:${ctx.playEpoch}`, seq: rotatedGate, hold: true, loop: true }, clock, reset)
+    const vol = el.seq2({ key: `${trackId}:vol:${ctx.playEpoch}`, seq: rotatedVolume, hold: true, loop: true }, clock, reset)
 
     const voice = renderInstrument(inst, freq, gate, trackId, sampleMeta, 0, sampleHashById, trackBaseFreq, vol)
     voices.push(muted

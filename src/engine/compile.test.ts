@@ -11,7 +11,7 @@ function mono(out: ReturnType<typeof compileGraph>) {
 describe('compileGraph', () => {
   it('builds a graph node from the default document without throwing', () => {
     const doc = createDefaultDoc()
-    const out = compileGraph(doc, { rowHz: 8, playing: 1 })
+    const out = compileGraph(doc, { rowHz: 8, playing: 1, startRow: 0, playEpoch: 0 })
     expect(out.left).toBeTruthy()
     expect(out.right).toBeTruthy()
   })
@@ -27,7 +27,7 @@ describe('compileGraph', () => {
         },
       },
     }
-    expect(() => compileGraph(empty, { rowHz: 8, playing: 0 })).not.toThrow()
+    expect(() => compileGraph(empty, { rowHz: 8, playing: 0, startRow: 0, playEpoch: 0 })).not.toThrow()
   })
 })
 
@@ -90,7 +90,7 @@ function withExtraTrack(doc: Doc): Doc {
 }
 
 /** Shortcut: compile a doc for inspection (mono left channel). */
-function g(doc: Doc, ctx = { rowHz: 8, playing: 1 } as const) {
+function g(doc: Doc, ctx = { rowHz: 8, playing: 1, startRow: 0, playEpoch: 0 } as const) {
   return mono(compileGraph(doc, ctx))
 }
 
@@ -148,10 +148,10 @@ describe('compileGraph preview', () => {
       ...doc,
       entities: { ...doc.entities, patterns: { [doc.patternId]: { ...doc.entities.patterns[doc.patternId], trackIds: [] } }, sections: doc.entities.sections },
     }
-    const silent = mono(compileGraph(empty, { rowHz: 8, playing: 0 }))
+    const silent = mono(compileGraph(empty, { rowHz: 8, playing: 0, startRow: 0, playEpoch: 0 }))
     expect(collect(silent, 'blepsaw')).toHaveLength(0)
     const withPreview = mono(compileGraph(empty, {
-      rowHz: 8, playing: 0, preview: { instrumentId, voices: [{ note: 60, gate: 1 }] },
+      rowHz: 8, playing: 0, startRow: 0, playEpoch: 0, preview: { instrumentId, voices: [{ note: 60, gate: 1 }] },
     }))
     expect(collect(withPreview, 'blepsaw').length).toBeGreaterThan(0)
   })
@@ -159,7 +159,7 @@ describe('compileGraph preview', () => {
   it('gives each preview voice a distinct frequency (polyphony without key clashes)', () => {
     const doc = createDefaultDoc()
     const node = mono(compileGraph(doc, {
-      rowHz: 8, playing: 1,
+      rowHz: 8, playing: 1, startRow: 0, playEpoch: 0,
       preview: { instrumentId: previewInst(doc), voices: [{ note: 60, gate: 1 }, { note: 67, gate: 1 }] },
     }))
     const previewFreqKeys = collect(node, 'const')
@@ -174,14 +174,14 @@ describe('compileGraph mute', () => {
     const doc = createDefaultDoc()
     const first = doc.entities.patterns[doc.patternId].trackIds[0]
     const unmuted = zeroConsts(g(doc))
-    const muted = zeroConsts(mono(compileGraph(doc, { rowHz: 8, playing: 1, mutedTracks: { [first]: true } })))
+    const muted = zeroConsts(mono(compileGraph(doc, { rowHz: 8, playing: 1, startRow: 0, playEpoch: 0, mutedTracks: { [first]: true } })))
     expect(muted).toBeGreaterThan(unmuted)
   })
 
   it('still compiles all track sequencers when a track is muted (phase preserved)', () => {
     const doc = createDefaultDoc()
     const first = doc.entities.patterns[doc.patternId].trackIds[0]
-    const seqs = collect(mono(compileGraph(doc, { rowHz: 8, playing: 1, mutedTracks: { [first]: true } })), 'seq2')
+    const seqs = collect(mono(compileGraph(doc, { rowHz: 8, playing: 1, startRow: 0, playEpoch: 0, mutedTracks: { [first]: true } })), 'seq2')
     // 2 tracks × 2 signals = 4 seq2 nodes
     expect(seqs.length).toBe(6)
   })

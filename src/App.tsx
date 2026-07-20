@@ -77,7 +77,6 @@ export default function App() {
   const noteOn = usePreviewStore((s) => s.noteOn)
   const noteOff = usePreviewStore((s) => s.noteOff)
   const playing = useTransportStore((s) => s.playing)
-  const startTime = useTransportStore((s) => s.startTime)
   const bpm = useTransportStore((s) => s.bpm)
   const linesPerBeat = useTransportStore((s) => s.linesPerBeat)
   const toggle = useTransportStore((s) => s.toggle)
@@ -103,8 +102,11 @@ export default function App() {
     setCursor((c) => (c.track >= trackCount ? { ...c, track: Math.max(0, trackCount - 1) } : c))
   }, [trackCount])
 
-  // Visual playhead: derived from the AudioContext clock, aligned to the
-  // moment playback started so it always begins at row 0.
+  // Visual playhead: driven by the AudioContext clock, aligned to the
+  // precise moment the graph was rendered (host.playStartTime). The
+  // host.playStartRow accounts for play-from-cursor position so the visual
+  // cursor stays in lockstep with the audio engine regardless of edits,
+  // pattern length changes, or graph recompiles.
   useEffect(() => {
     if (!playing) {
       setPlayhead(null)
@@ -112,13 +114,13 @@ export default function App() {
     }
     let raf = 0
     const tick = () => {
-      const elapsed = host.currentTime - startTime
-      setPlayhead(Math.floor(elapsed * rowHz(bpm, linesPerBeat)) % pattern.length)
+      const elapsed = host.currentTime - host.playStartTime
+      setPlayhead((host.playStartRow + Math.floor(elapsed * rowHz(bpm, linesPerBeat))) % pattern.length)
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [playing, startTime, bpm, linesPerBeat, pattern.length, host])
+  }, [playing, bpm, linesPerBeat, pattern.length, host])
 
   const liveTrackCount = () => useDocStore.getState().doc.entities.patterns[doc.patternId].trackIds.length
 
@@ -162,7 +164,11 @@ export default function App() {
       // --- Transport (spacebar) ---
       if (e.code === 'Space' && !e.ctrlKey && !e.metaKey) {
         e.preventDefault()
-        void host.start().then(() => toggle(host.currentTime))
+        void host.start().then(() => {
+          host.playStartTime = host.currentTime
+          host.playStartRow = cur.row
+          toggle(host.currentTime, cur.row)
+        })
         return
       }
 

@@ -13,6 +13,12 @@ export class AudioHost {
   private analyser: AnalyserNode | null = null
   private ready = false
 
+  /** Precise AudioContext time captured at the moment the graph was rendered
+   *  for the current playback session. Set by useEngine. */
+  playStartTime = 0
+  /** Pattern row at which the current playback session started. */
+  playStartRow = 0
+
   get currentTime(): number {
     return this.ctx?.currentTime ?? 0
   }
