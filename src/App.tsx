@@ -161,6 +161,43 @@ export default function App() {
         return next
       }
 
+      // Helper: snap cursor to the next/previous grid line (multiples of `step`)
+      // and update shift-selection. Always lands exactly on a grid line,
+      // even when pattern length is not a multiple of the step size.
+      const snapStep = (step: number, dir: 1 | -1) => (c: Cursor) => {
+        const len = pattern.length
+        const grids: number[] = []
+        for (let i = 0; i < len; i += step) grids.push(i)
+        let nextRow: number
+        if (dir > 0) {
+          const idx = grids.findIndex((g) => g > c.row)
+          nextRow = idx !== -1 ? grids[idx] : grids[0]
+        } else {
+          const rev = [...grids].reverse()
+          const idx = rev.findIndex((g) => g < c.row)
+          nextRow = idx !== -1 ? rev[idx] : rev[0]
+        }
+        const next = { ...c, row: nextRow }
+        if (e.shiftKey) {
+          const sel = selectionRef.current
+          setSelection(sel ? { ...sel, endRow: nextRow, endTrack: next.track } : { startRow: c.row, startTrack: c.track, endRow: nextRow, endTrack: next.track })
+        } else {
+          setSelection(null)
+        }
+        return next
+      }
+
+      // --- Transport: Cmd+Space (play from top) ---
+      if (e.code === 'Space' && e.metaKey && !e.ctrlKey) {
+        e.preventDefault()
+        void host.start().then(() => {
+          host.playStartTime = host.currentTime
+          host.playStartRow = 0
+          toggle(host.currentTime, 0)
+        })
+        return
+      }
+
       // --- Transport (spacebar) ---
       if (e.code === 'Space' && !e.ctrlKey && !e.metaKey) {
         e.preventDefault()
@@ -199,8 +236,8 @@ export default function App() {
           case 'KeyV': e.preventDefault(); { const rc = useDocStore.getState().rectClipboard; if (rc) pasteRect(ids, cur.row, cur.track); else { pasteTrack(cur.track + 1); setCursor((c) => ({ ...c, track: Math.min(liveTrackCount() - 1, cur.track + 1) })) } } return
           case 'KeyX': e.preventDefault(); { const s = selectionRef.current; if (s) { cutRect(ids, s.startRow, s.endRow, s.startTrack, s.endTrack); setSelection(null) } else if (trackId) { copyTrack(trackId); removeTrack(trackId); setCursor((c) => ({ ...c, track: Math.max(0, Math.min(c.track, liveTrackCount() - 1)) })) } } return
           case 'KeyD': e.preventDefault(); if (trackId) { duplicateTrack(trackId, cur.track + 1); setCursor((c) => ({ ...c, track: Math.min(liveTrackCount() - 1, cur.track + 1) })) } return
-          case 'ArrowUp':   e.preventDefault(); setVolumeEntry(null); volumeEntryRef.current = null; setCursor(stepRows(-8)); return
-          case 'ArrowDown': e.preventDefault(); setVolumeEntry(null); volumeEntryRef.current = null; setCursor(stepRows(8)); return
+          case 'ArrowUp':   e.preventDefault(); setVolumeEntry(null); volumeEntryRef.current = null; setCursor(snapStep(8, -1)); return
+          case 'ArrowDown': e.preventDefault(); setVolumeEntry(null); volumeEntryRef.current = null; setCursor(snapStep(8, 1)); return
           // Cmd+-/= : shift selected notes or whole track ±1 semitone.
           case 'Minus':
           case 'Equal': {
@@ -251,8 +288,8 @@ export default function App() {
       // --- Alt/Option shortcuts ---
       if (e.altKey && !e.ctrlKey && !e.metaKey) {
         switch (e.code) {
-          case 'ArrowUp':   e.preventDefault(); setVolumeEntry(null); volumeEntryRef.current = null; setCursor(stepRows(-4)); return
-          case 'ArrowDown': e.preventDefault(); setVolumeEntry(null); volumeEntryRef.current = null; setCursor(stepRows(4)); return
+          case 'ArrowUp':   e.preventDefault(); setVolumeEntry(null); volumeEntryRef.current = null; setCursor(snapStep(4, -1)); return
+          case 'ArrowDown': e.preventDefault(); setVolumeEntry(null); volumeEntryRef.current = null; setCursor(snapStep(4, 1)); return
         }
       }
 

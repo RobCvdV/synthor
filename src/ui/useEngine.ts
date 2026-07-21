@@ -38,6 +38,10 @@ export function useEngine(): AudioHost {
   const lastVfsKeysRef = useRef('')
   const vfsLoadedRef = useRef<Set<string>>(new Set())
 
+  // Track the last playEpoch we rendered so we can refine playStartTime
+  // at render time (more precise than the eager set in the toggle handler).
+  const lastEpochRef = useRef(0)
+
   useEffect(() => {
     let frame = 0
 
@@ -67,15 +71,18 @@ export function useEngine(): AudioHost {
         const { instrumentId, voices } = usePreviewStore.getState()
         const active = Object.values(voices)
 
-        // Capture the precise AudioContext time at render time so the UI
-        // playhead can stay in sync with the audio engine. We store it on
-        // the host so the UI can read it without triggering store re-renders.
-        if (playing && host.playStartTime === 0) {
+        // Refine playStartTime at render time for every new play session
+        // (playEpoch change). This is more precise than the eager set in the
+        // toggle handler because it captures the AudioContext time right as
+        // the graph is pushed to the worklet, eliminating the rAF gap.
+        if (playing && lastEpochRef.current !== playEpoch) {
           host.playStartTime = host.currentTime
           host.playStartRow = startRow
+          lastEpochRef.current = playEpoch
         } else if (!playing) {
           host.playStartTime = 0
           host.playStartRow = 0
+          lastEpochRef.current = 0
         }
 
         host.render(

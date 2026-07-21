@@ -15,24 +15,24 @@ const NOTE_ENTRY: Row[] = [
 ]
 
 const TRANSPORT: Row[] = [
-  { keys: 'Space', label: 'play / stop' },
+  { keys: 'Space', label: 'play / stop (from cursor)' },
+  { keys: '⌘ Space', label: 'play from top' },
   { keys: '↑ ↓', label: 'move row' },
   { keys: '← →', label: 'note ↔ vol ↔ track' },
   { keys: '⇧ arrows', label: 'select region' },
+  { keys: '⌥ ↑/↓', label: 'jump 4 rows (snap to grid)' },
+  { keys: '⌘ ↑/↓', label: 'jump 8 rows (snap to grid)' },
+  { keys: 'Home / End', label: 'top / bottom' },
   { keys: '⌘Z / ⌘⇧Z', label: 'undo / redo' },
 ]
 
 const TRACK_OPS: Row[] = [
-  { keys: 'Ctrl ⇧ ,', label: 'insert track left' },
-  { keys: 'Ctrl ⇧ .', label: 'insert track right' },
-  { keys: 'Ctrl ,', label: 'move track left' },
-  { keys: 'Ctrl .', label: 'move track right' },
-  { keys: 'Ctrl C', label: 'copy track / selection' },
-  { keys: 'Ctrl X', label: 'cut track / selection' },
-  { keys: 'Ctrl V', label: 'paste track / selection' },
+  { keys: 'Ctrl =', label: 'add track to right' },
+  { keys: 'Ctrl , / .', label: 'move track left / right' },
+  { keys: 'Ctrl C / X / V', label: 'copy / cut / paste' },
   { keys: 'Ctrl D', label: 'duplicate track' },
   { keys: 'Ctrl ⌫', label: 'delete track' },
-  { keys: 'Del', label: 'clear cell / selection' },
+  { keys: 'Del / ⌫', label: 'clear cell / selection' },
   { keys: 'Ctrl ↑ / ↓', label: 'shift notes up / down' },
 ]
 
