@@ -187,8 +187,8 @@ export default function App() {
         return next
       }
 
-      // --- Transport: Cmd+Space (play from top) ---
-      if (e.code === 'Space' && e.metaKey && !e.ctrlKey) {
+      // --- Transport: Ctrl+Space (play from top) ---
+      if (e.code === 'Space' && e.ctrlKey && !e.metaKey) {
         e.preventDefault()
         void host.start().then(() => {
           host.playStartTime = host.currentTime

@@ -16,7 +16,7 @@ const NOTE_ENTRY: Row[] = [
 
 const TRANSPORT: Row[] = [
   { keys: 'Space', label: 'play / stop (from cursor)' },
-  { keys: '⌘ Space', label: 'play from top' },
+  { keys: 'Ctrl Space', label: 'play from top' },
   { keys: '↑ ↓', label: 'move row' },
   { keys: '← →', label: 'note ↔ vol ↔ track' },
   { keys: '⇧ arrows', label: 'select region' },
