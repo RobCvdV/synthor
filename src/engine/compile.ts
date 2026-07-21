@@ -138,11 +138,20 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
   // when stopped and resumes from the same position when started again.
   // The seq2 keys include playEpoch, so on play-start we get fresh sequencers;
   // on doc edits while playing the keys match and Elementary preserves position.
-  const rawClock = el.train(ctx.rowHz)
+  //
+  // We force a fresh el.train node on each play start by adding a zero-valued
+  // const whose key includes playEpoch. This gives the rate input a unique hash
+  // per epoch, which propagates to the train node — guaranteeing phase 0 at
+  // render time and eliminating the per-pause/resume clock-phase drift.
+  const epochZero = el.const({ key: `train:epoch:${ctx.playEpoch}`, value: 0 })
+  const clockRate = el.add(el.const({ value: ctx.rowHz }), epochZero)
+  const rawClock = el.train(clockRate)
   const clock = el.mul(rawClock, ctx.playing)
 
   const loopHz = ctx.rowHz / pattern.length
-  const rawReset = el.train(loopHz)
+  const loopEpochZero = el.const({ key: `reset:epoch:${ctx.playEpoch}`, value: 0 })
+  const resetRate = el.add(el.const({ value: loopHz }), loopEpochZero)
+  const rawReset = el.train(resetRate)
   const reset = el.mul(rawReset, ctx.playing)
 
   const sampleMeta = buildSampleMeta(doc.entities.samples, ctx.vfsLoadedHashes)

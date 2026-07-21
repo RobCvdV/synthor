@@ -86,16 +86,16 @@ export function TrackerGrid({ doc, pattern, cursor, playhead, muted, selection, 
         <span className="pattern-length">
           <button
             className="lenbtn"
-            title="Decrease length"
-            onClick={() => setPatternLength(pattern.id, Math.max(1, pattern.length - 16))}
+            title="Decrease length · hold Ctrl for −4"
+            onClick={(e) => setPatternLength(pattern.id, Math.max(1, pattern.length - (e.ctrlKey ? 4 : 1)))}
           >
             −
           </button>
           <span className="lenval">{pattern.length}</span>
           <button
             className="lenbtn"
-            title="Increase length"
-            onClick={() => setPatternLength(pattern.id, Math.min(256, pattern.length + 16))}
+            title="Increase length · hold Ctrl for +4"
+            onClick={(e) => setPatternLength(pattern.id, Math.min(256, pattern.length + (e.ctrlKey ? 4 : 1)))}
           >
             +
           </button>
