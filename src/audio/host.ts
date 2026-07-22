@@ -13,6 +13,7 @@ export class AudioHost {
   private core: WebRenderer | null = null
   private analyser: AnalyserNode | null = null
   private ready = false
+  private starting: Promise<void> | null = null
   private renderBusy = false
   private pendingGraph: StereoOut | null = null
 
@@ -51,26 +52,33 @@ export class AudioHost {
     return buf
   }
 
-  /** Must be called from a user gesture (browser autoplay policy). */
+  /** Must be called from a user gesture (browser autoplay policy).
+   *  Safe to call multiple times — subsequent calls return the existing promise. */
   async start(): Promise<void> {
     if (this.ready) {
       await this.ctx?.resume()
       return
     }
-    this.ctx = new AudioContext()
-    this.core = new WebRenderer()
-    this.paramRefs.attach(this.core)
-    setActiveParamRefs(this.paramRefs)
-    const node = await this.core.initialize(this.ctx, {
-      numberOfInputs: 0,
-      numberOfOutputs: 1,
-      outputChannelCount: [2],
-    })
-    this.analyser = this.ctx.createAnalyser()
-    node.connect(this.analyser)
-    this.analyser.connect(this.ctx.destination)
-    await this.ctx.resume()
-    this.ready = true
+    // Reuse an in-flight start to avoid creating duplicate AudioContexts.
+    if (this.starting) return this.starting
+    this.starting = (async () => {
+      this.ctx = new AudioContext()
+      this.core = new WebRenderer()
+      this.paramRefs.attach(this.core)
+      setActiveParamRefs(this.paramRefs)
+      const node = await this.core.initialize(this.ctx, {
+        numberOfInputs: 0,
+        numberOfOutputs: 1,
+        outputChannelCount: [2],
+      })
+      this.analyser = this.ctx.createAnalyser()
+      node.connect(this.analyser)
+      this.analyser.connect(this.ctx.destination)
+      await this.ctx.resume()
+      this.ready = true
+      this.starting = null
+    })()
+    return this.starting
   }
 
   /** Render a stereo pair to the output.  Drops frames when busy to avoid
