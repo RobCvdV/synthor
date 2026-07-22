@@ -2,6 +2,7 @@ import { el } from '@elemaudio/core'
 import WebRenderer from '@elemaudio/web-renderer'
 import type { StereoOut } from '../engine/modular'
 import { ParamRefRegistry, setActiveParamRefs } from './paramRefs'
+import { VoicePool } from '../engine/voicePool'
 
 /**
  * Owns the AudioContext + Elementary WebRenderer and pushes compiled graphs to
@@ -19,6 +20,19 @@ export class AudioHost {
 
   /** Registry of createRef-backed param nodes for zero-recompile value updates. */
   readonly paramRefs = new ParamRefRegistry()
+
+  /** Fixed voice pools per instrument (lazily created). */
+  readonly voicePools = new Map<string, VoicePool>()
+
+  /** Get (or create) a voice pool for an instrument. */
+  voicePool(instId: string, maxVoices = 8): VoicePool {
+    let pool = this.voicePools.get(instId)
+    if (!pool) {
+      pool = new VoicePool(maxVoices, instId, this.paramRefs)
+      this.voicePools.set(instId, pool)
+    }
+    return pool
+  }
 
   /** Precise AudioContext time captured at the moment the graph was rendered
    *  for the current playback session. Set by useEngine. */
@@ -66,6 +80,7 @@ export class AudioHost {
       this.core = new WebRenderer()
       this.paramRefs.attach(this.core)
       setActiveParamRefs(this.paramRefs)
+        for (const pool of this.voicePools.values()) pool.attach(this.paramRefs)
       const node = await this.core.initialize(this.ctx, {
         numberOfInputs: 0,
         numberOfOutputs: 1,

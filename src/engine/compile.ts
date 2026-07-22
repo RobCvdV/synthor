@@ -60,6 +60,8 @@ export interface RenderContext {
   midiCcValues?: Record<number, number>
   /** Param ref registry for zero-recompile value updates. */
   paramRefs?: import('../audio/paramRefs').ParamRefRegistry
+  /** Voice pool for the currently previewed instrument (fixed polyphony). */
+  voicePool?: import('./voicePool').VoicePool
 }
 
 /**
@@ -74,8 +76,9 @@ function compilePreview(
   vfsLoaded?: Set<string>,
   midiCcValues?: Record<number, number>,
   paramRefs?: RenderContext['paramRefs'],
+  voicePool?: RenderContext['voicePool'],
 ): StereoOut | null {
-  if (!preview || preview.voices.length === 0) return null
+  if (!preview) return null
   const inst = doc.entities.instruments[preview.instrumentId]
   if (!inst) return null
 
@@ -83,44 +86,71 @@ function compilePreview(
   const sampleHashById = buildSampleHashById(doc.entities.samples)
   const zero = el.const({ value: 0 })
 
-  // Drumkit preview: each voice maps to a single slot via getSlotForNote.
-  if (inst.kind === 'drumkit') {
+  // Fallback: no VoicePool (e.g. tests) — use dynamic voices as before.
+  if (!voicePool) {
+    if (preview.voices.length === 0) return null
     const voices = preview.voices.map((v) => {
-      const slot = getSlotForNote(inst, v.note)
-      if (!slot) return { left: zero, right: zero }
       const voiceKey = `preview:${inst.id}:${v.note}`
-      // Sample-based slots always play at slot.note + pitchOffset (drums
-      // don't pitch-track).  Instrument-based slots use the played key so
-      // the synth tracks the keyboard + pitch offset fine-tunes tuning.
-      const baseNote = slot.instrumentId ? v.note : slot.note
-      const freq = el.const({ key: `${voiceKey}:freq`, value: midiToFreq(baseNote + slot.pitchOffset) })
+      const freq = el.const({ key: `${voiceKey}:freq`, value: midiToFreq(v.note) })
       const gate = el.const({ key: `${voiceKey}:gate`, value: v.gate })
-      return renderDrumKitSlot(slot, doc.entities.instruments, gate, freq, voiceKey, sampleMeta, sampleHashById, midiCcValues, paramRefs)
-    })
-    const masterGain = el.const({ value: inst.params.gain })
-    // Per-voice velocity: scale each slot by the key velocity.
-    const velVoices = voices.map((v, i) => {
-      const vel = preview.voices[i]?.velocity ?? 127
-      const velGain = el.const({ value: vel / 127 })
-      return { left: el.mul(v.left, velGain), right: el.mul(v.right, velGain) }
+      const velGain = v.velocity / 127
+      return renderInstrument(inst, freq, gate, voiceKey, sampleMeta, 0, sampleHashById, midiToFreq(v.note), velGain, 1, 1, midiCcValues, paramRefs)
     })
     return {
-      left: el.mul(velVoices.reduce((a, v) => el.add(a, v.left), zero), 0.3, masterGain),
-      right: el.mul(velVoices.reduce((a, v) => el.add(a, v.right), zero), 0.3, masterGain),
+      left: el.mul(voices.reduce((a, v) => el.add(a, v.left), zero), 0.3),
+      right: el.mul(voices.reduce((a, v) => el.add(a, v.right), zero), 0.3),
     }
   }
 
-  const voices = preview.voices.map((v) => {
-    const voiceKey = `preview:${inst.id}:${v.note}`
-    const freq = el.const({ key: `${voiceKey}:freq`, value: midiToFreq(v.note) })
-    const gate = el.const({ key: `${voiceKey}:gate`, value: v.gate })
-    const note = 0
+  // Prime voice refs so they exist before the graph is rendered.
+  voicePool.prime()
+
+  const slots = voicePool.snapshot()
+  const active = slots.some((s) => s.gate === 1 || s.note !== null)
+
+  // Drumkit preview: each voice slot maps to a slot via getSlotForNote.
+  if (inst.kind === 'drumkit') {
+    const slotVoices = slots.map((v, i) => {
+      if (v.note == null) return { left: zero, right: zero }
+      const slot = getSlotForNote(inst, v.note)
+      if (!slot) return { left: zero, right: zero }
+      const voiceKey = `${inst.id}:v:${i}`
+      const baseNote = slot.instrumentId ? v.note : slot.note
+      const freq = paramRefs
+        ? voicePool.freqNode(i)
+        : el.const({ key: `${voiceKey}:freq`, value: midiToFreq(baseNote + slot.pitchOffset) })
+      const gate = paramRefs
+        ? voicePool.gateNode(i)
+        : el.const({ key: `${voiceKey}:gate`, value: v.gate })
+      const velGain = el.const({ value: v.velocity / 127 })
+      const voice = renderDrumKitSlot(slot, doc.entities.instruments, gate, freq, voiceKey, sampleMeta, sampleHashById, midiCcValues, paramRefs)
+      return { left: el.mul(voice.left, velGain), right: el.mul(voice.right, velGain) }
+    })
+    if (!active) return null
+    const masterGain = el.const({ value: inst.params.gain })
+    return {
+      left: el.mul(slotVoices.reduce((a, v) => el.add(a, v.left), zero), 0.3, masterGain),
+      right: el.mul(slotVoices.reduce((a, v) => el.add(a, v.right), zero), 0.3, masterGain),
+    }
+  }
+
+  // Osc / modular: build one signal chain per voice slot, each with its own
+  // freq/gate refs.  Module params are shared across all slots (same refs).
+  const slotVoices = slots.map((v, i) => {
+    const voiceKey = `${inst.id}:v:${i}`
+    const freq = paramRefs
+      ? voicePool.freqNode(i)
+      : el.const({ key: `${voiceKey}:freq`, value: v.note != null ? midiToFreq(v.note) : 0 })
+    const gate = paramRefs
+      ? voicePool.gateNode(i)
+      : el.const({ key: `${voiceKey}:gate`, value: v.gate })
     const velGain = v.velocity / 127
-    return renderInstrument(inst, freq, gate, voiceKey, sampleMeta, note, sampleHashById, midiToFreq(v.note), velGain, 1, 1, midiCcValues, paramRefs)
+    return renderInstrument(inst, freq, gate, voiceKey, sampleMeta, 0, sampleHashById, 0, velGain, 1, 1, midiCcValues, paramRefs)
   })
+  if (!active) return null
   return {
-    left: el.mul(voices.reduce((a, v) => el.add(a, v.left), zero), 0.3),
-    right: el.mul(voices.reduce((a, v) => el.add(a, v.right), zero), 0.3),
+    left: el.mul(slotVoices.reduce((a, v) => el.add(a, v.left), zero), 0.3),
+    right: el.mul(slotVoices.reduce((a, v) => el.add(a, v.right), zero), 0.3),
   }
 }
 
@@ -140,7 +170,7 @@ function rotateSeq<T>(seq: T[], offset: number): T[] {
  * AudioContext — pure, unit-testable, and reusable for offline bounce.
  */
 export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
-  const preview = compilePreview(doc, ctx.preview, ctx.vfsLoadedHashes, ctx.midiCcValues, ctx.paramRefs)
+  const preview = compilePreview(doc, ctx.preview, ctx.vfsLoadedHashes, ctx.midiCcValues, ctx.paramRefs, ctx.voicePool)
   const silence: StereoOut = {
     left: el.const({ value: 0 }),
     right: el.const({ value: 0 }),

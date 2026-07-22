@@ -1,15 +1,12 @@
 import { useEffect } from 'react'
 import { useMidiStore } from '../state/midiStore'
-import { usePreviewStore } from '../state/previewStore'
 import type { AudioHost } from '../audio/host'
 
 /**
  * Connects to the Web MIDI API and routes incoming messages.
  *
- * - Note On  (0x9_) → preview note-on with velocity
- * - Note Off (0x8_) → preview note-off
- * - Control Change (0xB_) → midiStore CC values
- * - Pitch Bend  (0xE_) → midiStore pitch bend (-1…+1)
+ * Note events go through VoicePool (fixed polyphony, ref-based, no recompile).
+ * CC / pitch bend go through midiStore.
  */
 export function useMidi(host: AudioHost) {
   const setInputs = useMidiStore((s) => s.setInputs)
@@ -17,8 +14,6 @@ export function useMidi(host: AudioHost) {
   const setConnected = useMidiStore((s) => s.setConnected)
   const setCc = useMidiStore((s) => s.setCcValue)
   const setPitchBend = useMidiStore((s) => s.setPitchBend)
-  const noteOn = usePreviewStore((s) => s.noteOn)
-  const noteOff = usePreviewStore((s) => s.noteOff)
 
   useEffect(() => {
     // Feature detection — Web MIDI is not available in all browsers.
@@ -63,15 +58,18 @@ export function useMidi(host: AudioHost) {
               const vel = msg[2]
               const instId = useMidiStore.getState().activeInstrumentId
               if (!instId) break
+              const pool = host.voicePool(instId)
               if (vel === 0) {
-                noteOff(note)
+                pool.noteOff(note)
               } else {
-                void host.start().then(() => noteOn(instId, note, vel))
+                void host.start().then(() => pool.noteOn(note, vel))
               }
               break
             }
             case 0x80: { // Note Off
-              noteOff(msg[1])
+              const instId = useMidiStore.getState().activeInstrumentId
+              if (!instId) break
+              host.voicePool(instId).noteOff(msg[1])
               break
             }
             case 0xb0: { // Control Change

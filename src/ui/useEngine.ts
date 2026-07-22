@@ -105,6 +105,7 @@ export function useEngine(): AudioHost {
             vfsLoadedHashes: vfsLoadedRef.current,
             midiCcValues: useMidiStore.getState().ccValues,
             paramRefs: host.paramRefs,
+            voicePool: instrumentId ? host.voicePool(instrumentId) : undefined,
           }),
         )
       }
