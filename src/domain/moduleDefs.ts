@@ -76,8 +76,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     inlets: [],
     outlets: ['val'],
     params: [
-      { key: 'source', label: 'Src', min: 0, max: 1, default: 0, step: 1, enumLabels: ['tracker', 'midi'] },
-      { key: 'cc', label: 'CC', min: 0, max: 127, default: 1, step: 1 },
+      { key: 'cc', label: 'CC', min: 0, max: 127, default: 0, step: 1 },
     ],
     singleton: true,
   },
@@ -87,8 +86,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     inlets: [],
     outlets: ['val'],
     params: [
-      { key: 'source', label: 'Src', min: 0, max: 1, default: 0, step: 1, enumLabels: ['tracker', 'midi'] },
-      { key: 'cc', label: 'CC', min: 0, max: 127, default: 2, step: 1 },
+      { key: 'cc', label: 'CC', min: 0, max: 127, default: 0, step: 1 },
     ],
     singleton: true,
   },

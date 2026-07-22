@@ -18,6 +18,7 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { useDocStore } from '../state/docStore'
+import { useMidiStore } from '../state/midiStore'
 import { MODULE_DEFS } from '../domain/moduleDefs'
 import type { Connection, Id, Module, ModularInstrument, ModuleType } from '../domain/types'
 import { makeId } from '../domain/factory'
@@ -51,6 +52,27 @@ function ModuleNode({ data }: NodeProps) {
   })
   const setModuleParam = useDocStore((s) => s.setModuleParam)
   const removeModule = useDocStore((s) => s.removeModule)
+  const [ccLearning, setCcLearning] = useState(false)
+  const ccLearningRef = useRef(false)
+  ccLearningRef.current = ccLearning
+
+  // Auto-learn: when a CC value changes while in learn mode, set the CC
+  // param and exit learn mode.
+  useEffect(() => {
+    if (!ccLearning) return
+    const unsub = useMidiStore.subscribe((s, prev) => {
+      if (!ccLearningRef.current) return
+      for (const [cc, val] of Object.entries(s.ccValues)) {
+        const prevVal = prev.ccValues[Number(cc)] ?? 0
+        if (val !== prevVal) {
+          setModuleParam(instrumentId, moduleId, 'cc', Number(cc))
+          setCcLearning(false)
+          return
+        }
+      }
+    })
+    return unsub
+  }, [ccLearning, instrumentId, moduleId, setModuleParam])
 
   const def = module ? MODULE_DEFS[module.type] : undefined
   const isOutput = module?.type === 'output'
@@ -149,13 +171,30 @@ function ModuleNode({ data }: NodeProps) {
           const scaleVal = scaleKey ? (module.params[scaleKey] ?? 1) : null
 
           const displayVal = scaleVal !== null ? value * scaleVal : value
+          const isCcParam = p.key === 'cc' && (module.type === 'effect1' || module.type === 'effect2')
 
           return (
             <label className="mod-param" key={p.key}>
               <span className="mod-param-label">
                 {p.label}
                 <span className="mod-param-value">
-                  {labels ? labels[Math.round(value)] ?? '?' : round(displayVal)}
+                  {isCcParam ? (
+                    <>
+                      {value === 0 ? 'off' : `CC ${value}`}
+                      {' '}
+                      <button
+                        className={`mod-scale-btn nodrag${ccLearning ? ' active' : ''}`}
+                        title={ccLearning ? 'Listening for CC… click to cancel' : 'Learn CC — click then turn a knob'}
+                        onClick={(e) => { e.preventDefault(); setCcLearning((v) => !v) }}
+                      >
+                        {ccLearning ? '…' : 'learn'}
+                      </button>
+                    </>
+                  ) : labels ? (
+                    labels[Math.round(value)] ?? '?'
+                  ) : (
+                    round(displayVal)
+                  )}
                   {scaleVal !== null && (
                     <>{' '}
                       <button
@@ -187,15 +226,17 @@ function ModuleNode({ data }: NodeProps) {
                   )}
                 </span>
               </span>
-              <input
-                className="nodrag"
-                type="range"
-                min={p.min}
-                max={max}
-                step={p.step}
-                value={value}
-                onChange={(e) => setModuleParam(instrumentId, moduleId, p.key, Number(e.target.value))}
-              />
+              {!isCcParam && (
+                <input
+                  className="nodrag"
+                  type="range"
+                  min={p.min}
+                  max={max}
+                  step={p.step}
+                  value={value}
+                  onChange={(e) => setModuleParam(instrumentId, moduleId, p.key, Number(e.target.value))}
+                />
+              )}
             </label>
           )
         })}

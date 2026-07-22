@@ -179,6 +179,7 @@ body {
   cursor: pointer;
 }
 .mod-scale-btn:hover { color: var(--fg); border-color: var(--accent); }
+.mod-scale-btn.active { color: #e0b95f; border-color: #e0b95f; background: rgba(224,185,95,0.1); }
 .mod-scale-val { font-variant-numeric: tabular-nums; min-width: 16px; text-align: center; display: inline-block; }
 .mod-param input[type='range'] { width: 100%; }
 

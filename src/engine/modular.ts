@@ -157,18 +157,16 @@ export function compileModular(
         return gate
       case 'volume':
         return vol
-      case 'effect1':
-        if (Math.round(p.source ?? 0) === 1) {
-          const cc = Math.round(p.cc ?? 1)
-          return kconst(key('val'), (midiCcValues?.[cc] ?? 0) / 127)
-        }
-        return eff1
-      case 'effect2':
-        if (Math.round(p.source ?? 0) === 1) {
-          const cc = Math.round(p.cc ?? 2)
-          return kconst(key('val'), (midiCcValues?.[cc] ?? 0) / 127)
-        }
-        return eff2
+      case 'effect1': {
+        const cc = Math.round(p.cc ?? 0)
+        const ccVal = cc > 0 ? (midiCcValues?.[cc] ?? 0) / 127 : 0
+        return el.add(eff1, kconst(key('cc'), ccVal))
+      }
+      case 'effect2': {
+        const cc = Math.round(p.cc ?? 0)
+        const ccVal = cc > 0 ? (midiCcValues?.[cc] ?? 0) / 127 : 0
+        return el.add(eff2, kconst(key('cc'), ccVal))
+      }
 
       case 'midicc': {
         const cc = Math.round(p.cc ?? 1)

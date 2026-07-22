@@ -184,8 +184,8 @@ export default function App() {
 
   const onKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      // --- Transport (spacebar) — always active ---
-      if (e.code === 'Space' && !e.ctrlKey && !e.metaKey) {
+      // --- Transport (spacebar) — skip when typing in a text field ---
+      if (e.code === 'Space' && !e.ctrlKey && !e.metaKey && !isEditableTarget(e.target)) {
         e.preventDefault()
         void host.start().then(() => {
           host.playStartTime = host.currentTime
@@ -195,8 +195,8 @@ export default function App() {
         return
       }
 
-      // --- Transport: Ctrl+Space (play from top) — always active ---
-      if (e.code === 'Space' && e.ctrlKey && !e.metaKey) {
+      // --- Transport: Ctrl+Space (play from top) — skip when typing ---
+      if (e.code === 'Space' && e.ctrlKey && !e.metaKey && !isEditableTarget(e.target)) {
         e.preventDefault()
         void host.start().then(() => {
           host.playStartTime = host.currentTime
