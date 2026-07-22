@@ -96,6 +96,10 @@ interface DocState {
   addConnection: (instrumentId: Id, from: Port, to: Port) => void
   removeConnection: (instrumentId: Id, connectionId: Id) => void
   setConnectionGain: (instrumentId: Id, connectionId: Id, gain: number) => void
+  /** Ensure a modular instrument has its singleton source modules (effect1/2 etc.).
+   *  Idempotent — only adds modules that are missing. Called on editor mount so
+   *  existing patches get new source modules automatically. */
+  ensureModularSingletons: (instrumentId: Id) => void
   /** Duplicate an existing instrument (deep-clone with fresh ids). */
   duplicateInstrument: (instrumentId: Id) => Id
   /** Remove a batch of modules (and their incident connections) in one undo step. */
@@ -472,6 +476,26 @@ export const useDocStore = create<DocState>((set, get) => ({
       const con = inst.connections[connectionId]
       if (con) con.gain = gain
     }),
+
+  ensureModularSingletons: (instrumentId) => {
+    const inst = get().doc.entities.instruments[instrumentId]
+    if (inst?.kind !== 'modular') return
+    const existing = new Set(Object.values(inst.modules).map((m) => m.type))
+    // Singleton source modules that every modular patch should have.
+    const needed: ModuleType[] = []
+    if (!existing.has('effect1')) needed.push('effect1')
+    if (!existing.has('effect2')) needed.push('effect2')
+    if (needed.length === 0) return
+    get().mutate((draft) => {
+      const dInst = draft.entities.instruments[instrumentId]
+      if (dInst?.kind !== 'modular') return
+      for (const type of needed) {
+        const id = makeId('mod')
+        const pos = { x: 40, y: type === 'effect2' ? 840 : 640 }
+        dInst.modules[id] = { id, type, params: defaultParams(type), pos }
+      }
+    })
+  },
 
   duplicateInstrument: (instrumentId) => {
     const inst = get().doc.entities.instruments[instrumentId]

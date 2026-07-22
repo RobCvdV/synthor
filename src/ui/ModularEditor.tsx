@@ -148,15 +148,16 @@ function ModuleNode({ data }: NodeProps) {
           const scaleKey = p.showScale ? `${p.key}Scale` : null
           const scaleVal = scaleKey ? (module.params[scaleKey] ?? 1) : null
 
+          const displayVal = scaleVal !== null ? value * scaleVal : value
+
           return (
             <label className="mod-param" key={p.key}>
               <span className="mod-param-label">
                 {p.label}
                 <span className="mod-param-value">
-                  {labels ? labels[Math.round(value)] ?? '?' : round(value)}
+                  {labels ? labels[Math.round(value)] ?? '?' : round(displayVal)}
                   {scaleVal !== null && (
                     <>
-                      {' ×'}
                       <button
                         className="mod-scale-btn nodrag"
                         title="Decrease scale · hold Shift for −10"
@@ -281,6 +282,11 @@ function Editor({ inst, host }: { inst: ModularInstrument; host?: AudioHost }) {
   const setConnectionGain = useDocStore((s) => s.setConnectionGain)
   const removeModules = useDocStore((s) => s.removeModules)
   const pasteModules = useDocStore((s) => s.pasteModules)
+  const ensureModularSingletons = useDocStore((s) => s.ensureModularSingletons)
+
+  // Ensure required singleton source modules exist (e.g. effect1/2 added
+  // after the patch was created). Idempotent — no-op if already present.
+  useEffect(() => { ensureModularSingletons(inst.id) }, [inst.id, ensureModularSingletons])
 
   // Local node state for smooth dragging; positions persist to the doc on drag
   // stop. Rebuilt from the doc whenever the *set* of modules changes (add /
