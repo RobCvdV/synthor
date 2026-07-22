@@ -180,8 +180,8 @@ export function DrumKitEditor({ inst }: { inst: DrumKitInstrument }) {
           <span className="dk-key-label">Key</span>
           <span className="dk-source">Source</span>
           <span className="dk-param-col">Pitch</span>
-          <span className="dk-param-col">Gain</span>
-          <span className="dk-param-col">Pan</span>
+          <span className="dk-param-col dk-slider-col">Gain</span>
+          <span className="dk-param-col dk-slider-col">Pan</span>
         </div>
 
         {notes.map((note) => {
@@ -283,6 +283,7 @@ export function DrumKitEditor({ inst }: { inst: DrumKitInstrument }) {
                   onClick={(e) => e.stopPropagation()}
                   title={`Gain: ${eff.gain.toFixed(2)}`}
                 />
+                <span className="dk-slider-val">{eff.gain.toFixed(2)}</span>
               </span>
 
               {/* Pan */}
@@ -299,9 +300,7 @@ export function DrumKitEditor({ inst }: { inst: DrumKitInstrument }) {
                   onClick={(e) => e.stopPropagation()}
                   title={`Pan: ${eff.pan > 0.05 ? 'R' : eff.pan < -0.05 ? 'L' : 'C'} ${eff.pan.toFixed(2)}`}
                 />
-                <span className="dk-pan-indicator">
-                  {eff.pan > 0.05 ? 'R' : eff.pan < -0.05 ? 'L' : 'C'}
-                </span>
+                <span className="dk-slider-val">{eff.pan > 0.05 ? 'R' : eff.pan < -0.05 ? 'L' : 'C'} {Math.abs(eff.pan).toFixed(2)}</span>
               </span>
             </div>
           )

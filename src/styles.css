@@ -764,8 +764,10 @@ body {
 
 /* Gain and pan columns get extra width for range sliders. */
 .dk-param-col.dk-slider-col {
-  width: 80px;
-  min-width: 80px;
+  width: 120px;
+  min-width: 120px;
+  justify-content: flex-start;
+  gap: 4px;
 }
 
 .dk-param-input {
@@ -792,18 +794,29 @@ body {
 
 /* Range slider inside a dk-param-col — compact but usable. */
 .dk-slider {
-  width: 64px;
+  width: 72px;
   height: 14px;
   margin: 0;
   padding: 0;
   cursor: pointer;
   accent-color: var(--accent);
   background: transparent;
+  flex: none;
 }
 
 .dk-slider:read-only {
   cursor: default;
   opacity: 0.35;
+}
+
+/* Numeric value label next to the slider. */
+.dk-slider-val {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  min-width: 30px;
+  text-align: right;
+  flex: none;
 }
 
 .dk-pan-indicator {
