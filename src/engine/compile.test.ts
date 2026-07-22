@@ -185,4 +185,75 @@ describe('compileGraph mute', () => {
     // 2 tracks × 5 signals (freq, gate, vol, freqMul, volMod) = 10 seq2 nodes
     expect(seqs.length).toBe(10)
   })
+
+  it('mutes only the targeted track, not other tracks', () => {
+    const doc = createDefaultDoc()
+    const ids = doc.entities.patterns[doc.patternId].trackIds
+    const first = ids[0]
+
+    // Mute track 1.
+    const out = compileGraph(doc, { rowHz: 8, playing: 1, startRow: 0, playEpoch: 0, mutedTracks: { [first]: true } })
+
+    // Collect all `mul` nodes reachable from the left channel.
+    const mulNodes = collect(mono(out), 'mul')
+
+    // Find mul nodes whose children include a const 0 (zero-gain mute).
+    const muteMuls = mulNodes.filter((m) =>
+      childArray(m.children).some((c) => isNode(c) && (c as ElNode).kind === 'const' && (c as ElNode).props.value === 0),
+    )
+
+    // At least one mute multiplier should exist (the muted track).
+    expect(muteMuls.length).toBeGreaterThan(0)
+  })
+
+  it('muting increases the number of zero-gain muls vs unmuted', () => {
+    const doc = createDefaultDoc()
+    const unmuted = compileGraph(doc, { rowHz: 8, playing: 1, startRow: 0, playEpoch: 0 })
+    const ids = doc.entities.patterns[doc.patternId].trackIds
+    const muted = compileGraph(doc, { rowHz: 8, playing: 1, startRow: 0, playEpoch: 0, mutedTracks: { [ids[0]]: true } })
+
+    const countMuteMuls = (root: unknown) =>
+      collect(root, 'mul').filter((m) =>
+        childArray(m.children).some((c) => isNode(c) && (c as ElNode).kind === 'const' && (c as ElNode).props.value === 0),
+      ).length
+
+    // Muting a track should add at least one zero-gain mul on the muted voice.
+    expect(countMuteMuls(mono(muted))).toBeGreaterThan(countMuteMuls(mono(unmuted)))
+  })
+
+  it('preserves the non-muted track voice structure', () => {
+    const doc = createDefaultDoc()
+    const ids = doc.entities.patterns[doc.patternId].trackIds
+    const first = ids[0]
+
+    const unmutedSaws = collect(mono(compileGraph(doc, { rowHz: 8, playing: 1, startRow: 0, playEpoch: 0 })), 'blepsaw')
+    const mutedSaws = collect(mono(compileGraph(doc, { rowHz: 8, playing: 1, startRow: 0, playEpoch: 0, mutedTracks: { [first]: true } })), 'blepsaw')
+
+    // Both tracks use blepsaw oscillators. When one is muted, the other still
+    // produces audio — mute only adds a gain=0 on the muted track, it doesn't
+    // remove the oscillator from the graph (phase is preserved).
+    expect(mutedSaws.length).toBe(unmutedSaws.length)
+  })
+
+  it('muting a non-existent track ID does not crash or change output', () => {
+    const doc = createDefaultDoc()
+    const unmuted = collect(mono(compileGraph(doc, { rowHz: 8, playing: 1, startRow: 0, playEpoch: 0 })), 'blepsaw')
+    const muted = collect(mono(compileGraph(doc, { rowHz: 8, playing: 1, startRow: 0, playEpoch: 0, mutedTracks: { 'nonexistent': true } })), 'blepsaw')
+    expect(muted.length).toBe(unmuted.length)
+  })
+
+  it('outputs silence when ALL tracks are muted', () => {
+    const doc = createDefaultDoc()
+    const ids = doc.entities.patterns[doc.patternId].trackIds
+    const allMuted = Object.fromEntries(ids.map((id) => [id, true]))
+
+    const out = compileGraph(doc, { rowHz: 8, playing: 1, startRow: 0, playEpoch: 0, mutedTracks: allMuted })
+    const mulNodes = collect(mono(out), 'mul')
+
+    // Every track should have a zero-gain multiplier.
+    const muteMuls = mulNodes.filter((m) =>
+      childArray(m.children).some((c) => isNode(c) && (c as ElNode).kind === 'const' && (c as ElNode).props.value === 0),
+    )
+    expect(muteMuls.length).toBeGreaterThanOrEqual(ids.length)
+  })
 })

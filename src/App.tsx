@@ -174,6 +174,49 @@ export default function App() {
 
   const onKeyDown = useCallback(
     (e: KeyboardEvent) => {
+      // --- Transport (spacebar) — always active ---
+      if (e.code === 'Space' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault()
+        void host.start().then(() => {
+          host.playStartTime = host.currentTime
+          host.playStartRow = cursorRef.current.row
+          toggle(host.currentTime, cursorRef.current.row)
+        })
+        return
+      }
+
+      // --- Transport: Ctrl+Space (play from top) — always active ---
+      if (e.code === 'Space' && e.ctrlKey && !e.metaKey) {
+        e.preventDefault()
+        void host.start().then(() => {
+          host.playStartTime = host.currentTime
+          host.playStartRow = 0
+          toggle(host.currentTime, 0)
+        })
+        return
+      }
+
+      // --- Undo / redo (Cmd+Z / Ctrl+Z) — always active ---
+      if ((e.metaKey || e.ctrlKey) && e.code === 'KeyZ') {
+        e.preventDefault()
+        if (e.shiftKey) redo()
+        else undo()
+        return
+      }
+
+      // --- Mute / Solo toggle: F1..F12, Shift+F1..F12 — always active ---
+      const fkey = /^F([1-9]|1[0-2])$/.exec(e.code)
+      if (fkey) {
+        e.preventDefault()
+        const id = pattern.trackIds[Number(fkey[1]) - 1]
+        if (id) {
+          if (e.shiftKey) toggleSolo(id)
+          else toggleMute(id)
+        }
+        return
+      }
+
+      // All remaining shortcuts are blocked when a text field is focused.
       if (isEditableTarget(e.target)) return
 
       const cur = cursorRef.current
@@ -218,50 +261,8 @@ export default function App() {
         return next
       }
 
-      // --- Transport: Ctrl+Space (play from top) ---
-      if (e.code === 'Space' && e.ctrlKey && !e.metaKey) {
-        e.preventDefault()
-        void host.start().then(() => {
-          host.playStartTime = host.currentTime
-          host.playStartRow = 0
-          toggle(host.currentTime, 0)
-        })
-        return
-      }
-
-      // --- Transport (spacebar) ---
-      if (e.code === 'Space' && !e.ctrlKey && !e.metaKey) {
-        e.preventDefault()
-        void host.start().then(() => {
-          host.playStartTime = host.currentTime
-          host.playStartRow = cur.row
-          toggle(host.currentTime, cur.row)
-        })
-        return
-      }
-
-      // --- Undo / redo (Cmd+Z / Ctrl+Z) ---
-      if ((e.metaKey || e.ctrlKey) && e.code === 'KeyZ') {
-        e.preventDefault()
-        if (e.shiftKey) redo()
-        else undo()
-        return
-      }
-
-      // In non-tracker views only transport + undo/redo are active.
+      // In non-tracker views only tracker-editing shortcuts are inactive.
       if (view !== 'tracker') return
-
-      // --- Mute / Solo toggle: F1..F12, Shift+F1..F12 ---
-      const fkey = /^F([1-9]|1[0-2])$/.exec(e.code)
-      if (fkey) {
-        e.preventDefault()
-        const id = ids[Number(fkey[1]) - 1]
-        if (id) {
-          if (e.shiftKey) toggleSolo(id)
-          else toggleMute(id)
-        }
-        return
-      }
 
       // --- Cmd/Meta shortcuts (macOS primary) ---
       if (e.metaKey && !e.ctrlKey && !e.altKey) {
