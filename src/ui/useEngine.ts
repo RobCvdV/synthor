@@ -3,6 +3,7 @@ import { AudioHost } from '../audio/host'
 import { compileGraph } from '../engine/compile'
 import { syncSamplesToVfs } from '../audio/vfsLoader'
 import { useDocStore } from '../state/docStore'
+import { useMidiStore } from '../state/midiStore'
 import { usePreviewStore } from '../state/previewStore'
 import { useProjectStore } from '../state/projectStore'
 import { rowHz, useTransportStore } from '../state/transportStore'
@@ -102,6 +103,7 @@ export function useEngine(): AudioHost {
             mutedTracks: effectiveMute,
             preview: instrumentId && active.length ? { instrumentId, voices: active } : undefined,
             vfsLoadedHashes: vfsLoadedRef.current,
+            midiCcValues: useMidiStore.getState().ccValues,
           }),
         )
       }
@@ -124,12 +126,14 @@ export function useEngine(): AudioHost {
     const unsubDoc = useDocStore.subscribe(schedule)
     const unsubTransport = useTransportStore.subscribe(schedule)
     const unsubPreview = usePreviewStore.subscribe(schedule)
+    const unsubMidi = useMidiStore.subscribe(schedule)
     schedule() // catch any state that changed before the host was ready
     return () => {
       if (frame) cancelAnimationFrame(frame)
       unsubDoc()
       unsubTransport()
       unsubPreview()
+      unsubMidi()
     }
   }, [host])
 

@@ -89,6 +89,8 @@ export function compileModular(
   eff1: Node = 1,
   /** Per-row effect 02 signal (0..1), from tracker F xx. */
   eff2: Node = 1,
+  /** MIDI CC values (0-127 → raw 0-127).  Used by `midicc` source modules. */
+  midiCcValues?: Record<number, number>,
 ): StereoOut {
   const memo = new Map<string, Node>()
   const visiting = new Set<string>()
@@ -154,6 +156,12 @@ export function compileModular(
         return eff1
       case 'effect2':
         return eff2
+
+      case 'midicc': {
+        const cc = Math.round(p.cc ?? 1)
+        const raw = midiCcValues?.[cc] ?? 0
+        return kconst(key('val'), raw / 127)
+      }
 
       case 'osc': {
         const f = inlet(m.id, 'freq') ?? 440

@@ -14,6 +14,8 @@ import type { Id } from '../domain/types'
 export interface PreviewVoice {
   note: number
   gate: 0 | 1
+  /** MIDI velocity 0–127, or 127 (max) when triggered from the PC keyboard. */
+  velocity: number
 }
 
 interface PreviewState {
@@ -22,7 +24,7 @@ interface PreviewState {
   /** Sounding voices keyed by MIDI note (one voice per pitch). */
   voices: Record<number, PreviewVoice>
 
-  noteOn: (instrumentId: Id, note: number) => void
+  noteOn: (instrumentId: Id, note: number, velocity?: number) => void
   noteOff: (note: number) => void
   /** Kill everything immediately (panic button / Esc / view change). */
   panic: () => void
@@ -46,15 +48,15 @@ export const usePreviewStore = create<PreviewState>((set, get) => ({
   instrumentId: null,
   voices: {},
 
-  noteOn: (instrumentId, note) => {
+  noteOn: (instrumentId, note, velocity = 127) => {
     clearTimer(note) // cancel any pending release of a re-pressed note
     set((s) => ({
       instrumentId,
       // Switching instruments starts a clean voice set.
       voices:
         s.instrumentId === instrumentId
-          ? { ...s.voices, [note]: { note, gate: 1 } }
-          : { [note]: { note, gate: 1 } },
+          ? { ...s.voices, [note]: { note, gate: 1, velocity } }
+          : { [note]: { note, gate: 1, velocity } },
     }))
   },
 
@@ -62,7 +64,7 @@ export const usePreviewStore = create<PreviewState>((set, get) => ({
     const voice = get().voices[note]
     if (!voice) return
     // Note-off: drop the gate to start the release, then GC after the tail.
-    set((s) => ({ voices: { ...s.voices, [note]: { note, gate: 0 } } }))
+    set((s) => ({ voices: { ...s.voices, [note]: { note, gate: 0, velocity: voice.velocity } } }))
     clearTimer(note)
     releaseTimers.set(
       note,

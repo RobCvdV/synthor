@@ -13,6 +13,8 @@ import { SampleLibraryView } from './ui/SampleLibraryView'
 import { loadRecent, readSong } from './persist/opfsStore'
 import { useProjectStore } from './state/projectStore'
 import { usePreviewStore } from './state/previewStore'
+import { useMidiStore } from './state/midiStore'
+import { useMidi } from './midi/useMidi'
 import { packEffect } from './domain/effects'
 
 /** True when a keystroke should go to a focused form field, not the tracker.
@@ -29,6 +31,7 @@ function isEditableTarget(target: EventTarget | null): boolean {
 export default function App() {
   const host = useEngine()
   useAutosave()
+  useMidi() // connect to Web MIDI API
 
   // On first mount, try to restore the last-opened song so the user picks up
   // where they left off instead of landing on the default test pattern.
@@ -76,6 +79,13 @@ export default function App() {
   const cutRect = useDocStore((s) => s.cutRect)
   const pasteRect = useDocStore((s) => s.pasteRect)
   const mutedTracks = useDocStore((s) => s.mutedTracks)
+
+  // MIDI
+  const midiConnected = useMidiStore((s) => s.connected)
+  const midiInputs = useMidiStore((s) => s.inputs)
+  const midiSelectedId = useMidiStore((s) => s.selectedInputId)
+  const midiActiveInst = useMidiStore((s) => s.activeInstrumentId)
+  const setMidiActiveInst = useMidiStore((s) => s.setActiveInstrument)
 
   const projectName = useProjectStore((s) => s.name)
   const noteOn = usePreviewStore((s) => s.noteOn)
@@ -476,6 +486,29 @@ export default function App() {
         </span>
         <span className="muted">oct {octave}</span>
         <span className="muted">{trackCount} tracks</span>
+        <span
+          className={'midi-ind' + (midiConnected ? ' on' : '')}
+          title={
+            midiConnected
+              ? `MIDI: ${midiInputs.find((p) => p.id === midiSelectedId)?.name ?? midiInputs[0]?.name ?? 'connected'}`
+              : 'MIDI: not connected'
+          }
+        >
+          {midiConnected ? 'MIDI' : 'midi'}
+        </span>
+        {midiConnected && (
+          <select
+            className="midi-inst-select"
+            value={midiActiveInst ?? ''}
+            onChange={(e) => setMidiActiveInst(e.target.value || null)}
+            title="Instrument for MIDI input"
+          >
+            <option value="">(none)</option>
+            {Object.values(doc.entities.instruments).map((inst) => (
+              <option key={inst.id} value={inst.id}>{inst.name}</option>
+            ))}
+          </select>
+        )}
         <span className="spacer" />
         <button
           className={'octbtn' + (view === 'tracker' ? ' active' : '')}

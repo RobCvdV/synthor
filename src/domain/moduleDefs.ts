@@ -86,6 +86,13 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     params: [],
     singleton: true,
   },
+  midicc: {
+    type: 'midicc',
+    label: 'MIDI CC',
+    inlets: [],
+    outlets: ['val'],
+    params: [{ key: 'cc', label: 'CC', min: 0, max: 127, default: 1, step: 1 }],
+  },
   osc: {
     type: 'osc',
     label: 'Oscillator',

@@ -15,7 +15,7 @@ describe('previewStore', () => {
     usePreviewStore.getState().noteOn('inst_1', 60)
     const { instrumentId, voices } = usePreviewStore.getState()
     expect(instrumentId).toBe('inst_1')
-    expect(voices[60]).toEqual({ note: 60, gate: 1 })
+    expect(voices[60]).toEqual({ note: 60, gate: 1, velocity: 127 })
   })
 
   it('holds the released voice through its tail, then GCs it', () => {
@@ -23,7 +23,7 @@ describe('previewStore', () => {
     s.noteOn('inst_1', 60)
     s.noteOff(60)
     // Immediately after note-off the voice lingers with gate 0 (release tail).
-    expect(usePreviewStore.getState().voices[60]).toEqual({ note: 60, gate: 0 })
+    expect(usePreviewStore.getState().voices[60]).toEqual({ note: 60, gate: 0, velocity: 127 })
     vi.advanceTimersByTime(4000)
     expect(usePreviewStore.getState().voices[60]).toBeUndefined()
   })
@@ -34,7 +34,7 @@ describe('previewStore', () => {
     s.noteOff(60)
     s.noteOn('inst_1', 60) // re-press before the tail elapses
     vi.advanceTimersByTime(4000)
-    expect(usePreviewStore.getState().voices[60]).toEqual({ note: 60, gate: 1 })
+    expect(usePreviewStore.getState().voices[60]).toEqual({ note: 60, gate: 1, velocity: 127 })
   })
 
   it('switching instruments starts a fresh voice set', () => {
@@ -44,7 +44,7 @@ describe('previewStore', () => {
     const { instrumentId, voices } = usePreviewStore.getState()
     expect(instrumentId).toBe('inst_2')
     expect(voices[60]).toBeUndefined()
-    expect(voices[64]).toEqual({ note: 64, gate: 1 })
+    expect(voices[64]).toEqual({ note: 64, gate: 1, velocity: 127 })
   })
 
   it('panic clears every voice and pending timer', () => {

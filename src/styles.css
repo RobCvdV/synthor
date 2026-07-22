@@ -253,6 +253,18 @@ body {
 .bpm-tap:hover { color: #fff; }
 .bpm-tap.flash { color: var(--accent); }
 
+/* MIDI indicator in the toolbar */
+.midi-ind {
+  font-size: 11px; font-weight: 600; padding: 1px 5px; border-radius: 3px;
+  color: var(--muted); background: #1a1e24; border: 1px solid #2a3644;
+  user-select: none;
+}
+.midi-ind.on { color: var(--accent); border-color: var(--accent); background: rgba(79,209,197,0.08); }
+.midi-inst-select {
+  background: var(--bg); color: var(--fg); border: 1px solid #2a3644;
+  border-radius: 3px; font-size: 11px; padding: 1px 2px; max-width: 100px;
+}
+
 .projectbar {
   display: flex;
   align-items: center;

@@ -38,10 +38,12 @@ export function renderInstrument(
   effect1: NodeRepr_t | number = 1,
   /** Per-row effect 02 signal (0..1), from tracker F xx. */
   effect2: NodeRepr_t | number = 1,
+  /** MIDI CC values (0-127 → raw 0-127).  Used by `midicc` source modules. */
+  midiCcValues?: Record<number, number>,
 ): StereoOut {
   switch (inst.kind) {
     case 'osc': {
-      void voiceKey; void note; void baseFreq; void effect1; void effect2
+      void voiceKey; void note; void baseFreq; void effect1; void effect2; void midiCcValues
       const env = makeAdsr(0.005, 0.12, 0.7, 0.25, gate)
       const tone = el.blepsaw(freq)
       const out = el.mul(tone, env, inst.params.gain, volume)
@@ -49,7 +51,7 @@ export function renderInstrument(
     }
     case 'modular': {
       void note
-      return compileModular(inst, freq, gate, voiceKey, sampleMeta, baseFreq, volume, effect1, effect2)
+      return compileModular(inst, freq, gate, voiceKey, sampleMeta, baseFreq, volume, effect1, effect2, midiCcValues)
     }
     case 'drumkit': {
       // Drumkit rendering is handled at the compile level via renderDrumKitSlot,
@@ -76,6 +78,7 @@ export function renderDrumKitSlot(
   voiceKey: string,
   sampleMeta: SampleMeta[],
   sampleHashById: Record<Id, string>,
+  midiCcValues?: Record<number, number>,
 ): StereoOut {
   const zero = el.const({ value: 0 })
   let rawL: NodeRepr_t = zero
@@ -132,6 +135,7 @@ export function renderDrumKitSlot(
         1, // volume
         1, // effect1 (drumkit slots use static 1)
         1, // effect2
+        midiCcValues,
       )
       rawL = voice.left
       rawR = voice.right

@@ -54,6 +54,7 @@ export type ModuleType =
   | 'volume' // source: the track's per-row volume (0..1)
   | 'effect1' // source: per-row effect 01 operand (0..1, from tracker E xx)
   | 'effect2' // source: per-row effect 02 operand (0..1, from tracker F xx)
+  | 'midicc' // source: MIDI CC value (0..1), CC number set by param
   | 'osc' // oscillator (saw/square/triangle/sine)
   | 'filter' // state-variable filter (lp/hp/bp)
   | 'adsr' // envelope generator

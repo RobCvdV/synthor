@@ -151,7 +151,7 @@ describe('compileGraph preview', () => {
     const silent = mono(compileGraph(empty, { rowHz: 8, playing: 0, startRow: 0, playEpoch: 0 }))
     expect(collect(silent, 'blepsaw')).toHaveLength(0)
     const withPreview = mono(compileGraph(empty, {
-      rowHz: 8, playing: 0, startRow: 0, playEpoch: 0, preview: { instrumentId, voices: [{ note: 60, gate: 1 }] },
+      rowHz: 8, playing: 0, startRow: 0, playEpoch: 0, preview: { instrumentId, voices: [{ note: 60, gate: 1, velocity: 127 }] },
     }))
     expect(collect(withPreview, 'blepsaw').length).toBeGreaterThan(0)
   })
@@ -160,7 +160,7 @@ describe('compileGraph preview', () => {
     const doc = createDefaultDoc()
     const node = mono(compileGraph(doc, {
       rowHz: 8, playing: 1, startRow: 0, playEpoch: 0,
-      preview: { instrumentId: previewInst(doc), voices: [{ note: 60, gate: 1 }, { note: 67, gate: 1 }] },
+      preview: { instrumentId: previewInst(doc), voices: [{ note: 60, gate: 1, velocity: 127 }, { note: 67, gate: 1, velocity: 127 }] },
     }))
     const previewFreqKeys = collect(node, 'const')
       .map((c) => c.props.key)
