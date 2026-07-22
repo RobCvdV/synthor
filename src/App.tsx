@@ -31,7 +31,7 @@ function isEditableTarget(target: EventTarget | null): boolean {
 export default function App() {
   const host = useEngine()
   useAutosave()
-  useMidi() // connect to Web MIDI API
+  useMidi(host) // connect to Web MIDI API
 
   // On first mount, try to restore the last-opened song so the user picks up
   // where they left off instead of landing on the default test pattern.

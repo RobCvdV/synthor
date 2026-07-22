@@ -13,6 +13,8 @@ export class AudioHost {
   private core: WebRenderer | null = null
   private analyser: AnalyserNode | null = null
   private ready = false
+  private renderBusy = false
+  private pendingGraph: StereoOut | null = null
 
   /** Registry of createRef-backed param nodes for zero-recompile value updates. */
   readonly paramRefs = new ParamRefRegistry()
@@ -71,15 +73,37 @@ export class AudioHost {
     this.ready = true
   }
 
-  /** Render a stereo pair to the output. No-op until started. */
+  /** Render a stereo pair to the output.  Drops frames when busy to avoid
+   *  overwhelming Elementary with concurrent render() calls (which crashes
+   *  the WASM worklet with Aborted()). */
   render(stereo: StereoOut): void {
     if (!this.ready || !this.core) return
+
+    // If a render is already in flight, store this graph as pending.  When the
+    // current render finishes it will pick up the latest pending graph.  This
+    // way rapid MIDI / slider bursts only trigger one extra render, not a
+    // cascade of concurrent ones.
+    if (this.renderBusy) {
+      this.pendingGraph = stereo
+      return
+    }
+
+    this.renderBusy = true
+    this.pendingGraph = null
+
     this.core.render(
       el.mul(stereo.left, el.const({ key: 'ch:l', value: 1 })),
       el.mul(stereo.right, el.const({ key: 'ch:r', value: 1 })),
-    ).catch((err: unknown) => {
+    ).then(() => {
+      this.renderBusy = false
+      // If a newer graph was submitted while we were busy, render it now.
+      const next = this.pendingGraph
+      this.pendingGraph = null
+      if (next) this.render(next)
+    }).catch((err: unknown) => {
+      this.renderBusy = false
+      this.pendingGraph = null
       console.error('Elementary render error:', err)
-      // Log the full error object for property-level details.
       if (err && typeof err === 'object') {
         const e = err as Record<string, unknown>
         console.error('  message:', e.message)

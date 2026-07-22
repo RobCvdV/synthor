@@ -1,19 +1,17 @@
 import { useEffect } from 'react'
 import { useMidiStore } from '../state/midiStore'
 import { usePreviewStore } from '../state/previewStore'
+import type { AudioHost } from '../audio/host'
 
 /**
- * Connects to the Web MIDI API and routes incoming messages:
+ * Connects to the Web MIDI API and routes incoming messages.
  *
- * - Note On  (0x9_) → preview note-on with velocity (0 → gate=0 as note-off)
+ * - Note On  (0x9_) → preview note-on with velocity
  * - Note Off (0x8_) → preview note-off
  * - Control Change (0xB_) → midiStore CC values
  * - Pitch Bend  (0xE_) → midiStore pitch bend (-1…+1)
- * - Channel Pressure / Aftertouch (0xD_) → midiStore aftertouch
- *
- * The hook is idempotent — calling it multiple times is harmless.
  */
-export function useMidi() {
+export function useMidi(host: AudioHost) {
   const setInputs = useMidiStore((s) => s.setInputs)
   const setSelectedInput = useMidiStore((s) => s.setSelectedInput)
   const setConnected = useMidiStore((s) => s.setConnected)
@@ -66,10 +64,9 @@ export function useMidi() {
               const instId = useMidiStore.getState().activeInstrumentId
               if (!instId) break
               if (vel === 0) {
-                // Velocity 0 on Note On = Note Off per MIDI spec
                 noteOff(note)
               } else {
-                noteOn(instId, note, vel)
+                void host.start().then(() => noteOn(instId, note, vel))
               }
               break
             }
