@@ -254,6 +254,12 @@ body {
 }
 .badge.on { background: rgba(79, 209, 197, 0.15); color: var(--accent); }
 
+.panic-btn {
+  font-weight: 700; font-size: 13px; padding: 0 6px; line-height: 20px;
+  border-radius: 3px; border: 1px solid #5a2020; background: #2a1010;
+  color: #e06060; cursor: pointer; margin-left: 4px;
+}
+.panic-btn:hover { background: #4a1818; color: #f44; }
 .bpm-tap { cursor: pointer; user-select: none; transition: color 0.1s; }
 .bpm-tap:hover { color: #fff; }
 .bpm-tap.flash { color: var(--accent); }

@@ -34,6 +34,11 @@ export class AudioHost {
     return pool
   }
 
+  /** Kill all sounding voices across every instrument. */
+  panic(): void {
+    for (const pool of this.voicePools.values()) pool.panic()
+  }
+
   /** Precise AudioContext time captured at the moment the graph was rendered
    *  for the current playback session. Set by useEngine. */
   playStartTime = 0

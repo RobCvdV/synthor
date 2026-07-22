@@ -211,6 +211,13 @@ export default function App() {
         return
       }
 
+      // --- Panic (Esc) — always active, kills all hanging notes ---
+      if (e.code === 'Escape' && !isEditableTarget(e.target)) {
+        e.preventDefault()
+        host.panic()
+        return
+      }
+
       // --- Mute / Solo toggle: F1..F12, Shift+F1..F12 — always active ---
       const fkey = /^F([1-9]|1[0-2])$/.exec(e.code)
       if (fkey) {
@@ -483,6 +490,13 @@ export default function App() {
         </span>
         <span className="muted">oct {octave}</span>
         <span className="muted">{trackCount} tracks</span>
+        <button
+          className="panic-btn"
+          title="Panic — kill all hanging notes (Esc)"
+          onClick={() => host.panic()}
+        >
+          !
+        </button>
         <span
           className={'midi-ind' + (midiConnected ? ' on' : '')}
           title={

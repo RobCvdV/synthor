@@ -19,7 +19,7 @@ export class VoicePool {
     gate: 0 | 1
     velocity: number
     /** Release tail timer id, or 0 when not releasing. */
-    releaseTimer: ReturnType<typeof setTimeout> | null
+    releaseTimer: number
   }[]
 
   /** Freq ref keys per slot (lazily created). */
@@ -40,7 +40,7 @@ export class VoicePool {
     this.size = size
     this.registry = registry ?? null
     this.slots = Array.from({ length: size }, () => ({
-      note: null, gate: 0, velocity: 0, releaseTimer: null,
+      note: null, gate: 0, velocity: 0, releaseTimer: 0,
     }))
     this.freqKeys = Array.from({ length: size }, (_, i) => `${keyPrefix}:v:${i}:freq`)
     this.gateKeys = Array.from({ length: size }, (_, i) => `${keyPrefix}:v:${i}:gate`)
@@ -81,20 +81,33 @@ export class VoicePool {
     const existing = this.noteMap.get(note)
     if (existing !== undefined) {
       const s = this.slots[existing]
-      if (s.releaseTimer) { clearTimeout(s.releaseTimer); s.releaseTimer = null }
+      if (s.releaseTimer) { clearTimeout(s.releaseTimer); s.releaseTimer = 0 }
       s.gate = 1
       s.velocity = velocity
-      this.setRefs(existing, note, 1)
+      this.setGate(existing, 1)
       this.onChange?.()
       return existing
     }
 
     // Find a free slot.
-    const idx = this.freeStack.pop()
+    let idx = this.freeStack.pop()
     if (idx === undefined) {
-      // Pool exhausted — steal the oldest voice (slot 0 rotates through).
-      // For now, just drop the note.
-      return -1
+      // Pool exhausted — steal the slot with the oldest note-off.
+      // Find a slot in release (gate=0) and take it.
+      for (let i = 0; i < this.size; i++) {
+        if (this.slots[i].gate === 0) {
+          idx = i
+          if (this.slots[i].releaseTimer) { clearTimeout(this.slots[i].releaseTimer); this.slots[i].releaseTimer = 0 }
+          if (this.slots[i].note != null) this.noteMap.delete(this.slots[i].note!)
+          break
+        }
+      }
+      // If all slots are active (gate=1), steal the first active one.
+      if (idx === undefined) {
+        idx = 0
+        if (this.slots[0].note != null) this.noteMap.delete(this.slots[0].note)
+        if (this.slots[0].releaseTimer) { clearTimeout(this.slots[0].releaseTimer); this.slots[0].releaseTimer = 0 }
+      }
     }
 
     const s = this.slots[idx]
@@ -107,7 +120,8 @@ export class VoicePool {
     return idx
   }
 
-  /** Release a voice. */
+  /** Release a voice.  Keeps the frequency so the release tail rings at
+   *  the correct pitch — only the gate drops to 0. */
   noteOff(note: number): void {
     const idx = this.noteMap.get(note)
     if (idx === undefined) return
@@ -116,29 +130,28 @@ export class VoicePool {
     s.gate = 0
     this.noteMap.delete(note)
 
-    this.setRefs(idx, 0, 0)
+    // Only drop gate — keep frequency for the release tail.
+    this.setGate(idx, 0)
     this.onChange?.()
 
     // After the release tail, free the slot.
     if (s.releaseTimer) clearTimeout(s.releaseTimer)
-    s.releaseTimer = setTimeout(() => {
-      s.releaseTimer = null
+    s.releaseTimer = window.setTimeout(() => {
+      s.releaseTimer = 0
       s.note = null
       this.freeStack.push(idx)
       this.onChange?.()
     }, 3500)
   }
 
-  /** Silence everything immediately. */
+  /** Silence everything immediately — drops gate on ALL slots. */
   panic(): void {
     for (let i = 0; i < this.size; i++) {
       const s = this.slots[i]
-      if (s.releaseTimer) { clearTimeout(s.releaseTimer); s.releaseTimer = null }
-      if (s.gate === 1 || s.note !== null) {
-        s.gate = 0
-        s.note = null
-        this.setRefs(i, 0, 0)
-      }
+      if (s.releaseTimer) { clearTimeout(s.releaseTimer); s.releaseTimer = 0 }
+      s.gate = 0
+      s.note = null
+      this.setGate(i, 0)
     }
     this.noteMap.clear()
     this.freeStack.length = 0
@@ -153,11 +166,16 @@ export class VoicePool {
 
   private setRefs(slot: number, note: number, gate: number): void {
     if (!this.registry) return
-    // Ensure refs exist before trying to set them (first note may arrive
-    // before the initial compile has primed the pool).
     this.registry.getOrCreate(this.freqKeys[slot], note > 0 ? midiToFreq(note) : 0)
     this.registry.getOrCreate(this.gateKeys[slot], gate)
     this.registry.setValue(this.freqKeys[slot], note > 0 ? midiToFreq(note) : 0)
+    this.registry.setValue(this.gateKeys[slot], gate)
+  }
+
+  /** Set only the gate, keeping the current frequency. */
+  private setGate(slot: number, gate: number): void {
+    if (!this.registry) return
+    this.registry.getOrCreate(this.gateKeys[slot], gate)
     this.registry.setValue(this.gateKeys[slot], gate)
   }
 }
