@@ -26,8 +26,10 @@ export function clearParamRefs(): void {
 export class ParamRefRegistry {
   private refs = new Map<string, { node: NodeRepr_t; setter: (props: Record<string, unknown>) => void }>()
   private core: WebRenderer | null = null
-  /** Values queued while refs were unmounted — flushed after render completes. */
-  private pending = new Map<string, number>()
+  /** Values queued while refs were unmounted — flushed after render completes.
+   *  Array preserves order so rapid on→off sequences aren't collapsed to just
+   *  the last value (which would drop note-ons entirely). */
+  private pending: { key: string; value: number }[] = []
 
   attach(core: WebRenderer): void { this.core = core }
 
@@ -53,24 +55,27 @@ export class ParamRefRegistry {
     if (!ref) return
     try { ref.setter({ value }) } catch {
       // Ref not mounted yet — queue for after the next render.
-      this.pending.set(key, value)
+      this.pending.push({ key, value })
     }
   }
 
-  /** Apply all queued values.  Call after core.render() completes. */
+  /** Apply all queued values in order.  Call after core.render() completes. */
   flushPending(): void {
-    if (this.pending.size === 0) return
-    for (const [key, value] of this.pending) {
+    if (this.pending.length === 0) return
+    const batch = this.pending
+    this.pending = []
+    for (const { key, value } of batch) {
       const ref = this.refs.get(key)
       if (ref) {
         try { ref.setter({ value }) } catch { /* still unmounted, keep queued */ }
       }
     }
-    this.pending.clear()
   }
 
+  get pendingCount(): number { return this.pending.length }
+
   /** Discard all cached refs (call before structural recompile). */
-  clear(): void { this.refs.clear(); this.pending.clear() }
+  clear(): void { this.refs.clear(); this.pending.length = 0 }
 
   get size(): number { return this.refs.size }
 }
