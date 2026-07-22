@@ -123,6 +123,12 @@ function ModuleNode({ data }: NodeProps) {
   // EARLY RETURN only after ALL hooks have been called.
   if (!module || !def) return null
 
+  // Live CC readout for effect modules.
+  const ccValues = useMidiStore((s) => s.ccValues)
+  const isEff = module?.type === 'effect1' || module?.type === 'effect2'
+  const effCc = isEff ? (module?.params.cc ?? 0) : 0
+  const effCcVal = effCc > 0 ? (ccValues[effCc] ?? 0) / 127 : 0
+
   const clip = levelRef.current > CLIP_THRESHOLD
 
   return (
@@ -135,6 +141,11 @@ function ModuleNode({ data }: NodeProps) {
           />
         )}
         <span>{def.label}</span>
+        {isEff && (
+          <span className="mod-eff-val" title={`CC ${effCc}: ${effCcVal.toFixed(2)} + tracker`}>
+            {effCc > 0 ? effCcVal.toFixed(2) : '—'}
+          </span>
+        )}
         {!def.singleton && (
           <button className="mod-del nodrag" title="Delete module" onClick={() => removeModule(instrumentId, moduleId)}>
             ×
