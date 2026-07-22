@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { applyPatches, enablePatches, type Patch, produceWithPatches } from 'immer'
 import type { Cell, Connection, Doc, DrumKitSlot, Id, Instrument, Module, ModuleType, Pattern, Port, SampleEntity } from '../domain/types'
 import { getSlotForNote } from '../domain/types'
+import { updateParamRef } from '../audio/paramRefs'
 import {
   cloneInstrument,
   createDefaultDoc,
@@ -438,13 +439,16 @@ export const useDocStore = create<DocState>((set, get) => ({
       if (mod) mod.pos = pos
     }),
 
-  setModuleParam: (instrumentId, moduleId, key, value) =>
+  setModuleParam: (instrumentId, moduleId, key, value) => {
     get().mutate((draft) => {
       const inst = draft.entities.instruments[instrumentId]
       if (inst?.kind !== 'modular') return
       const mod = inst.modules[moduleId]
       if (mod) mod.params[key] = value
-    }),
+    })
+    // Direct ref update for zero-recompile slider response.
+    updateParamRef(`${instrumentId}:${moduleId}:${key}`, value)
+  },
 
   addConnection: (instrumentId, from, to) =>
     get().mutate((draft) => {

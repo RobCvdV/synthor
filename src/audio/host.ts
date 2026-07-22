@@ -1,6 +1,7 @@
 import { el } from '@elemaudio/core'
 import WebRenderer from '@elemaudio/web-renderer'
 import type { StereoOut } from '../engine/modular'
+import { ParamRefRegistry, setActiveParamRefs } from './paramRefs'
 
 /**
  * Owns the AudioContext + Elementary WebRenderer and pushes compiled graphs to
@@ -12,6 +13,9 @@ export class AudioHost {
   private core: WebRenderer | null = null
   private analyser: AnalyserNode | null = null
   private ready = false
+
+  /** Registry of createRef-backed param nodes for zero-recompile value updates. */
+  readonly paramRefs = new ParamRefRegistry()
 
   /** Precise AudioContext time captured at the moment the graph was rendered
    *  for the current playback session. Set by useEngine. */
@@ -53,6 +57,8 @@ export class AudioHost {
     }
     this.ctx = new AudioContext()
     this.core = new WebRenderer()
+    this.paramRefs.attach(this.core)
+    setActiveParamRefs(this.paramRefs)
     const node = await this.core.initialize(this.ctx, {
       numberOfInputs: 0,
       numberOfOutputs: 1,

@@ -91,15 +91,20 @@ export function compileModular(
   eff2: Node = 1,
   /** MIDI CC values (0-127 → raw 0-127).  Used by `midicc` source modules. */
   midiCcValues?: Record<number, number>,
+  /** Param ref registry — uses createRef so values update without recompile. */
+  paramRefs?: import('../audio/paramRefs').ParamRefRegistry,
 ): StereoOut {
   const memo = new Map<string, Node>()
   const visiting = new Set<string>()
 
-  // Params are fed as keyed consts so dragging a slider changes a value without
-  // restructuring the graph (which would reset oscillator phase / envelope /
-  // filter state). Mirrors the keying discipline in compile.ts.
+  // Params use createRef when a registry is available so slider drags update
+  // the value directly without a full graph recompile.  Falls back to el.const
+  // when the host isn't ready yet (e.g. tests that call compileModular directly).
+  const refKey = (key: string) => `${keyPrefix}:${key}`
   const kconst = (key: string, value: number): NodeRepr_t =>
-    el.const({ key: `${keyPrefix}:${key}`, value })
+    paramRefs
+      ? paramRefs.getOrCreate(refKey(key), value)
+      : el.const({ key: refKey(key), value })
 
   const conns = Object.values(inst.connections)
 
@@ -153,8 +158,16 @@ export function compileModular(
       case 'volume':
         return vol
       case 'effect1':
+        if (Math.round(p.source ?? 0) === 1) {
+          const cc = Math.round(p.cc ?? 1)
+          return kconst(key('val'), (midiCcValues?.[cc] ?? 0) / 127)
+        }
         return eff1
       case 'effect2':
+        if (Math.round(p.source ?? 0) === 1) {
+          const cc = Math.round(p.cc ?? 2)
+          return kconst(key('val'), (midiCcValues?.[cc] ?? 0) / 127)
+        }
         return eff2
 
       case 'midicc': {

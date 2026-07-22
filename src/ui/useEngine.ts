@@ -104,6 +104,7 @@ export function useEngine(): AudioHost {
             preview: instrumentId && active.length ? { instrumentId, voices: active } : undefined,
             vfsLoadedHashes: vfsLoadedRef.current,
             midiCcValues: useMidiStore.getState().ccValues,
+            paramRefs: host.paramRefs,
           }),
         )
       }

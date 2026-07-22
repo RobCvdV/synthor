@@ -40,10 +40,12 @@ export function renderInstrument(
   effect2: NodeRepr_t | number = 1,
   /** MIDI CC values (0-127 → raw 0-127).  Used by `midicc` source modules. */
   midiCcValues?: Record<number, number>,
+  /** Param ref registry for zero-recompile value updates. */
+  paramRefs?: import('../audio/paramRefs').ParamRefRegistry,
 ): StereoOut {
   switch (inst.kind) {
     case 'osc': {
-      void voiceKey; void note; void baseFreq; void effect1; void effect2; void midiCcValues
+      void voiceKey; void note; void baseFreq; void effect1; void effect2; void midiCcValues; void paramRefs
       const env = makeAdsr(0.005, 0.12, 0.7, 0.25, gate)
       const tone = el.blepsaw(freq)
       const out = el.mul(tone, env, inst.params.gain, volume)
@@ -51,7 +53,7 @@ export function renderInstrument(
     }
     case 'modular': {
       void note
-      return compileModular(inst, freq, gate, voiceKey, sampleMeta, baseFreq, volume, effect1, effect2, midiCcValues)
+      return compileModular(inst, freq, gate, voiceKey, sampleMeta, baseFreq, volume, effect1, effect2, midiCcValues, paramRefs)
     }
     case 'drumkit': {
       // Drumkit rendering is handled at the compile level via renderDrumKitSlot,
@@ -79,6 +81,7 @@ export function renderDrumKitSlot(
   sampleMeta: SampleMeta[],
   sampleHashById: Record<Id, string>,
   midiCcValues?: Record<number, number>,
+  paramRefs?: import('../audio/paramRefs').ParamRefRegistry,
 ): StereoOut {
   const zero = el.const({ value: 0 })
   let rawL: NodeRepr_t = zero
@@ -136,6 +139,7 @@ export function renderDrumKitSlot(
         1, // effect1 (drumkit slots use static 1)
         1, // effect2
         midiCcValues,
+        paramRefs,
       )
       rawL = voice.left
       rawR = voice.right

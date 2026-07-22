@@ -58,6 +58,8 @@ export interface RenderContext {
   vfsLoadedHashes?: Set<string>
   /** MIDI CC values, keyed by CC number (0-127).  Used by `midicc` source modules. */
   midiCcValues?: Record<number, number>
+  /** Param ref registry for zero-recompile value updates. */
+  paramRefs?: import('../audio/paramRefs').ParamRefRegistry
 }
 
 /**
@@ -71,6 +73,7 @@ function compilePreview(
   preview: RenderContext['preview'],
   vfsLoaded?: Set<string>,
   midiCcValues?: Record<number, number>,
+  paramRefs?: RenderContext['paramRefs'],
 ): StereoOut | null {
   if (!preview || preview.voices.length === 0) return null
   const inst = doc.entities.instruments[preview.instrumentId]
@@ -92,7 +95,7 @@ function compilePreview(
       const baseNote = slot.instrumentId ? v.note : slot.note
       const freq = el.const({ key: `${voiceKey}:freq`, value: midiToFreq(baseNote + slot.pitchOffset) })
       const gate = el.const({ key: `${voiceKey}:gate`, value: v.gate })
-      return renderDrumKitSlot(slot, doc.entities.instruments, gate, freq, voiceKey, sampleMeta, sampleHashById, midiCcValues)
+      return renderDrumKitSlot(slot, doc.entities.instruments, gate, freq, voiceKey, sampleMeta, sampleHashById, midiCcValues, paramRefs)
     })
     const masterGain = el.const({ value: inst.params.gain })
     // Per-voice velocity: scale each slot by the key velocity.
@@ -113,7 +116,7 @@ function compilePreview(
     const gate = el.const({ key: `${voiceKey}:gate`, value: v.gate })
     const note = 0
     const velGain = v.velocity / 127
-    return renderInstrument(inst, freq, gate, voiceKey, sampleMeta, note, sampleHashById, midiToFreq(v.note), velGain, 1, 1, midiCcValues)
+    return renderInstrument(inst, freq, gate, voiceKey, sampleMeta, note, sampleHashById, midiToFreq(v.note), velGain, 1, 1, midiCcValues, paramRefs)
   })
   return {
     left: el.mul(voices.reduce((a, v) => el.add(a, v.left), zero), 0.3),
@@ -137,7 +140,11 @@ function rotateSeq<T>(seq: T[], offset: number): T[] {
  * AudioContext — pure, unit-testable, and reusable for offline bounce.
  */
 export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
-  const preview = compilePreview(doc, ctx.preview, ctx.vfsLoadedHashes, ctx.midiCcValues)
+  // Discard stale refs before each compile so removed modules / connections
+  // don't leave orphaned createRef nodes in the registry.
+  ctx.paramRefs?.clear()
+
+  const preview = compilePreview(doc, ctx.preview, ctx.vfsLoadedHashes, ctx.midiCcValues, ctx.paramRefs)
   const silence: StereoOut = {
     left: el.const({ value: 0 }),
     right: el.const({ value: 0 }),
@@ -204,7 +211,7 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
         const slotGate = el.seq2({ key: `${trackId}:${slot.id}:gate:${ctx.playEpoch}`, seq: rotatedGate, hold: false, loop: true }, clock, reset)
         // hold:true so instrument release tails keep the correct frequency.
         const slotFreq = el.seq2({ key: `${trackId}:${slot.id}:freq:${ctx.playEpoch}`, seq: rotatedFreq, hold: true, loop: true }, clock, reset)
-        const voice = renderDrumKitSlot(slot, doc.entities.instruments, slotGate, slotFreq, trackId, sampleMeta, sampleHashById, ctx.midiCcValues)
+        const voice = renderDrumKitSlot(slot, doc.entities.instruments, slotGate, slotFreq, trackId, sampleMeta, sampleHashById, ctx.midiCcValues, ctx.paramRefs)
         mixL = el.add(mixL, voice.left)
         mixR = el.add(mixR, voice.right)
       }
@@ -245,7 +252,7 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
     // Apply effect modulation to frequency and volume.
     const { freq: effFreq, vol: effVol } = applyEffectModulation(freq, vol, freqMulSeq, volModSeq)
 
-    const voice = renderInstrument(inst, effFreq, gate, trackId, sampleMeta, 0, sampleHashById, trackBaseFreq, effVol, eff1SeqNode, eff2SeqNode, ctx.midiCcValues)
+    const voice = renderInstrument(inst, effFreq, gate, trackId, sampleMeta, 0, sampleHashById, trackBaseFreq, effVol, eff1SeqNode, eff2SeqNode, ctx.midiCcValues, ctx.paramRefs)
 
     // Apply per-row panning if any row has a pan effect.
     const hasPan = pan.some((p) => p !== null)
