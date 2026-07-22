@@ -14,6 +14,11 @@ export function updateParamRef(key: string, value: number): void {
   activeRegistry?.setValue(key, value)
 }
 
+/** Clear all refs — call on undo/redo so the next compile recreates them. */
+export function clearParamRefs(): void {
+  activeRegistry?.clear()
+}
+
 /**
  * Registry of Elementary `createRef` nodes so slider / MIDI CC values can be
  * updated directly (no graph recompilation) after the initial render.
@@ -24,13 +29,13 @@ export class ParamRefRegistry {
 
   attach(core: WebRenderer): void { this.core = core }
 
-  /** Return a ref node for the given key, creating one on first call. */
+  /** Return a ref node for the given key, creating one on first call.
+   *  Does NOT sync the value on existing refs — syncing here races with
+   *  setValue() calls from slider/CC changes (both post async messages to
+   *  the worklet; a stale compile-time sync arriving last flips the value). */
   getOrCreate(key: string, value: number): NodeRepr_t {
     const existing = this.refs.get(key)
-    if (existing) {
-      try { existing.setter({ value }) } catch { /* unmounted */ }
-      return existing.node
-    }
+    if (existing) return existing.node
     if (!this.core) return el.const({ key, value })
     const pair = this.core.createRef('const', { value }, [])
     const node = pair[0] as NodeRepr_t

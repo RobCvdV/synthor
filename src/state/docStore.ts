@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { applyPatches, enablePatches, type Patch, produceWithPatches } from 'immer'
 import type { Cell, Connection, Doc, DrumKitSlot, Id, Instrument, Module, ModuleType, Pattern, Port, SampleEntity } from '../domain/types'
 import { getSlotForNote } from '../domain/types'
-import { updateParamRef } from '../audio/paramRefs'
+import { clearParamRefs, updateParamRef } from '../audio/paramRefs'
 import {
   cloneInstrument,
   createDefaultDoc,
@@ -172,6 +172,7 @@ export const useDocStore = create<DocState>((set, get) => ({
     const entry = past[past.length - 1]
     if (!entry) return
     set({ doc: applyPatches(doc, entry.inverse), past: past.slice(0, -1), future: [entry, ...future] })
+    clearParamRefs() // refs hold stale values after undo
   },
 
   redo: () => {
@@ -179,6 +180,7 @@ export const useDocStore = create<DocState>((set, get) => ({
     const entry = future[0]
     if (!entry) return
     set({ doc: applyPatches(doc, entry.patches), past: [...past, entry], future: future.slice(1) })
+    clearParamRefs() // refs hold stale values after redo
   },
 
   setCellNote: (trackId, row, note) =>
