@@ -157,7 +157,7 @@ function ModuleNode({ data }: NodeProps) {
                 <span className="mod-param-value">
                   {labels ? labels[Math.round(value)] ?? '?' : round(displayVal)}
                   {scaleVal !== null && (
-                    <>
+                    <>{' '}
                       <button
                         className="mod-scale-btn nodrag"
                         title="Decrease scale · hold Shift for −10"
@@ -169,7 +169,9 @@ function ModuleNode({ data }: NodeProps) {
                       >
                         −
                       </button>
+                      {' '}
                       <span className="mod-scale-val">{scaleVal}</span>
+                      {' '}
                       <button
                         className="mod-scale-btn nodrag"
                         title="Increase scale · hold Shift for +10"
