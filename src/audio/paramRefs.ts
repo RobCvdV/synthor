@@ -26,6 +26,8 @@ export function clearParamRefs(): void {
 export class ParamRefRegistry {
   private refs = new Map<string, { node: NodeRepr_t; setter: (props: Record<string, unknown>) => void }>()
   private core: WebRenderer | null = null
+  /** Values queued while refs were unmounted — flushed after render completes. */
+  private pending = new Map<string, number>()
 
   attach(core: WebRenderer): void { this.core = core }
 
@@ -44,16 +46,31 @@ export class ParamRefRegistry {
     return node
   }
 
-  /** Update a ref's value without recompiling.  Silently skips unmounted refs
-   *  (the value will be picked up on the next render pass). */
+  /** Update a ref's value without recompiling.  If the ref isn't mounted yet
+   *  (setter throws), queues the value and applies it after the next render. */
   setValue(key: string, value: number): void {
     const ref = this.refs.get(key)
     if (!ref) return
-    try { ref.setter({ value }) } catch { /* unmounted — next render picks it up */ }
+    try { ref.setter({ value }) } catch {
+      // Ref not mounted yet — queue for after the next render.
+      this.pending.set(key, value)
+    }
+  }
+
+  /** Apply all queued values.  Call after core.render() completes. */
+  flushPending(): void {
+    if (this.pending.size === 0) return
+    for (const [key, value] of this.pending) {
+      const ref = this.refs.get(key)
+      if (ref) {
+        try { ref.setter({ value }) } catch { /* still unmounted, keep queued */ }
+      }
+    }
+    this.pending.clear()
   }
 
   /** Discard all cached refs (call before structural recompile). */
-  clear(): void { this.refs.clear() }
+  clear(): void { this.refs.clear(); this.pending.clear() }
 
   get size(): number { return this.refs.size }
 }

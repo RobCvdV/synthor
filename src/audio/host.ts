@@ -124,6 +124,7 @@ export class AudioHost {
       el.mul(stereo.right, el.const({ key: 'ch:r', value: 1 })),
     ).then(() => {
       this.renderBusy = false
+      this.paramRefs.flushPending()
       // If a newer graph was submitted while we were busy, render it now.
       const next = this.pendingGraph
       this.pendingGraph = null
@@ -131,6 +132,7 @@ export class AudioHost {
     }).catch((err: unknown) => {
       this.renderBusy = false
       this.pendingGraph = null
+      this.paramRefs.flushPending()
       console.error('Elementary render error:', err)
       if (err && typeof err === 'object') {
         const e = err as Record<string, unknown>
