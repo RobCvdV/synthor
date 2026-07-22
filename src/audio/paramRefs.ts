@@ -28,7 +28,7 @@ export class ParamRefRegistry {
   getOrCreate(key: string, value: number): NodeRepr_t {
     const existing = this.refs.get(key)
     if (existing) {
-      existing.setter({ value })
+      try { existing.setter({ value }) } catch { /* unmounted */ }
       return existing.node
     }
     if (!this.core) return el.const({ key, value })
@@ -39,9 +39,12 @@ export class ParamRefRegistry {
     return node
   }
 
-  /** Update a ref's value without recompiling. */
+  /** Update a ref's value without recompiling.  Silently skips unmounted refs
+   *  (the value will be picked up on the next render pass). */
   setValue(key: string, value: number): void {
-    this.refs.get(key)?.setter({ value })
+    const ref = this.refs.get(key)
+    if (!ref) return
+    try { ref.setter({ value }) } catch { /* unmounted — next render picks it up */ }
   }
 
   /** Discard all cached refs (call before structural recompile). */

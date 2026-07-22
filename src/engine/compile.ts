@@ -140,10 +140,6 @@ function rotateSeq<T>(seq: T[], offset: number): T[] {
  * AudioContext — pure, unit-testable, and reusable for offline bounce.
  */
 export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
-  // Discard stale refs before each compile so removed modules / connections
-  // don't leave orphaned createRef nodes in the registry.
-  ctx.paramRefs?.clear()
-
   const preview = compilePreview(doc, ctx.preview, ctx.vfsLoadedHashes, ctx.midiCcValues, ctx.paramRefs)
   const silence: StereoOut = {
     left: el.const({ value: 0 }),
