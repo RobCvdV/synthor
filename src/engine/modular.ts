@@ -165,7 +165,8 @@ export function compileModular(
         // knob so it's immediately musical — no inaudible ±1 Hz offsets.
         if (cutoffMod !== null) {
           const depth = kconst(key('modDepth'), p.modDepth ?? 0.5)
-          const fc = el.mul(base, el.add(el.const({ value: 1 }), el.mul(cutoffMod, depth)))
+          const scale = kconst(key('modDepthScale'), p.modDepthScale ?? 1)
+          const fc = el.mul(base, el.add(el.const({ value: 1 }), el.mul(cutoffMod, depth, scale)))
           const mode = FILTER_MODES[Math.round(p.mode ?? 0)] ?? 'lowpass'
           return el.svf({ key: `${keyPrefix}:${m.id}`, mode }, fc, kconst(key('q'), p.q ?? 0.7), input)
         }
@@ -205,6 +206,7 @@ export function compileModular(
         const syncMode = Math.round(p.sync ?? 0) // 0=free, 1=gate
         const width = kconst(key('pulseWidth'), p.pulseWidth ?? 0.5)
         const amount = kconst(key('amount'), p.amount ?? 1)
+        const amountScale = kconst(key('amountScale'), p.amountScale ?? 1)
 
         // Phase source: gate-synced resets when gate=0 and runs when gate=1,
         // so each note-on starts the LFO from phase 0. Free-running ignores gate.
@@ -214,7 +216,7 @@ export function compileModular(
             ? el.syncphasor(rate, el.sub(el.const({ value: 1 }), g ?? SILENCE))
             : el.phasor(rate)
 
-        return el.mul(lfoShape(wf, phase, width), amount)
+        return el.mul(lfoShape(wf, phase, width), amount, amountScale)
       }
 
       case 'tanh': {

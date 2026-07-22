@@ -135,15 +135,54 @@ function ModuleNode({ data }: NodeProps) {
 
       <div className="mod-node-body" style={{ paddingTop: Math.max(def.inlets.length, def.outlets.length) * 24 }}>
         {def.params.map((p) => {
+          // Scale params are rendered inline alongside their parent param
+          // (the one with showScale); skip them in the normal loop.
+          if (p.key.endsWith('Scale')) return null
+
           const value = module.params[p.key] ?? p.default
           const over = paramOverrides?.get(p.key)
           const labels = over?.enumLabels ?? p.enumLabels
           const max = over?.max ?? p.max
+
+          // Companion scale param (e.g. modDepthScale for modDepth).
+          const scaleKey = p.showScale ? `${p.key}Scale` : null
+          const scaleVal = scaleKey ? (module.params[scaleKey] ?? 1) : null
+
           return (
             <label className="mod-param" key={p.key}>
               <span className="mod-param-label">
                 {p.label}
-                <span className="mod-param-value">{labels ? labels[Math.round(value)] ?? '?' : round(value)}</span>
+                <span className="mod-param-value">
+                  {labels ? labels[Math.round(value)] ?? '?' : round(value)}
+                  {scaleVal !== null && (
+                    <>
+                      {' ×'}
+                      <button
+                        className="mod-scale-btn nodrag"
+                        title="Decrease scale · hold Shift for −10"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          const step = e.shiftKey ? 10 : 1
+                          setModuleParam(instrumentId, moduleId, scaleKey!, Math.max(1, scaleVal - step))
+                        }}
+                      >
+                        −
+                      </button>
+                      <span className="mod-scale-val">{scaleVal}</span>
+                      <button
+                        className="mod-scale-btn nodrag"
+                        title="Increase scale · hold Shift for +10"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          const step = e.shiftKey ? 10 : 1
+                          setModuleParam(instrumentId, moduleId, scaleKey!, Math.min(99, scaleVal + step))
+                        }}
+                      >
+                        +
+                      </button>
+                    </>
+                  )}
+                </span>
               </span>
               <input
                 className="nodrag"

@@ -17,6 +17,10 @@ export interface ParamDef {
   step: number
   /** When set, the param is a discrete choice; index into these labels. */
   enumLabels?: string[]
+  /** When true, an integer scale factor is shown as +/- buttons next to the
+   *  slider value. The scale value is stored in a companion param with the
+   *  suffix `Scale` (e.g. `modDepthScale` augments `modDepth`). */
+  showScale?: boolean
 }
 
 export interface ModuleDef {
@@ -88,7 +92,8 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
       { key: 'mode', label: 'Mode', min: 0, max: 2, default: 0, step: 1, enumLabels: [...FILTER_MODES] },
       { key: 'cutoff', label: 'Cutoff (Hz)', min: 20, max: 18000, default: 1200, step: 1 },
       { key: 'q', label: 'Resonance', min: 0.1, max: 12, default: 0.7, step: 0.1 },
-      { key: 'modDepth', label: 'Mod depth', min: 0, max: 1, default: 0.5, step: 0.01 },
+      { key: 'modDepth', label: 'Mod depth', min: 0, max: 1, default: 0.5, step: 0.01, showScale: true },
+      { key: 'modDepthScale', label: '×', min: 1, max: 99, default: 1, step: 1 },
     ],
   },
   adsr: {
@@ -125,7 +130,8 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     params: [
       { key: 'waveform', label: 'Wave', min: 0, max: 4, default: 0, step: 1, enumLabels: [...LFO_WAVEFORMS] },
       { key: 'rate', label: 'Rate (Hz)', min: 0.1, max: 50, default: 4, step: 0.1 },
-      { key: 'amount', label: 'Amount', min: 0, max: 1, default: 1, step: 0.01 },
+      { key: 'amount', label: 'Amount', min: 0, max: 1, default: 1, step: 0.01, showScale: true },
+      { key: 'amountScale', label: '×', min: 1, max: 99, default: 1, step: 1 },
       { key: 'pulseWidth', label: 'Width', min: 0.05, max: 0.95, default: 0.5, step: 0.01 },
       { key: 'sync', label: 'Sync', min: 0, max: 1, default: 0, step: 1, enumLabels: ['free', 'gate'] },
     ],
