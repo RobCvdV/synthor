@@ -21,6 +21,10 @@ export class AudioHost {
   /** Registry of createRef-backed param nodes for zero-recompile value updates. */
   readonly paramRefs = new ParamRefRegistry()
 
+  /** Set after start() completes; cleared by the first post-start compile.
+   *  useEngine checks this to force a render that mounts voice-pool refs. */
+  needsInitialCompile = false
+
   /** Fixed voice pools per instrument (lazily created). */
   readonly voicePools = new Map<string, VoicePool>()
 

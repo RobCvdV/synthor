@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { useMidiStore } from '../state/midiStore'
+import { useDocStore } from '../state/docStore'
 import type { AudioHost } from '../audio/host'
 
 /**
@@ -62,7 +63,10 @@ export function useMidi(host: AudioHost) {
               if (vel === 0) {
                 pool.noteOff(note)
               } else {
-                void host.start().then(() => pool.noteOn(note, vel))
+                void host.start().then(() => {
+                  pool.noteOn(note, vel)
+                  useDocStore.getState().bumpCompile()
+                })
               }
               break
             }

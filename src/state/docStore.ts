@@ -43,6 +43,11 @@ interface DocState {
   mutedTracks: Record<Id, boolean>
   /** Non-undoable performance state: which tracks are soloed (keyed by id). */
   soloedTracks: Record<Id, boolean>
+  /** Counter bumped to force a render (e.g. after host.start() mounts refs). */
+  compileTick: number
+  /** Bump to trigger a render via store subscription. */
+  bumpCompile: () => void
+
   /** Hashes of samples that loaded successfully into VFS. null = not yet synced. */
   vfsLoadedHashes: Set<string> | null
 
@@ -156,6 +161,9 @@ export const useDocStore = create<DocState>((set, get) => ({
   mutedTracks: {},
   soloedTracks: {},
   vfsLoadedHashes: null,
+  compileTick: 0,
+
+  bumpCompile: () => set((s) => ({ compileTick: s.compileTick + 1 })),
 
   mutate: (recipe) => {
     const { doc, past } = get()

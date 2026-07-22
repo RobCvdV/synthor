@@ -461,7 +461,7 @@ export default function App() {
           if (!useTransportStore.getState().playing) {
             const d = useDocStore.getState().doc
             const instId = d.entities.tracks[trackId]?.instrumentId
-            if (instId) { void host.start().then(() => { host.voicePool(instId).noteOn(note); setTimeout(() => host.voicePool(instId).noteOff(note), 120) }) }
+            if (instId) { void host.start().then(() => { host.voicePool(instId).noteOn(note); useDocStore.getState().bumpCompile(); setTimeout(() => host.voicePool(instId).noteOff(note), 120) }) }
           }
           setCursor((c) => ({ ...c, row: (c.row + 1) % pattern.length }))
         }
