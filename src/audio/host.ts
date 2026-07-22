@@ -32,7 +32,7 @@ export class AudioHost {
   voicePool(instId: string, maxVoices = 8): VoicePool {
     let pool = this.voicePools.get(instId)
     if (!pool) {
-      pool = new VoicePool(maxVoices, instId, this.paramRefs)
+      pool = new VoicePool(maxVoices)
       this.voicePools.set(instId, pool)
     }
     return pool
@@ -89,7 +89,6 @@ export class AudioHost {
       this.core = new WebRenderer()
       this.paramRefs.attach(this.core)
       setActiveParamRefs(this.paramRefs)
-        for (const pool of this.voicePools.values()) pool.attach(this.paramRefs)
       const node = await this.core.initialize(this.ctx, {
         numberOfInputs: 0,
         numberOfOutputs: 1,

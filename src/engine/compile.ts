@@ -102,13 +102,8 @@ function compilePreview(
     }
   }
 
-  // Prime voice refs so they exist before the graph is rendered.
-  voicePool.prime()
-
   const slots = voicePool.snapshot()
   const active = slots.some((s) => s.gate === 1 || s.note !== null)
-
-  // Drumkit preview: each voice slot maps to a slot via getSlotForNote.
   if (inst.kind === 'drumkit') {
     const slotVoices = slots.map((v, i) => {
       if (v.note == null) return { left: zero, right: zero }
@@ -116,12 +111,8 @@ function compilePreview(
       if (!slot) return { left: zero, right: zero }
       const voiceKey = `${inst.id}:v:${i}`
       const baseNote = slot.instrumentId ? v.note : slot.note
-      const freq = paramRefs
-        ? voicePool.freqNode(i)
-        : el.const({ key: `${voiceKey}:freq`, value: midiToFreq(baseNote + slot.pitchOffset) })
-      const gate = paramRefs
-        ? voicePool.gateNode(i)
-        : el.const({ key: `${voiceKey}:gate`, value: v.gate })
+      const freq = el.const({ key: `${voiceKey}:freq`, value: midiToFreq(baseNote + slot.pitchOffset) })
+      const gate = el.const({ key: `${voiceKey}:gate`, value: v.gate })
       const velGain = el.const({ value: v.velocity / 127 })
       const voice = renderDrumKitSlot(slot, doc.entities.instruments, gate, freq, voiceKey, sampleMeta, sampleHashById, midiCcValues, paramRefs)
       return { left: el.mul(voice.left, velGain), right: el.mul(voice.right, velGain) }
@@ -134,16 +125,13 @@ function compilePreview(
     }
   }
 
-  // Osc / modular: build one signal chain per voice slot, each with its own
-  // freq/gate refs.  Module params are shared across all slots (same refs).
+  // Osc / modular: one signal chain per voice slot, all slots always in the
+  // graph.  Gate/freq use plain el.const — Elementary reconciles by key so
+  // only the values change, not the graph structure.
   const slotVoices = slots.map((v, i) => {
     const voiceKey = `${inst.id}:v:${i}`
-    const freq = paramRefs
-      ? voicePool.freqNode(i)
-      : el.const({ key: `${voiceKey}:freq`, value: v.note != null ? midiToFreq(v.note) : 0 })
-    const gate = paramRefs
-      ? voicePool.gateNode(i)
-      : el.const({ key: `${voiceKey}:gate`, value: v.gate })
+    const freq = el.const({ key: `${voiceKey}:freq`, value: v.note != null ? midiToFreq(v.note) : 0 })
+    const gate = el.const({ key: `${voiceKey}:gate`, value: v.gate })
     const velGain = v.velocity / 127
     return renderInstrument(inst, freq, gate, voiceKey, sampleMeta, 0, sampleHashById, 0, velGain, 1, 1, midiCcValues, paramRefs)
   })
