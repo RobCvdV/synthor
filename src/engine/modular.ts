@@ -97,14 +97,16 @@ export function compileModular(
   const memo = new Map<string, Node>()
   const visiting = new Set<string>()
 
-  // Params use createRef when a registry is available so slider drags update
-  // the value directly without a full graph recompile.  Falls back to el.const
-  // when the host isn't ready yet (e.g. tests that call compileModular directly).
-  const refKey = (key: string) => `${keyPrefix}:${key}`
+  // Param refs use instrument-scoped keys so ALL voices/tracks sharing this
+  // instrument see the same ref.  Voice-specific keys (keyPrefix) are used
+  // only for voice-owned nodes (freq/gate consts), not for shared params.
+  // Without this, slider changes via updateParamRef wouldn't find the ref
+  // because it was stored under a per-voice key like "preview:inst:60:mod:cutoff".
+  const refKey = (key: string) => `${inst.id}:${key}`
   const kconst = (key: string, value: number): NodeRepr_t =>
     paramRefs
       ? paramRefs.getOrCreate(refKey(key), value)
-      : el.const({ key: refKey(key), value })
+      : el.const({ key: `${keyPrefix}:${key}`, value })
 
   const conns = Object.values(inst.connections)
 
