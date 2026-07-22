@@ -57,7 +57,7 @@ export function DrumKitEditor({ inst }: { inst: DrumKitInstrument }) {
   const instrumentEntities = useDocStore((s) => s.doc.entities.instruments)
   const addSlot = useDocStore((s) => s.addDrumKitSlot)
   const removeSlot = useDocStore((s) => s.removeDrumKitSlot)
-  const setSlotParam = useDocStore((s) => s.setDrumKitSlotParam)
+  const setOrPromoteSlotParam = useDocStore((s) => s.setOrPromoteSlotParam)
   const setSlotSource = useDocStore((s) => s.setDrumKitSlotSource)
   const setKitParam = useDocStore((s) => s.setDrumKitParam)
   const setKeyRange = useDocStore((s) => s.setDrumKitKeyRange)
@@ -118,17 +118,18 @@ export function DrumKitEditor({ inst }: { inst: DrumKitInstrument }) {
   const doSetParam = useCallback(
     (note: number, key: 'pitchOffset' | 'gain' | 'pan', value: number) => {
       const eff = effectiveMap.get(note)
-      if (!eff?.slotId) return
-      if (eff.inherited) {
-        // Promote: create a new explicit slot at this note with parent's source.
-        // Params will be defaults; user can then adjust. This is a two-click flow
-        // but avoids async slot-ID chasing.
-        addSlot(inst.id, note, eff.sampleId ?? undefined, eff.instrumentId ?? undefined)
-      } else {
-        setSlotParam(inst.id, eff.slotId, key, value)
+      if (!eff?.slotId) {
+        // No slot covers this note — create one with a default source.
+        if (samples.length > 0) {
+          addSlot(inst.id, note, samples[0].id, undefined)
+        } else if (instruments.length > 0) {
+          addSlot(inst.id, note, undefined, instruments[0].id)
+        }
+        return
       }
+      setOrPromoteSlotParam(inst.id, note, key, value)
     },
-    [inst.id, effectiveMap, addSlot, setSlotParam],
+    [inst.id, effectiveMap, addSlot, setOrPromoteSlotParam, samples, instruments],
   )
 
   return (
@@ -269,10 +270,10 @@ export function DrumKitEditor({ inst }: { inst: DrumKitInstrument }) {
               </span>
 
               {/* Gain */}
-              <span className="dk-param-col">
+              <span className="dk-param-col dk-slider-col">
                 <input
-                  type="number"
-                  className="dk-param-input"
+                  type="range"
+                  className="dk-slider"
                   min={0}
                   max={1}
                   step={0.01}
@@ -280,14 +281,15 @@ export function DrumKitEditor({ inst }: { inst: DrumKitInstrument }) {
                   readOnly={eff.inherited || !eff.slotId}
                   onChange={(e) => doSetParam(note, 'gain', Number(e.target.value))}
                   onClick={(e) => e.stopPropagation()}
+                  title={`Gain: ${eff.gain.toFixed(2)}`}
                 />
               </span>
 
               {/* Pan */}
-              <span className="dk-param-col">
+              <span className="dk-param-col dk-slider-col">
                 <input
-                  type="number"
-                  className="dk-param-input"
+                  type="range"
+                  className="dk-slider"
                   min={-1}
                   max={1}
                   step={0.01}
@@ -295,6 +297,7 @@ export function DrumKitEditor({ inst }: { inst: DrumKitInstrument }) {
                   readOnly={eff.inherited || !eff.slotId}
                   onChange={(e) => doSetParam(note, 'pan', Number(e.target.value))}
                   onClick={(e) => e.stopPropagation()}
+                  title={`Pan: ${eff.pan > 0.05 ? 'R' : eff.pan < -0.05 ? 'L' : 'C'} ${eff.pan.toFixed(2)}`}
                 />
                 <span className="dk-pan-indicator">
                   {eff.pan > 0.05 ? 'R' : eff.pan < -0.05 ? 'L' : 'C'}

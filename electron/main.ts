@@ -60,11 +60,6 @@ const template: Electron.MenuItemConstructorOptions[] = [
     submenu: [
       { role: 'undo' as const },
       { role: 'redo' as const },
-      { type: 'separator' as const },
-      { role: 'cut' as const },
-      { role: 'copy' as const },
-      { role: 'paste' as const },
-      { role: 'selectAll' as const },
     ],
   },
   {

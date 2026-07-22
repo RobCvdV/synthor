@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { buildSequences } from './sequences'
+import { buildDrumKitSlotSequences, buildSequences } from './sequences'
 import { midiToFreq } from '../domain/notes'
-import type { Track } from '../domain/types'
+import type { DrumKitInstrument, Track } from '../domain/types'
 
 function cell(note: number | null, noteOff = false, volume: number | null = null) {
   return { note, noteOff, volume, effect: null, effectValue: null }
@@ -86,5 +86,58 @@ describe('buildSequences', () => {
     }
     const { volumeSeq } = buildSequences(t, 3)
     expect(volumeSeq).toEqual([0.5, 1, 0])
+  })
+})
+
+describe('buildDrumKitSlotSequences', () => {
+  function makeKit(slots: DrumKitInstrument['slots']): DrumKitInstrument {
+    return { id: 'dk', kind: 'drumkit', name: 'Kit', slots, keyLo: 0, keyHi: 127, params: { gain: 1 } }
+  }
+
+  function trackOf(notes: (number | null)[]): Track {
+    return { id: 't', instrumentId: 'dk', cells: notes.map((note) => ({ note, volume: null, noteOff: false, effect: null, effectValue: null })) }
+  }
+
+  it('uses slot.note + pitchOffset for sample-based slots', () => {
+    const kit = makeKit([{ id: 's1', note: 36, sampleId: 'samp', instrumentId: null, pitchOffset: 0, gain: 1, pan: 0 }])
+    const t = trackOf([36])
+    const { slotFreqSeqs } = buildDrumKitSlotSequences(t, 1, kit)
+    expect(slotFreqSeqs['s1'][0]).toBe(midiToFreq(36))
+  })
+
+  it('uses cell note + pitchOffset for instrument-based slots', () => {
+    const kit = makeKit([{ id: 's1', note: 36, sampleId: null, instrumentId: 'synth', pitchOffset: 2, gain: 1, pan: 0 }])
+    // Cell note 48 triggers slot at 36 (inheritance — nearest slot.note <= note).
+    const t = trackOf([48])
+    const { slotFreqSeqs } = buildDrumKitSlotSequences(t, 1, kit)
+    // Should use cell note (48) + pitchOffset (2) = 50, not slot.note (36) + pitchOffset (2) = 38
+    expect(slotFreqSeqs['s1'][0]).toBe(midiToFreq(50))
+  })
+
+  it('pitchOffset still works for instrument slots', () => {
+    const kit = makeKit([{ id: 's1', note: 36, sampleId: null, instrumentId: 'synth', pitchOffset: -3, gain: 1, pan: 0 }])
+    const t = trackOf([60])
+    const { slotFreqSeqs } = buildDrumKitSlotSequences(t, 1, kit)
+    expect(slotFreqSeqs['s1'][0]).toBe(midiToFreq(57))
+  })
+
+  it('pitchOffset works for sample slots (unchanged behavior)', () => {
+    const kit = makeKit([{ id: 's1', note: 36, sampleId: 'kick', instrumentId: null, pitchOffset: 12, gain: 1, pan: 0 }])
+    const t = trackOf([48]) // cell note 48, but sample slot uses slot.note (36) + pitchOffset
+    const { slotFreqSeqs } = buildDrumKitSlotSequences(t, 1, kit)
+    expect(slotFreqSeqs['s1'][0]).toBe(midiToFreq(48)) // 36 + 12 = 48
+  })
+
+  it('dispatches notes to correct slots via nearest-note inheritance', () => {
+    const kit = makeKit([
+      { id: 'kick', note: 36, sampleId: 'kick', instrumentId: null, pitchOffset: 0, gain: 1, pan: 0 },
+      { id: 'snare', note: 48, sampleId: 'snare', instrumentId: null, pitchOffset: 0, gain: 1, pan: 0 },
+    ])
+    const t = trackOf([36, 48, 60]) // 60 should go to snare slot
+    const { slotGateSeqs } = buildDrumKitSlotSequences(t, 3, kit)
+    expect(slotGateSeqs['kick'][0]).toBe(1)
+    expect(slotGateSeqs['snare'][1]).toBe(1)
+    expect(slotGateSeqs['snare'][2]).toBe(1) // inherited from snare slot (48)
+    expect(slotGateSeqs['kick'][1]).toBe(0)
   })
 })

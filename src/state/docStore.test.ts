@@ -365,3 +365,111 @@ describe('effect cell editing', () => {
     expect(rect![0][0].effect).toBe(0x500)
   })
 })
+
+describe('rectangular clipboard', () => {
+  beforeEach(() => {
+    useDocStore.setState({ doc: createDefaultDoc(), past: [], future: [], rectClipboard: null, trackClipboard: null })
+  })
+
+  it('copyRect copies cell data for the selected rectangle', () => {
+    const { doc } = useDocStore.getState()
+    const ids = doc.entities.patterns[doc.patternId].trackIds
+    useDocStore.getState().setCellNote(ids[0], 0, 60)
+    useDocStore.getState().setCellVolume(ids[0], 0, 0.5)
+    useDocStore.getState().setCellNote(ids[1], 0, 72)
+    useDocStore.getState().copyRect(ids, 0, 1, 0, 1)
+    const rect = useDocStore.getState().rectClipboard
+    expect(rect).toBeTruthy()
+    expect(rect!.length).toBe(2) // 2 tracks
+    expect(rect![0].length).toBe(2) // 2 rows
+    expect(rect![0][0].note).toBe(60)
+    expect(rect![0][0].volume).toBe(0.5)
+    expect(rect![1][0].note).toBe(72)
+  })
+
+  it('pasteRect writes cells at the target position', () => {
+    const { doc } = useDocStore.getState()
+    const ids = doc.entities.patterns[doc.patternId].trackIds
+    useDocStore.getState().setCellNote(ids[0], 0, 60)
+    useDocStore.getState().copyRect(ids, 0, 0, 0, 0)
+    useDocStore.getState().pasteRect(ids, 5, 0)
+    const state = useDocStore.getState()
+    expect(state.doc.entities.tracks[ids[0]].cells[5].note).toBe(60)
+  })
+
+  it('pasteRect does nothing when clipboard is null', () => {
+    const { doc } = useDocStore.getState()
+    const ids = doc.entities.patterns[doc.patternId].trackIds
+    const before = doc.entities.tracks[ids[0]].cells[5].note
+    useDocStore.getState().pasteRect(ids, 5, 0)
+    expect(useDocStore.getState().doc.entities.tracks[ids[0]].cells[5].note).toBe(before)
+  })
+
+  it('pasteRect skips tracks outside the pattern bounds', () => {
+    const { doc } = useDocStore.getState()
+    const ids = doc.entities.patterns[doc.patternId].trackIds
+    useDocStore.getState().setCellNote(ids[0], 0, 60)
+    useDocStore.getState().setCellNote(ids[1], 0, 64)
+    useDocStore.getState().copyRect(ids, 0, 0, 0, 1) // copies 2 tracks
+    // Paste at track index that would exceed bounds for 2nd clipboard column
+    useDocStore.getState().pasteRect(ids, 0, ids.length - 1) // only 1st column fits
+    const state = useDocStore.getState()
+    // First clipboard column lands at last track
+    expect(state.doc.entities.tracks[ids[ids.length - 1]].cells[0].note).toBe(60)
+  })
+
+  it('cutRect clears cells and stores them in clipboard', () => {
+    const { doc } = useDocStore.getState()
+    const ids = doc.entities.patterns[doc.patternId].trackIds
+    useDocStore.getState().setCellNote(ids[0], 0, 60)
+    useDocStore.getState().cutRect(ids, 0, 0, 0, 0)
+    const state = useDocStore.getState()
+    expect(state.doc.entities.tracks[ids[0]].cells[0].note).toBeNull()
+    expect(state.rectClipboard).toBeTruthy()
+    expect(state.rectClipboard![0][0].note).toBe(60)
+  })
+
+  it('cutRect is undoable', () => {
+    const { doc } = useDocStore.getState()
+    const ids = doc.entities.patterns[doc.patternId].trackIds
+    useDocStore.getState().setCellNote(ids[0], 0, 60)
+    useDocStore.getState().cutRect(ids, 0, 0, 0, 0)
+    useDocStore.getState().undo()
+    expect(useDocStore.getState().doc.entities.tracks[ids[0]].cells[0].note).toBe(60)
+  })
+
+  it('pasteRect is undoable', () => {
+    const { doc } = useDocStore.getState()
+    const ids = doc.entities.patterns[doc.patternId].trackIds
+    useDocStore.getState().setCellNote(ids[0], 0, 60)
+    useDocStore.getState().copyRect(ids, 0, 0, 0, 0)
+    useDocStore.getState().pasteRect(ids, 5, 0)
+    useDocStore.getState().undo()
+    expect(useDocStore.getState().doc.entities.tracks[ids[0]].cells[5].note).toBeNull()
+  })
+})
+
+describe('setOrPromoteSlotParam', () => {
+  beforeEach(() => {
+    useDocStore.setState({ doc: createDefaultDoc(), past: [], future: [] })
+  })
+
+  it('promotes an inherited slot and sets the parameter', () => {
+    const store = useDocStore.getState()
+    const kitId = Object.values(store.doc.entities.instruments).find(i => i.kind === 'drumkit')?.id
+    if (!kitId) return // no drumkit in default doc
+    // Add a slot at note 36 with a sample
+    const samples = Object.values(store.doc.entities.samples)
+    if (samples.length === 0) return // no samples
+    store.addDrumKitSlot(kitId, 36, samples[0].id, undefined)
+    // Now note 48 should inherit from note 36
+    store.setOrPromoteSlotParam(kitId, 48, 'gain', 0.5)
+    const state = useDocStore.getState()
+    const kit = state.doc.entities.instruments[kitId]
+    if (kit?.kind !== 'drumkit') return
+    const slot48 = kit.slots.find(s => s.note === 48)
+    expect(slot48).toBeTruthy()
+    expect(slot48!.gain).toBe(0.5)
+    expect(slot48!.sampleId).toBe(samples[0].id) // inherited source
+  })
+})

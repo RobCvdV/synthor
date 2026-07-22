@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { applyPatches, enablePatches, type Patch, produceWithPatches } from 'immer'
 import type { Cell, Connection, Doc, DrumKitSlot, Id, Instrument, Module, ModuleType, Pattern, Port, SampleEntity } from '../domain/types'
+import { getSlotForNote } from '../domain/types'
 import {
   cloneInstrument,
   createDefaultDoc,
@@ -112,6 +113,9 @@ interface DocState {
   addDrumKitSlot: (instrumentId: Id, note: number, sampleId?: Id, slotInstrumentId?: Id) => void
   removeDrumKitSlot: (instrumentId: Id, slotId: Id) => void
   setDrumKitSlotParam: (instrumentId: Id, slotId: Id, key: 'note' | 'pitchOffset' | 'gain' | 'pan', value: number) => void
+  /** Set a param on the slot at the given note. If the slot is inherited,
+   *  promotes it (copies parent source) and sets the param in one undo step. */
+  setOrPromoteSlotParam: (instrumentId: Id, note: number, key: 'pitchOffset' | 'gain' | 'pan', value: number) => void
   setDrumKitSlotSource: (instrumentId: Id, slotId: Id, sampleId: Id | null, slotInstrumentId: Id | null) => void
   setDrumKitParam: (instrumentId: Id, key: string, value: number) => void
   setDrumKitKeyRange: (instrumentId: Id, keyLo: number, keyHi: number) => void
@@ -590,6 +594,33 @@ export const useDocStore = create<DocState>((set, get) => ({
       // If the note changed, re-sort slots to keep them in note order.
       if (key === 'note') {
         inst.slots.sort((a, b) => a.note - b.note)
+      }
+    }),
+
+  setOrPromoteSlotParam: (instrumentId, note, key, value) =>
+    get().mutate((draft) => {
+      const inst = draft.entities.instruments[instrumentId]
+      if (inst?.kind !== 'drumkit') return
+      const slot = getSlotForNote(inst, note)
+      if (!slot) return
+      if (slot.note !== note) {
+        // Inherited — promote to an explicit slot at this note, copying the
+        // parent's source and defaults, then overwriting the edited param.
+        const newSlot: DrumKitSlot = {
+          id: makeId('slot'),
+          note,
+          sampleId: slot.sampleId,
+          instrumentId: slot.instrumentId,
+          pitchOffset: slot.pitchOffset,
+          gain: slot.gain,
+          pan: slot.pan,
+        }
+        newSlot[key] = value
+        const idx = inst.slots.findIndex((s) => s.note > note)
+        if (idx === -1) inst.slots.push(newSlot)
+        else inst.slots.splice(idx, 0, newSlot)
+      } else {
+        slot[key] = value
       }
     }),
 
