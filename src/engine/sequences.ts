@@ -8,10 +8,15 @@ import { midiToFreq } from '../domain/notes'
  * - `freqSeq`: the frequency to sound on each row. Notes are held forward
  *   across empty rows so the release tail keeps its pitch (0 before the first
  *   note).
- * - `gateSeq`: 1 on rows where a new note starts, 0 otherwise. Driven through
- *   an envelope, the rising edge triggers attack and the fall (next row)
- *   triggers release — giving one-row gates for the slice.
+ * - `gateSeq`: 1 while a note is active (attack/sustain), 0 on release.
+ *   New notes retrigger the gate; note-off drops it; empty rows between
+ *   notes sustain — giving real sustained-note behavior instead of one-row
+ *   staccato gates.
  * - `volumeSeq`: per-row volume modifier (0..1), defaults to 1.
+ * - `noteSeq`: raw MIDI note numbers — used by drumkit instruments for slot
+ *   mapping.
+ * - `effectSeq`: packed effect command per row (0x000–0xFFF), or null.
+ * - `effectValueSeq`: effect operand per row (0x00–0xFF), or null.
  */
 export interface TrackSequences {
   freqSeq: number[]
@@ -19,6 +24,10 @@ export interface TrackSequences {
   volumeSeq: number[]
   /** Raw MIDI note numbers — used by drumkit instruments for slot mapping. */
   noteSeq: (number | null)[]
+  /** Packed effect command per row (0x000–0xFFF), or null when no effect. */
+  effectSeq: (number | null)[]
+  /** Effect operand per row (0x00–0xFF), or null when no effect. */
+  effectValueSeq: (number | null)[]
 }
 
 export function buildSequences(track: Track, length: number): TrackSequences {
@@ -26,26 +35,55 @@ export function buildSequences(track: Track, length: number): TrackSequences {
   const gateSeq: number[] = new Array(length)
   const volumeSeq: number[] = new Array(length)
   const noteSeq: (number | null)[] = new Array(length)
+  const effectSeq: (number | null)[] = new Array(length)
+  const effectValueSeq: (number | null)[] = new Array(length)
   let lastFreq = 0
+  let holding = false
 
   for (let row = 0; row < length; row++) {
-    const note = track.cells[row]?.note ?? null
+    const cell = track.cells[row]
+    const note = cell?.note ?? null
+    const noteOff = cell?.noteOff ?? false
 
-    // Per-cell volume (unused in audio path for now — kept for UI display).
-    volumeSeq[row] = track.cells[row]?.volume ?? 1
+    volumeSeq[row] = cell?.volume ?? 1
+    effectSeq[row] = cell?.effect ?? null
+    effectValueSeq[row] = cell?.effectValue ?? null
 
     if (note !== null) {
+      // New note — retrigger gate, update frequency.
       lastFreq = midiToFreq(note)
       gateSeq[row] = 1
       noteSeq[row] = note
+      holding = true
+    } else if (noteOff) {
+      // Explicit note-off — release the gate.
+      gateSeq[row] = 0
+      noteSeq[row] = null
+      holding = false
+    } else if (holding) {
+      // No note, no note-off — sustain the previous gate.
+      gateSeq[row] = 1
+      noteSeq[row] = null
     } else {
+      // Not holding and no note — silence.
       gateSeq[row] = 0
       noteSeq[row] = null
     }
     freqSeq[row] = lastFreq
   }
 
-  return { freqSeq, gateSeq, volumeSeq, noteSeq }
+  // Wrap-around sustain: if a note is held at the last row without a note-off,
+  // carry it forward to the start so the sustain continues across the pattern
+  // loop boundary (the sequencer loops, so gate[N-1]=1 → gate[0]=1 is seamless).
+  if (gateSeq[length - 1] === 1) {
+    for (let row = 0; row < length; row++) {
+      const cell = track.cells[row]
+      if (cell?.note != null || cell?.noteOff) break // hit a new event, stop wrapping
+      gateSeq[row] = 1
+    }
+  }
+
+  return { freqSeq, gateSeq, volumeSeq, noteSeq, effectSeq, effectValueSeq }
 }
 
 /** Per-slot sequences for a drumkit track: one gate + freq per slot. */

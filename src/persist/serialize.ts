@@ -20,7 +20,7 @@ import type { Doc } from '../domain/types'
  * (osc-only) and new files with modular instruments both satisfy the same
  * schema. A bump is only needed for a *breaking* shape change (e.g. sections).
  */
-export const CURRENT_SCHEMA_VERSION = 4
+export const CURRENT_SCHEMA_VERSION = 5
 
 export interface SongMeta {
   name: string
@@ -84,6 +84,9 @@ export function migrate(raw: unknown): SongFile {
 
   // v3→v4: drumkit slots changed from noteLo/noteHi ranges to single-note inheritance.
   if (version < 4) raw = upgradeV3toV4(raw)
+
+  // v4→v5: effect + effectValue fields added to Cell.
+  if (version < 5) raw = upgradeV4toV5(raw)
 
   // v1→v1 migration: when the stereo output was added (commit b3917fc), the
   // output module's inlet changed from 'in' to 'inL'. Old modular instruments
@@ -232,6 +235,39 @@ function upgradeV3toV4(raw: any): any {
     ...raw,
     schemaVersion: 4,
     doc: { ...raw.doc, entities: { ...raw.doc.entities, instruments: fixed } },
+  }
+}
+
+/** v4→v5: effect + effectValue fields on every cell. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function upgradeV4toV5(raw: any): any {
+  const entities = raw.doc?.entities
+  if (!entities || !isRecord(entities.tracks)) return raw
+
+  let changed = false
+  const tracks: Record<string, unknown> = {}
+  for (const [tid, track] of Object.entries(entities.tracks)) {
+    if (isRecord(track) && Array.isArray(track.cells)) {
+      const cells = track.cells.map((c: unknown) =>
+        isRecord(c)
+          ? { ...c, effect: c.effect ?? null, effectValue: c.effectValue ?? null }
+          : { note: null, volume: null, noteOff: false, effect: null, effectValue: null },
+      )
+      // Only mark changed if at least one cell actually got new fields.
+      if (track.cells.some((c: unknown) => isRecord(c) && (c.effect === undefined || c.effectValue === undefined))) {
+        changed = true
+      }
+      tracks[tid] = { ...track, cells }
+    } else {
+      tracks[tid] = track
+    }
+  }
+
+  if (!changed) return { ...raw, schemaVersion: 5 }
+  return {
+    ...raw,
+    schemaVersion: 5,
+    doc: { ...raw.doc, entities: { ...raw.doc.entities, tracks } },
   }
 }
 

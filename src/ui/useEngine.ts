@@ -49,7 +49,15 @@ export function useEngine(): AudioHost {
       frame = 0
       if (!host.isReady) return
 
-      const { doc, mutedTracks } = useDocStore.getState()
+      const { doc, mutedTracks, soloedTracks } = useDocStore.getState()
+      // Compute effective mute: when any track is soloed, only soloed tracks
+      // are audible; mute state is ignored for soloed tracks.
+      const hasSolo = Object.values(soloedTracks).some(Boolean)
+      const effectiveMute = hasSolo
+        ? Object.fromEntries(
+            doc.entities.patterns[doc.patternId]?.trackIds.map((tid) => [tid, !soloedTracks[tid]]) ?? [],
+          )
+        : mutedTracks
       // Read slug fresh each render — it changes when a different song is loaded.
       const slug = useProjectStore.getState().slug
 
@@ -61,7 +69,7 @@ export function useEngine(): AudioHost {
         lastVfsKeysRef.current = keys
         if (samples.length > 0) {
           vfsSyncRef.current = syncSamplesToVfs(host, samples, slug).then(
-            (loaded) => { vfsSyncRef.current = null; vfsLoadedRef.current = loaded },
+            (loaded) => { vfsSyncRef.current = null; vfsLoadedRef.current = loaded; useDocStore.getState().setVfsLoaded(loaded) },
           )
         }
       }
@@ -91,7 +99,7 @@ export function useEngine(): AudioHost {
             playing: playing ? 1 : 0,
             startRow,
             playEpoch,
-            mutedTracks,
+            mutedTracks: effectiveMute,
             preview: instrumentId && active.length ? { instrumentId, voices: active } : undefined,
             vfsLoadedHashes: vfsLoadedRef.current,
           }),

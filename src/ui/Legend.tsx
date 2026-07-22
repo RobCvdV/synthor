@@ -11,14 +11,27 @@ const NOTE_ENTRY: Row[] = [
   { keys: '− / =', label: 'octave down / up' },
   { keys: '`', label: 'note-off (toggle)' },
   { keys: '[ / ]', label: 'volume down / up' },
+  { keys: '0-9, A-F', label: 'hex vol (vol column)' },
   { keys: 'Del', label: 'clear cell' },
+]
+
+const EFFECT_ENTRY: Row[] = [
+  { keys: '0-9, A-F', label: 'enter effect (3 hex digits)' },
+  { keys: '← → in eff column', label: 'move note ↔ vol ↔ eff' },
+  { keys: '0xy', label: 'Arpeggio (base, +x, +y)' },
+  { keys: '1xx / 2xx', label: 'Portamento up / down' },
+  { keys: '4xy', label: 'Vibrato (speed x, depth y)' },
+  { keys: '7xy', label: 'Tremolo (speed x, depth y)' },
+  { keys: '8xx', label: 'Set panning (00–FF)' },
+  { keys: 'Axy', label: 'Volume slide (up x, down y)' },
+  { keys: 'Dxx', label: 'Pattern break to row xx' },
 ]
 
 const TRANSPORT: Row[] = [
   { keys: 'Space', label: 'play / stop (from cursor)' },
   { keys: 'Ctrl Space', label: 'play from top' },
   { keys: '↑ ↓', label: 'move row' },
-  { keys: '← →', label: 'note ↔ vol ↔ track' },
+  { keys: '← →', label: 'note ↔ vol ↔ eff ↔ track' },
   { keys: '⇧ arrows', label: 'select region' },
   { keys: '⌥ ↑/↓', label: 'jump 4 rows (snap to grid)' },
   { keys: '⌘ ↑/↓', label: 'jump 8 rows (snap to grid)' },
@@ -36,7 +49,10 @@ const TRACK_OPS: Row[] = [
   { keys: 'Ctrl ↑ / ↓', label: 'shift notes up / down' },
 ]
 
-const MUTE: Row[] = [{ keys: 'F1 … F12', label: 'mute track 1 … 12' }]
+const MUTE: Row[] = [
+  { keys: 'F1 … F12', label: 'mute track 1 … 12' },
+  { keys: '⇧ F1 … F12', label: 'solo track 1 … 12' },
+]
 
 function Section({ title, rows }: { title: string; rows: Row[] }) {
   return (
@@ -56,6 +72,7 @@ export function Legend() {
   return (
     <aside className="legend">
       <Section title="Note entry" rows={NOTE_ENTRY} />
+      <Section title="Effects" rows={EFFECT_ENTRY} />
       <Section title="Transport & cursor" rows={TRANSPORT} />
       <Section title="Track (Ctrl)" rows={TRACK_OPS} />
       <Section title="Mute" rows={MUTE} />

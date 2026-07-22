@@ -13,6 +13,7 @@ import { SampleLibraryView } from './ui/SampleLibraryView'
 import { loadRecent, readSong } from './persist/opfsStore'
 import { useProjectStore } from './state/projectStore'
 import { usePreviewStore } from './state/previewStore'
+import { packEffect } from './domain/effects'
 
 /** True when a keystroke should go to a focused form field, not the tracker.
  *  Range sliders are excluded — they can't receive text, and we want global
@@ -58,6 +59,7 @@ export default function App() {
   const setCellNote = useDocStore((s) => s.setCellNote)
   const setCellNoteOff = useDocStore((s) => s.setCellNoteOff)
   const setCellVolume = useDocStore((s) => s.setCellVolume)
+  const setCellEffect = useDocStore((s) => s.setCellEffect)
   const undo = useDocStore((s) => s.undo)
   const redo = useDocStore((s) => s.redo)
   const addTrack = useDocStore((s) => s.addTrack)
@@ -68,6 +70,8 @@ export default function App() {
   const duplicateTrack = useDocStore((s) => s.duplicateTrack)
   const shiftTrack = useDocStore((s) => s.shiftTrack)
   const toggleMute = useDocStore((s) => s.toggleMute)
+  const toggleSolo = useDocStore((s) => s.toggleSolo)
+  const soloedTracks = useDocStore((s) => s.soloedTracks)
   const copyRect = useDocStore((s) => s.copyRect)
   const cutRect = useDocStore((s) => s.cutRect)
   const pasteRect = useDocStore((s) => s.pasteRect)
@@ -79,10 +83,36 @@ export default function App() {
   const playing = useTransportStore((s) => s.playing)
   const bpm = useTransportStore((s) => s.bpm)
   const linesPerBeat = useTransportStore((s) => s.linesPerBeat)
+  const setBpm = useTransportStore((s) => s.setBpm)
   const toggle = useTransportStore((s) => s.toggle)
 
+  // Tap tempo: average last N taps to set BPM.
+  const tapTimesRef = useRef<number[]>([])
+  const [tapFlash, setTapFlash] = useState(false)
+  const onTapBpm = useCallback(() => {
+    const now = performance.now()
+    const times = tapTimesRef.current
+    // Reset if last tap was >2s ago.
+    if (times.length > 0 && now - times[times.length - 1] > 2000) times.length = 0
+    times.push(now)
+    // Keep only last 8 taps.
+    if (times.length > 8) times.shift()
+    // Need at least 2 taps for a tempo estimate.
+    if (times.length >= 2) {
+      let totalInterval = 0
+      for (let i = 1; i < times.length; i++) totalInterval += times[i] - times[i - 1]
+      const avgInterval = totalInterval / (times.length - 1)
+      const newBpm = Math.round(60000 / avgInterval)
+      setBpm(Math.max(20, Math.min(300, newBpm)))
+    }
+    setTapFlash(true)
+    setTimeout(() => setTapFlash(false), 150)
+  }, [setBpm])
+
   const pattern = doc.entities.patterns[doc.patternId]
-  const [cursor, setCursor] = useState<Cursor>({ row: 0, track: 0, col: 0 })
+  const [cursor, setCursor] = useState<Cursor>({ row: 0, track: 0, col: 0 as const })
+  // Effect entry: pending type nibble (0-15) and operand nibbles.
+  const effectEntryRef = useRef<{ type: number; opHi: number | null } | null>(null)
   const [selection, setSelection] = useState<Selection | null>(null)
   const [octave, setOctave] = useState(5)
   const [playhead, setPlayhead] = useState<number | null>(null)
@@ -127,6 +157,7 @@ export default function App() {
   const onCellClick = useCallback((row: number, track: number, shiftKey: boolean) => {
     setVolumeEntry(null)
     volumeEntryRef.current = null
+    effectEntryRef.current = null
     if (shiftKey) {
       const sel = selectionRef.current
       if (sel) {
@@ -220,12 +251,15 @@ export default function App() {
       // In non-tracker views only transport + undo/redo are active.
       if (view !== 'tracker') return
 
-      // --- Mute toggle: F1..F12 ---
+      // --- Mute / Solo toggle: F1..F12, Shift+F1..F12 ---
       const fkey = /^F([1-9]|1[0-2])$/.exec(e.code)
       if (fkey) {
         e.preventDefault()
         const id = ids[Number(fkey[1]) - 1]
-        if (id) toggleMute(id)
+        if (id) {
+          if (e.shiftKey) toggleSolo(id)
+          else toggleMute(id)
+        }
         return
       }
 
@@ -236,8 +270,8 @@ export default function App() {
           case 'KeyV': e.preventDefault(); { const rc = useDocStore.getState().rectClipboard; if (rc) pasteRect(ids, cur.row, cur.track); else { pasteTrack(cur.track + 1); setCursor((c) => ({ ...c, track: Math.min(liveTrackCount() - 1, cur.track + 1) })) } } return
           case 'KeyX': e.preventDefault(); { const s = selectionRef.current; if (s) { cutRect(ids, s.startRow, s.endRow, s.startTrack, s.endTrack); setSelection(null) } else if (trackId) { copyTrack(trackId); removeTrack(trackId); setCursor((c) => ({ ...c, track: Math.max(0, Math.min(c.track, liveTrackCount() - 1)) })) } } return
           case 'KeyD': e.preventDefault(); if (trackId) { duplicateTrack(trackId, cur.track + 1); setCursor((c) => ({ ...c, track: Math.min(liveTrackCount() - 1, cur.track + 1) })) } return
-          case 'ArrowUp':   e.preventDefault(); setVolumeEntry(null); volumeEntryRef.current = null; setCursor(snapStep(8, -1)); return
-          case 'ArrowDown': e.preventDefault(); setVolumeEntry(null); volumeEntryRef.current = null; setCursor(snapStep(8, 1)); return
+          case 'ArrowUp':   e.preventDefault(); setVolumeEntry(null); volumeEntryRef.current = null; effectEntryRef.current = null; setCursor(snapStep(8, -1)); return
+          case 'ArrowDown': e.preventDefault(); setVolumeEntry(null); volumeEntryRef.current = null; effectEntryRef.current = null; setCursor(snapStep(8, 1)); return
           // Cmd+-/= : shift selected notes or whole track ±1 semitone.
           case 'Minus':
           case 'Equal': {
@@ -288,33 +322,39 @@ export default function App() {
       // --- Alt/Option shortcuts ---
       if (e.altKey && !e.ctrlKey && !e.metaKey) {
         switch (e.code) {
-          case 'ArrowUp':   e.preventDefault(); setVolumeEntry(null); volumeEntryRef.current = null; setCursor(snapStep(4, -1)); return
-          case 'ArrowDown': e.preventDefault(); setVolumeEntry(null); volumeEntryRef.current = null; setCursor(snapStep(4, 1)); return
+          case 'ArrowUp':   e.preventDefault(); setVolumeEntry(null); volumeEntryRef.current = null; effectEntryRef.current = null; setCursor(snapStep(4, -1)); return
+          case 'ArrowDown': e.preventDefault(); setVolumeEntry(null); volumeEntryRef.current = null; effectEntryRef.current = null; setCursor(snapStep(4, 1)); return
         }
       }
 
       // --- Home / End ---
-      if (e.code === 'Home') { e.preventDefault(); setVolumeEntry(null); volumeEntryRef.current = null; setCursor((c) => ({ ...c, row: 0 })); return }
-      if (e.code === 'End')  { e.preventDefault(); setVolumeEntry(null); volumeEntryRef.current = null; setCursor((c) => ({ ...c, row: pattern.length - 1 })); return }
+      if (e.code === 'Home') { e.preventDefault(); setVolumeEntry(null); volumeEntryRef.current = null; effectEntryRef.current = null; setCursor((c) => ({ ...c, row: 0 })); return }
+      if (e.code === 'End')  { e.preventDefault(); setVolumeEntry(null); volumeEntryRef.current = null; effectEntryRef.current = null; setCursor((c) => ({ ...c, row: pattern.length - 1 })); return }
 
       // --- Arrow navigation ---
-      if (e.code === 'ArrowDown')  { e.preventDefault(); setVolumeEntry(null); volumeEntryRef.current = null; setCursor(stepRows(1)); return }
-      if (e.code === 'ArrowUp')    { e.preventDefault(); setVolumeEntry(null); volumeEntryRef.current = null; setCursor(stepRows(-1)); return }
+      if (e.code === 'ArrowDown')  { e.preventDefault(); setVolumeEntry(null); volumeEntryRef.current = null; effectEntryRef.current = null; setCursor(stepRows(1)); return }
+      if (e.code === 'ArrowUp')    { e.preventDefault(); setVolumeEntry(null); volumeEntryRef.current = null; effectEntryRef.current = null; setCursor(stepRows(-1)); return }
       if (e.code === 'ArrowRight') {
-        e.preventDefault(); setVolumeEntry(null); volumeEntryRef.current = null
+        e.preventDefault(); setVolumeEntry(null); volumeEntryRef.current = null; effectEntryRef.current = null
         if (!ids.length) return
         setCursor((c) => {
-          const next = c.col === 0 ? { ...c, col: 1 as const } : { ...c, col: 0 as const, track: (c.track + 1) % ids.length }
+          let next: Cursor
+          if (c.col === 0) next = { ...c, col: 1 as const }
+          else if (c.col === 1) next = { ...c, col: 2 as const }
+          else next = { ...c, col: 0 as const, track: (c.track + 1) % ids.length }
           if (e.shiftKey) { const sel = selectionRef.current; setSelection(sel ? { ...sel, endRow: next.row, endTrack: next.track } : { startRow: c.row, startTrack: c.track, endRow: next.row, endTrack: next.track }) } else setSelection(null)
           return next
         })
         return
       }
       if (e.code === 'ArrowLeft') {
-        e.preventDefault(); setVolumeEntry(null); volumeEntryRef.current = null
+        e.preventDefault(); setVolumeEntry(null); volumeEntryRef.current = null; effectEntryRef.current = null
         if (!ids.length) return
         setCursor((c) => {
-          const next = c.col === 1 ? { ...c, col: 0 as const } : { ...c, col: 1 as const, track: (c.track - 1 + ids.length) % ids.length }
+          let next: Cursor
+          if (c.col === 2) next = { ...c, col: 1 as const }
+          else if (c.col === 1) next = { ...c, col: 0 as const }
+          else next = { ...c, col: 2 as const, track: (c.track - 1 + ids.length) % ids.length }
           if (e.shiftKey) { const sel = selectionRef.current; setSelection(sel ? { ...sel, endRow: next.row, endTrack: next.track } : { startRow: c.row, startTrack: c.track, endRow: next.row, endTrack: next.track }) } else setSelection(null)
           return next
         })
@@ -332,10 +372,11 @@ export default function App() {
         if (sel) {
           const r0 = Math.min(sel.startRow, sel.endRow), r1 = Math.max(sel.startRow, sel.endRow)
           const t0 = Math.min(sel.startTrack, sel.endTrack), t1 = Math.max(sel.startTrack, sel.endTrack)
-          for (let ti = t0; ti <= t1; ti++) { const tid = ids[ti]; if (!tid) continue; for (let r = r0; r <= r1; r++) { setCellNote(tid, r, null); setCellVolume(tid, r, null) } }
+          for (let ti = t0; ti <= t1; ti++) { const tid = ids[ti]; if (!tid) continue; for (let r = r0; r <= r1; r++) { setCellNote(tid, r, null); setCellVolume(tid, r, null); setCellEffect(tid, r, null) } }
           setSelection(null)
         } else if (trackId) {
-          if (cur.col === 1) { setCellVolume(trackId, cur.row, null); setVolumeEntry(null); volumeEntryRef.current = null; setCursor((c) => ({ ...c, row: (c.row + 1) % pattern.length })) }
+          if (cur.col === 2) { setCellEffect(trackId, cur.row, null); effectEntryRef.current = null; setCursor((c) => ({ ...c, row: (c.row + 1) % pattern.length })) }
+          else if (cur.col === 1) { setCellVolume(trackId, cur.row, null); setVolumeEntry(null); volumeEntryRef.current = null; effectEntryRef.current = null; setCursor((c) => ({ ...c, row: (c.row + 1) % pattern.length })) }
           else { setCellNote(trackId, cur.row, null); setCursor((c) => ({ ...c, row: (c.row + 1) % pattern.length })) }
         }
         return
@@ -347,8 +388,35 @@ export default function App() {
         if (hex !== undefined && trackId) {
           e.preventDefault(); setSelection(null)
           const pending = volumeEntryRef.current
-          if (pending !== null) { const vol = (pending * 16 + hex) / 255; setCellVolume(trackId, cur.row, vol); setVolumeEntry(null); volumeEntryRef.current = null; setCursor((c) => ({ ...c, row: (c.row + 1) % pattern.length })) }
+          if (pending !== null) { const vol = (pending * 16 + hex) / 255; setCellVolume(trackId, cur.row, vol); setVolumeEntry(null); volumeEntryRef.current = null; effectEntryRef.current = null; setCursor((c) => ({ ...c, row: (c.row + 1) % pattern.length })) }
           else { const vol = (hex * 16) / 255; setCellVolume(trackId, cur.row, vol); setVolumeEntry(hex); volumeEntryRef.current = hex }
+          return
+        }
+        return
+      }
+
+      // --- Effect column entry (3 hex digits: type + operand) ---
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && cur.col === 2 && trackId) {
+        const hex = keyToHex(e.code)
+        if (hex !== undefined) {
+          e.preventDefault(); setSelection(null)
+          const pending = effectEntryRef.current
+          if (pending === null) {
+            // First digit: effect type (0-F).
+            setCellEffect(trackId, cur.row, packEffect(hex, 0))
+            effectEntryRef.current = { type: hex, opHi: null }
+          } else if (pending.opHi === null) {
+            // Second digit: operand high nibble.
+            const opHi = hex
+            setCellEffect(trackId, cur.row, packEffect(pending.type, opHi << 4))
+            effectEntryRef.current = { type: pending.type, opHi }
+          } else {
+            // Third digit: operand low nibble — effect committed, advance cursor.
+            const op = (pending.opHi << 4) | hex
+            setCellEffect(trackId, cur.row, packEffect(pending.type, op))
+            effectEntryRef.current = null
+            setCursor((c) => ({ ...c, row: (c.row + 1) % pattern.length }))
+          }
           return
         }
         return
@@ -384,7 +452,7 @@ export default function App() {
         }
       }
     },
-    [view, pattern, host, toggle, undo, redo, setCellNote, setCellNoteOff, setCellVolume, addTrack, removeTrack, moveTrack, copyTrack, pasteTrack, duplicateTrack, shiftTrack, toggleMute, copyRect, cutRect, pasteRect, noteOn, noteOff],
+    [view, pattern, host, toggle, undo, redo, setCellNote, setCellNoteOff, setCellVolume, setCellEffect, addTrack, removeTrack, moveTrack, copyTrack, pasteTrack, duplicateTrack, shiftTrack, toggleMute, copyRect, cutRect, pasteRect, noteOn, noteOff],
   )
 
   useEffect(() => {
@@ -398,7 +466,13 @@ export default function App() {
         <strong>synthor</strong>
         <span className="muted" title="Loaded song">{projectName}</span>
         <span className={'badge' + (playing ? ' on' : '')}>{playing ? '▶ playing' : '■ stopped'}</span>
-        <span className="muted">{bpm} BPM · 1/{linesPerBeat * 4}</span>
+        <span
+          className={'muted bpm-tap' + (tapFlash ? ' flash' : '')}
+          title="Click to tap tempo"
+          onClick={onTapBpm}
+        >
+          {bpm} BPM · 1/{linesPerBeat * 4}
+        </span>
         <span className="muted">oct {octave}</span>
         <span className="muted">{trackCount} tracks</span>
         <span className="spacer" />
@@ -432,7 +506,7 @@ export default function App() {
       {view === 'tracker' ? (
         <div className="layout">
           <main className="main">
-            <TrackerGrid doc={doc} pattern={pattern} cursor={cursor} playhead={playhead} muted={mutedTracks} selection={selection} volumeEntry={volumeEntry} onCellClick={onCellClick} />
+            <TrackerGrid doc={doc} pattern={pattern} cursor={cursor} playhead={playhead} muted={mutedTracks} soloed={soloedTracks} selection={selection} volumeEntry={volumeEntry} onCellClick={onCellClick} />
           </main>
           <Legend />
         </div>
@@ -442,7 +516,7 @@ export default function App() {
         </div>
       ) : (
         <div className="layout">
-          <SampleLibraryView />
+          <SampleLibraryView host={host} />
         </div>
       )}
     </div>

@@ -49,6 +49,9 @@ export default defineConfig({
   server: {
     // Listen on all interfaces so the dev server is reachable over the LAN.
     host: true,
+    // Fixed port so OPFS localStorage is stable across dev restarts.
+    port: 5173,
+    strictPort: true,
   },
   test: {
     environment: 'node',

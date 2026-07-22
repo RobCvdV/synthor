@@ -18,6 +18,18 @@ export interface Cell {
   volume: number | null
   /** When true, triggers note-off (release) on this row regardless of note. */
   noteOff: boolean
+  /**
+   * Effect command: packed 12-bit value (type nibble << 8 | operand byte).
+   * Null means no effect on this row. See `src/domain/effects.ts` for the
+   * effect type registry and pack/unpack helpers.
+   */
+  effect: number | null
+  /**
+   * Effect value operand (0x00–0xFF). Stored separately so the user can edit
+   * the operand without retyping the effect type. When effect is null this
+   * is meaningless.
+   */
+  effectValue: number | null
 }
 
 /** The original built-in instrument: a simple saw oscillator through an ADSR. */

@@ -110,7 +110,7 @@ describe('song serialization', () => {
     delete v2raw.doc.sectionIds
 
     const migrated = migrate(v2raw)
-    expect(migrated.schemaVersion).toBe(3)
+    expect(migrated.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
     // Should have a sections map.
     expect(migrated.doc.entities.sections).toBeTruthy()
     expect(Object.keys(migrated.doc.entities.sections).length).toBeGreaterThan(0)

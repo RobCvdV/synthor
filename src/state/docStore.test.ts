@@ -281,3 +281,87 @@ describe('cloneInstrument', () => {
     }
   })
 })
+
+describe('duplicatePattern', () => {
+  it('creates a deep copy of a pattern with fresh ids', () => {
+    const { doc, duplicatePattern } = useDocStore.getState()
+    const src = doc.entities.patterns[doc.patternId]
+    const newId = duplicatePattern(doc.patternId)
+    expect(newId).toBeTruthy()
+    const state = useDocStore.getState()
+    const copy = state.doc.entities.patterns[newId]
+    expect(copy).toBeTruthy()
+    expect(copy.name).toBe(`${src.name} (copy)`)
+    expect(copy.length).toBe(src.length)
+    expect(copy.trackIds.length).toBe(src.trackIds.length)
+    // Tracks are fresh copies with independent ids.
+    for (let i = 0; i < src.trackIds.length; i++) {
+      expect(copy.trackIds[i]).not.toBe(src.trackIds[i])
+    }
+  })
+
+  it('copies cell data including effects', () => {
+    const { doc } = useDocStore.getState()
+    const trk = firstTrackId()
+    // Set an effect on the first row.
+    useDocStore.getState().setCellEffect(trk, 0, 0x108) // PortaUp speed 8
+    const { duplicatePattern } = useDocStore.getState()
+    const newId = duplicatePattern(doc.patternId)
+    const state = useDocStore.getState()
+    const copy = state.doc.entities.patterns[newId]
+    const copyTrack = state.doc.entities.tracks[copy.trackIds[0]]
+    expect(copyTrack.cells[0].effect).toBe(0x108)
+    expect(copyTrack.cells[0].note).toBe(60) // C-4 from default pattern
+  })
+
+  it('returns empty string for non-existent pattern', () => {
+    const result = useDocStore.getState().duplicatePattern('nonexistent')
+    expect(result).toBe('')
+  })
+})
+
+describe('solo', () => {
+  it('toggleSolo adds and removes solo state', () => {
+    const trk = firstTrackId()
+    const store = useDocStore.getState()
+    expect(store.soloedTracks[trk]).toBeFalsy()
+    store.toggleSolo(trk)
+    expect(useDocStore.getState().soloedTracks[trk]).toBe(true)
+    useDocStore.getState().toggleSolo(trk)
+    expect(useDocStore.getState().soloedTracks[trk]).toBe(false)
+  })
+
+  it('solo state is reset on loadDoc', () => {
+    const trk = firstTrackId()
+    useDocStore.getState().toggleSolo(trk)
+    expect(useDocStore.getState().soloedTracks[trk]).toBe(true)
+    useDocStore.getState().loadDoc(useDocStore.getState().doc)
+    expect(useDocStore.getState().soloedTracks[trk]).toBeFalsy()
+  })
+})
+
+describe('effect cell editing', () => {
+  it('setCellEffect stores packed effect value', () => {
+    const trk = firstTrackId()
+    useDocStore.getState().setCellEffect(trk, 0, 0xA42)
+    expect(useDocStore.getState().doc.entities.tracks[trk].cells[0].effect).toBe(0xA42)
+  })
+
+  it('setCellEffect null clears effect', () => {
+    const trk = firstTrackId()
+    useDocStore.getState().setCellEffect(trk, 0, 0x108)
+    useDocStore.getState().setCellEffect(trk, 0, null)
+    expect(useDocStore.getState().doc.entities.tracks[trk].cells[0].effect).toBeNull()
+  })
+
+  it('copyRect includes effect fields', () => {
+    const { doc } = useDocStore.getState()
+    const ids = doc.entities.patterns[doc.patternId].trackIds
+    // Set an effect on the cell to be copied.
+    useDocStore.getState().setCellEffect(ids[0], 0, 0x500)
+    useDocStore.getState().copyRect(ids, 0, 0, 0, 0)
+    const rect = useDocStore.getState().rectClipboard
+    expect(rect).toBeTruthy()
+    expect(rect![0][0].effect).toBe(0x500)
+  })
+})

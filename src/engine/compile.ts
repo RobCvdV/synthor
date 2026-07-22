@@ -4,6 +4,7 @@ import { getSlotForNote } from '../domain/types'
 import { midiToFreq } from '../domain/notes'
 import { buildDrumKitSlotSequences, buildSequences } from './sequences'
 import { renderDrumKitSlot, renderInstrument } from './instruments'
+import { applyEffectModulation, buildEffectSignals } from './effects'
 import type { StereoOut } from './modular'
 
 /** Build the sorted sample metadata list for sampleIndex → VFS key + channels resolution.
@@ -168,10 +169,16 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
     if (inst.kind === 'drumkit') {
       // Per-slot sequencing: each slot gets its own gate + freq sequences.
       const { slotGateSeqs, slotFreqSeqs } = buildDrumKitSlotSequences(track, pattern.length, inst)
-      const { volumeSeq } = buildSequences(track, pattern.length)
+      const { volumeSeq, effectSeq } = buildSequences(track, pattern.length)
+      // Build effect modulation for drumkit (volume + pan effects apply to the mix).
+      const { volMod } = buildEffectSignals(effectSeq, pattern.length)
       // Rotate sequences so playback starts at ctx.startRow.
       const rotatedVol = rotateSeq(volumeSeq, ctx.startRow)
+      const rotatedVolMod = rotateSeq(volMod, ctx.startRow)
       const vol = el.seq2({ key: `${trackId}:vol:${ctx.playEpoch}`, seq: rotatedVol, hold: true, loop: true }, clock, reset)
+      const volModSeq = el.seq2({ key: `${trackId}:volMod:${ctx.playEpoch}`, seq: rotatedVolMod, hold: true, loop: true }, clock, reset)
+      // Combine per-cell volume with effect volume modulation.
+      const effVol = el.mul(vol, volModSeq)
       const masterGain = el.const({ value: inst.params.gain })
 
       let mixL: NodeRepr_t = zero
@@ -190,30 +197,52 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
 
       voices.push(muted
         ? { left: el.mul(mixL, 0), right: el.mul(mixR, 0) }
-        : { left: el.mul(mixL, vol, masterGain), right: el.mul(mixR, vol, masterGain) },
+        : { left: el.mul(mixL, effVol, masterGain), right: el.mul(mixR, effVol, masterGain) },
       )
       continue
     }
 
     // Osc / modular: single instrument per track.
-    const { freqSeq, gateSeq, volumeSeq } = buildSequences(track, pattern.length)
+    const { freqSeq, gateSeq, volumeSeq, effectSeq } = buildSequences(track, pattern.length)
     const firstNote = track.cells.find((c) => c.note != null)?.note
     const trackBaseFreq = firstNote != null ? midiToFreq(firstNote) : 0
+
+    // Build per-row effect modulation signals.
+    const { freqMul, volMod, pan } = buildEffectSignals(effectSeq, pattern.length)
 
     // Rotate sequences so playback starts at ctx.startRow.
     const rotatedFreq = rotateSeq(freqSeq, ctx.startRow)
     const rotatedGate = rotateSeq(gateSeq, ctx.startRow)
     const rotatedVolume = rotateSeq(volumeSeq, ctx.startRow)
+    const rotatedFreqMul = rotateSeq(freqMul, ctx.startRow)
+    const rotatedVolMod = rotateSeq(volMod, ctx.startRow)
+    const rotatedPan = rotateSeq(pan, ctx.startRow)
 
     const freq = el.seq2({ key: `${trackId}:freq:${ctx.playEpoch}`, seq: rotatedFreq, hold: true, loop: true }, clock, reset)
     const gate = el.seq2({ key: `${trackId}:gate:${ctx.playEpoch}`, seq: rotatedGate, hold: true, loop: true }, clock, reset)
     const vol = el.seq2({ key: `${trackId}:vol:${ctx.playEpoch}`, seq: rotatedVolume, hold: true, loop: true }, clock, reset)
+    const freqMulSeq = el.seq2({ key: `${trackId}:freqMul:${ctx.playEpoch}`, seq: rotatedFreqMul, hold: true, loop: true }, clock, reset)
+    const volModSeq = el.seq2({ key: `${trackId}:volMod:${ctx.playEpoch}`, seq: rotatedVolMod, hold: true, loop: true }, clock, reset)
 
-    const voice = renderInstrument(inst, freq, gate, trackId, sampleMeta, 0, sampleHashById, trackBaseFreq, vol)
-    voices.push(muted
-      ? { left: el.mul(voice.left, 0), right: el.mul(voice.right, 0) }
-      : voice,
-    )
+    // Apply effect modulation to frequency and volume.
+    const { freq: effFreq, vol: effVol } = applyEffectModulation(freq, vol, freqMulSeq, volModSeq)
+
+    const voice = renderInstrument(inst, effFreq, gate, trackId, sampleMeta, 0, sampleHashById, trackBaseFreq, effVol)
+
+    // Apply per-row panning if any row has a pan effect.
+    const hasPan = pan.some((p) => p !== null)
+    if (hasPan && !muted) {
+      // Convert null→0.5 (center) for rows without panning.
+      const panArr = rotatedPan.map((p) => p ?? 0.5)
+      const panSeq = el.seq2({ key: `${trackId}:pan:${ctx.playEpoch}`, seq: panArr, hold: true, loop: true }, clock, reset)
+      const panAngle = el.mul(panSeq, Math.PI / 2)
+      voices.push({ left: el.mul(voice.left, el.cos(panAngle)), right: el.mul(voice.right, el.sin(panAngle)) })
+    } else {
+      voices.push(muted
+        ? { left: el.mul(voice.left, 0), right: el.mul(voice.right, 0) }
+        : voice,
+      )
+    }
   }
 
   const mixL = voices.reduce((acc, v) => el.add(acc, v.left), zero)

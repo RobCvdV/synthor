@@ -12,6 +12,7 @@ export function SongBar({ doc }: Props) {
   const renameSection = useDocStore((s) => s.renameSection)
   const addPattern = useDocStore((s) => s.addPattern)
   const removePattern = useDocStore((s) => s.removePattern)
+  const duplicatePattern = useDocStore((s) => s.duplicatePattern)
   const addPatternToSection = useDocStore((s) => s.addPatternToSection)
   const removePatternFromSection = useDocStore((s) => s.removePatternFromSection)
   const setCurrentPattern = useDocStore((s) => s.setCurrentPattern)
@@ -162,6 +163,13 @@ export function SongBar({ doc }: Props) {
           if (firstSecId) addPatternToSection(firstSecId, id)
         }}>
           + Pattern
+        </button>
+        <button
+          className="octbtn"
+          title="Duplicate current pattern"
+          onClick={() => duplicatePattern(doc.patternId)}
+        >
+          ⧉ Pattern
         </button>
         <button
           className="octbtn"

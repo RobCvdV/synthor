@@ -1,13 +1,14 @@
 import { useState } from 'react'
 import type { Doc, Id, Pattern } from '../domain/types'
 import { midiToName } from '../domain/notes'
+import { effectDisplay } from '../domain/effects'
 import { useDocStore } from '../state/docStore'
 
 export interface Cursor {
   row: number
   track: number
-  /** 0 = note column, 1 = volume column. */
-  col: 0 | 1
+  /** 0 = note column, 1 = volume column, 2 = effect column. */
+  col: 0 | 1 | 2
 }
 
 export interface Selection {
@@ -23,6 +24,7 @@ interface Props {
   cursor: Cursor
   playhead: number | null
   muted: Record<Id, boolean>
+  soloed: Record<Id, boolean>
   selection: Selection | null
   /** Pending high nibble (0-15) for two-digit hex volume entry, or null. */
   volumeEntry: number | null
@@ -48,7 +50,7 @@ function inSelection(
   return row >= r0 && row <= r1 && track >= t0 && track <= t1
 }
 
-export function TrackerGrid({ doc, pattern, cursor, playhead, muted, selection, volumeEntry, onCellClick }: Props) {
+export function TrackerGrid({ doc, pattern, cursor, playhead, muted, soloed, selection, volumeEntry, onCellClick }: Props) {
   const tracks = pattern.trackIds.map((id) => doc.entities.tracks[id])
   const setTrackInstrument = useDocStore((s) => s.setTrackInstrument)
   const renamePattern = useDocStore((s) => s.renamePattern)
@@ -108,10 +110,12 @@ export function TrackerGrid({ doc, pattern, cursor, playhead, muted, selection, 
         <span className="cell rownum">##</span>
         {tracks.map((t, ti) => {
           const isMuted = muted[t.id] === true
+          const isSoloed = soloed[t.id] === true
           return (
-            <span key={t.id} className={'cell track-head' + (isMuted ? ' muted' : '')}>
+            <span key={t.id} className={'cell track-head' + (isMuted ? ' muted' : '') + (isSoloed ? ' soloed' : '')}>
               <span className="track-no">
                 {ti + 1}
+                {isSoloed && <span className="solo-tag">S</span>}
                 {isMuted && <span className="mute-tag">M</span>}
               </span>
               <select
@@ -147,6 +151,7 @@ export function TrackerGrid({ doc, pattern, cursor, playhead, muted, selection, 
             const active = ti === cursor.track && row === cursor.row
             const noteActive = active && cursor.col === 0
             const volActive = active && cursor.col === 1
+            const effActive = active && cursor.col === 2
             const sel = inSelection(selection, row, ti)
             const mutedClass = muted[t.id] ? ' muted' : ''
 
@@ -160,6 +165,10 @@ export function TrackerGrid({ doc, pattern, cursor, playhead, muted, selection, 
               ? volumeEntry.toString(16).toUpperCase() + '·'
               : volHex(cell?.volume ?? null)
 
+            const effLabel = cell?.effect != null
+              ? effectDisplay(cell.effect)
+              : '···'
+
             return (
               <span
                 key={t.id}
@@ -168,6 +177,7 @@ export function TrackerGrid({ doc, pattern, cursor, playhead, muted, selection, 
               >
                 <span className={'cell-note' + (noteActive ? ' sub-active' : '')}>{noteLabel}</span>
                 <span className={'cell-vol' + (volActive ? ' sub-active' : '')}>{volLabel}</span>
+                <span className={'cell-eff' + (effActive ? ' sub-active' : '')}>{effLabel}</span>
               </span>
             )
           })}

@@ -99,8 +99,8 @@ describe('compileGraph sequencer phase alignment', () => {
     const doc = createDefaultDoc()
     const seqs = collect(g(doc), 'seq2')
 
-    // 2 tracks × 3 signals (freq, gate, vol) = 6 seq2 nodes
-    expect(seqs.length).toBe(6)
+    // 2 tracks × 5 signals (freq, gate, vol, freqMul, volMod) = 10 seq2 nodes
+    expect(seqs.length).toBe(10)
 
     const resets = seqs.map((s) => seqInputs(s).reset)
     for (const r of resets) {
@@ -127,8 +127,8 @@ describe('compileGraph sequencer phase alignment', () => {
     const doc = withExtraTrack(createDefaultDoc())
     const seqs = collect(g(doc), 'seq2')
 
-    // 3 tracks × 3 signals = 9 seq2 nodes
-    expect(seqs.length).toBe(9)
+    // 3 tracks × 5 signals (freq, gate, vol, freqMul, volMod) = 15 seq2 nodes
+    expect(seqs.length).toBe(15)
     const resetHashes = new Set(seqs.map((s) => (seqInputs(s).reset as ElNode).hash))
     expect(resetHashes.size).toBe(1)
   })
@@ -182,7 +182,7 @@ describe('compileGraph mute', () => {
     const doc = createDefaultDoc()
     const first = doc.entities.patterns[doc.patternId].trackIds[0]
     const seqs = collect(mono(compileGraph(doc, { rowHz: 8, playing: 1, startRow: 0, playEpoch: 0, mutedTracks: { [first]: true } })), 'seq2')
-    // 2 tracks × 2 signals = 4 seq2 nodes
-    expect(seqs.length).toBe(6)
+    // 2 tracks × 5 signals (freq, gate, vol, freqMul, volMod) = 10 seq2 nodes
+    expect(seqs.length).toBe(10)
   })
 })

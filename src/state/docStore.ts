@@ -39,6 +39,13 @@ interface DocState {
   rectClipboard: Cell[][] | null
   /** Non-undoable performance state: which tracks are muted (keyed by id). */
   mutedTracks: Record<Id, boolean>
+  /** Non-undoable performance state: which tracks are soloed (keyed by id). */
+  soloedTracks: Record<Id, boolean>
+  /** Hashes of samples that loaded successfully into VFS. null = not yet synced. */
+  vfsLoadedHashes: Set<string> | null
+
+  /** Store which sample hashes loaded into VFS after a sync. */
+  setVfsLoaded: (hashes: Set<string>) => void
 
   /** Run an Immer recipe against the doc, recording it as one undoable edit. */
   mutate: (recipe: (draft: Doc) => void) => void
@@ -51,12 +58,15 @@ interface DocState {
   setCellNote: (trackId: Id, row: number, note: number | null) => void
   setCellNoteOff: (trackId: Id, row: number, noteOff: boolean) => void
   setCellVolume: (trackId: Id, row: number, volume: number | null) => void
+  setCellEffect: (trackId: Id, row: number, effect: number | null) => void
+  setCellEffectValue: (trackId: Id, row: number, effectValue: number | null) => void
 
   // --- Pattern operations ---
   setPatternLength: (patternId: Id, length: number) => void
   renamePattern: (patternId: Id, name: string) => void
   addPattern: (name?: string, length?: number) => Id
   removePattern: (patternId: Id) => void
+  duplicatePattern: (patternId: Id) => Id
   setCurrentPattern: (patternId: Id) => void
 
   // --- Section operations ---
@@ -95,6 +105,7 @@ interface DocState {
   // --- Sample management ---
   addSampleEntity: (entity: SampleEntity) => void
   removeSampleEntity: (id: Id) => void
+  replaceSampleAsset: (id: Id, hash: string, sampleRate: number, channels: number, frames: number) => void
   renameSample: (id: Id, name: string) => void
 
   // --- Drum kit operations ---
@@ -116,6 +127,8 @@ interface DocState {
   shiftTrack: (trackId: Id, dir: 'up' | 'down') => void
   /** Toggle a track's mute (performance state, not part of undo history). */
   toggleMute: (trackId: Id) => void
+  /** Toggle a track's solo (performance state, not part of undo history). */
+  toggleSolo: (trackId: Id) => void
 
   // --- Rectangular cell clipboard (non-undoable) ---
   copyRect: (trackIds: Id[], startRow: number, endRow: number, startTrack: number, endTrack: number) => void
@@ -132,6 +145,8 @@ export const useDocStore = create<DocState>((set, get) => ({
   trackClipboard: null,
   rectClipboard: null,
   mutedTracks: {},
+  soloedTracks: {},
+  vfsLoadedHashes: null,
 
   mutate: (recipe) => {
     const { doc, past } = get()
@@ -141,7 +156,7 @@ export const useDocStore = create<DocState>((set, get) => ({
     set({ doc: next, past: [...trimmed, { patches, inverse }], future: [] })
   },
 
-  loadDoc: (doc) => set({ doc, past: [], future: [], trackClipboard: null, rectClipboard: null, mutedTracks: {} }),
+  loadDoc: (doc) => set({ doc, past: [], future: [], trackClipboard: null, rectClipboard: null, mutedTracks: {}, soloedTracks: {}, vfsLoadedHashes: null }),
 
   undo: () => {
     const { doc, past, future } = get()
@@ -181,6 +196,18 @@ export const useDocStore = create<DocState>((set, get) => ({
     get().mutate((draft) => {
       const track = draft.entities.tracks[trackId]
       if (track && track.cells[row]) track.cells[row].volume = volume
+    }),
+
+  setCellEffect: (trackId, row, effect) =>
+    get().mutate((draft) => {
+      const track = draft.entities.tracks[trackId]
+      if (track && track.cells[row]) track.cells[row].effect = effect
+    }),
+
+  setCellEffectValue: (trackId, row, effectValue) =>
+    get().mutate((draft) => {
+      const track = draft.entities.tracks[trackId]
+      if (track && track.cells[row]) track.cells[row].effectValue = effectValue
     }),
 
   addTrack: (atIndex, instrumentId) =>
@@ -266,6 +293,9 @@ export const useDocStore = create<DocState>((set, get) => ({
   toggleMute: (trackId) =>
     set((s) => ({ mutedTracks: { ...s.mutedTracks, [trackId]: !s.mutedTracks[trackId] } })),
 
+  toggleSolo: (trackId) =>
+    set((s) => ({ soloedTracks: { ...s.soloedTracks, [trackId]: !s.soloedTracks[trackId] } })),
+
   // --- Rectangular clipboard ---
 
   copyRect: (trackIds, startRow, endRow, startTrack, endTrack) => {
@@ -280,7 +310,7 @@ export const useDocStore = create<DocState>((set, get) => ({
       const col: Cell[] = []
       for (let r = r0; r <= r1; r++) {
         const c = track?.cells[r]
-        col.push(c ? { note: c.note, volume: c.volume, noteOff: c.noteOff } : { note: null, volume: null, noteOff: false })
+        col.push(c ? { note: c.note, volume: c.volume, noteOff: c.noteOff, effect: c.effect, effectValue: c.effectValue } : { note: null, volume: null, noteOff: false, effect: null, effectValue: null })
       }
       cells.push(col)
     }
@@ -300,7 +330,7 @@ export const useDocStore = create<DocState>((set, get) => ({
         if (!track) continue
         for (let r = r0; r <= r1; r++) {
           if (track.cells[r]) {
-            track.cells[r] = { note: null, volume: null, noteOff: false }
+            track.cells[r] = { note: null, volume: null, noteOff: false, effect: null, effectValue: null }
           }
         }
       }
@@ -509,6 +539,18 @@ export const useDocStore = create<DocState>((set, get) => ({
       sample.name = name.trim()
     }),
 
+  replaceSampleAsset: (id, hash, sampleRate, channels, frames) =>
+    get().mutate((draft) => {
+      const sample = draft.entities.samples[id]
+      if (!sample) return
+      sample.hash = hash
+      sample.sampleRate = sampleRate
+      sample.channels = channels
+      sample.frames = frames
+    }),
+
+  setVfsLoaded: (hashes) => set({ vfsLoadedHashes: hashes }),
+
   // --- Drum kit operations ---
 
   addDrumKitSlot: (instrumentId, note, sampleId, slotInstrumentId) =>
@@ -626,6 +668,41 @@ export const useDocStore = create<DocState>((set, get) => ({
         draft.patternId = Object.keys(draft.entities.patterns)[0]
       }
     }),
+
+  duplicatePattern: (patternId) => {
+    const doc = get().doc
+    const src = doc.entities.patterns[patternId]
+    if (!src) return ''
+    const newId = makeId('pat')
+    get().mutate((draft) => {
+      // Clone tracks with fresh ids, preserving cells and instrument refs.
+      const newTrackIds: Id[] = []
+      for (const tid of src.trackIds) {
+        const srcTrack = draft.entities.tracks[tid]
+        if (!srcTrack) continue
+        const newTrackId = makeId('trk')
+        draft.entities.tracks[newTrackId] = {
+          id: newTrackId,
+          instrumentId: srcTrack.instrumentId,
+          cells: srcTrack.cells.map((c) => ({ ...c })),
+        }
+        newTrackIds.push(newTrackId)
+      }
+      const newPattern: Pattern = {
+        id: newId,
+        name: `${src.name} (copy)`,
+        length: src.length,
+        trackIds: newTrackIds,
+      }
+      draft.entities.patterns[newId] = newPattern
+      // Add the new pattern to the first section if one exists.
+      const firstSecId = draft.sectionIds[0]
+      if (firstSecId && draft.entities.sections[firstSecId]) {
+        draft.entities.sections[firstSecId].patternIds.push(newId)
+      }
+    })
+    return newId
+  },
 
   setCurrentPattern: (patternId) =>
     get().mutate((draft) => {
