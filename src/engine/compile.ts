@@ -205,7 +205,7 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
     }
 
     // Osc / modular: single instrument per track.
-    const { freqSeq, gateSeq, volumeSeq, effectSeq } = buildSequences(track, pattern.length)
+    const { freqSeq, gateSeq, volumeSeq, effectSeq, effect1Seq, effect2Seq } = buildSequences(track, pattern.length)
     const firstNote = track.cells.find((c) => c.note != null)?.note
     const trackBaseFreq = firstNote != null ? midiToFreq(firstNote) : 0
 
@@ -219,17 +219,21 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
     const rotatedFreqMul = rotateSeq(freqMul, ctx.startRow)
     const rotatedVolMod = rotateSeq(volMod, ctx.startRow)
     const rotatedPan = rotateSeq(pan, ctx.startRow)
+    const rotatedEffect1 = rotateSeq(effect1Seq, ctx.startRow)
+    const rotatedEffect2 = rotateSeq(effect2Seq, ctx.startRow)
 
     const freq = el.seq2({ key: `${trackId}:freq:${ctx.playEpoch}`, seq: rotatedFreq, hold: true, loop: true }, clock, reset)
     const gate = el.seq2({ key: `${trackId}:gate:${ctx.playEpoch}`, seq: rotatedGate, hold: true, loop: true }, clock, reset)
     const vol = el.seq2({ key: `${trackId}:vol:${ctx.playEpoch}`, seq: rotatedVolume, hold: true, loop: true }, clock, reset)
     const freqMulSeq = el.seq2({ key: `${trackId}:freqMul:${ctx.playEpoch}`, seq: rotatedFreqMul, hold: true, loop: true }, clock, reset)
     const volModSeq = el.seq2({ key: `${trackId}:volMod:${ctx.playEpoch}`, seq: rotatedVolMod, hold: true, loop: true }, clock, reset)
+    const eff1SeqNode = el.seq2({ key: `${trackId}:eff1:${ctx.playEpoch}`, seq: rotatedEffect1, hold: true, loop: true }, clock, reset)
+    const eff2SeqNode = el.seq2({ key: `${trackId}:eff2:${ctx.playEpoch}`, seq: rotatedEffect2, hold: true, loop: true }, clock, reset)
 
     // Apply effect modulation to frequency and volume.
     const { freq: effFreq, vol: effVol } = applyEffectModulation(freq, vol, freqMulSeq, volModSeq)
 
-    const voice = renderInstrument(inst, effFreq, gate, trackId, sampleMeta, 0, sampleHashById, trackBaseFreq, effVol)
+    const voice = renderInstrument(inst, effFreq, gate, trackId, sampleMeta, 0, sampleHashById, trackBaseFreq, effVol, eff1SeqNode, eff2SeqNode)
 
     // Apply per-row panning if any row has a pan effect.
     const hasPan = pan.some((p) => p !== null)

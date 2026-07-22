@@ -25,6 +25,8 @@ const EFFECT_ENTRY: Row[] = [
   { keys: '8xx', label: 'Set panning (00–FF)' },
   { keys: 'Axy', label: 'Volume slide (up x, down y)' },
   { keys: 'Dxx', label: 'Pattern break to row xx' },
+  { keys: 'Exx', label: 'Effect 01 → synth EF1 inlet (0..1)' },
+  { keys: 'Fxx', label: 'Effect 02 → synth EF2 inlet (0..1)' },
 ]
 
 const TRANSPORT: Row[] = [

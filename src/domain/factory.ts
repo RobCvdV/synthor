@@ -76,13 +76,15 @@ export function newModularInstrument(name: string): ModularInstrument {
   const note = newModule('note', 40, 40)
   const gate = newModule('gate', 40, 240)
   const volume = newModule('volume', 40, 440)
+  const eff1 = newModule('effect1', 40, 640)
+  const eff2 = newModule('effect2', 40, 840)
   const osc = newModule('osc', 260, 40)
   const filter = newModule('filter', 480, 40)
   const adsr = newModule('adsr', 260, 240)
   const gain = newModule('gain', 720, 140)
   const output = newModule('output', 960, 160)
 
-  const modules = [note, gate, volume, osc, filter, adsr, gain, output]
+  const modules = [note, gate, volume, eff1, eff2, osc, filter, adsr, gain, output]
   const connections = [
     connect({ moduleId: note.id, port: 'freq' }, { moduleId: osc.id, port: 'freq' }),
     connect({ moduleId: osc.id, port: 'out' }, { moduleId: filter.id, port: 'in' }),

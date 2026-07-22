@@ -70,6 +70,22 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     params: [],
     singleton: true,
   },
+  effect1: {
+    type: 'effect1',
+    label: 'Eff 01',
+    inlets: [],
+    outlets: ['val'],
+    params: [],
+    singleton: true,
+  },
+  effect2: {
+    type: 'effect2',
+    label: 'Eff 02',
+    inlets: [],
+    outlets: ['val'],
+    params: [],
+    singleton: true,
+  },
   osc: {
     type: 'osc',
     label: 'Oscillator',

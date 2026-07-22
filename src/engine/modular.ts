@@ -85,6 +85,10 @@ export function compileModular(
   baseFreq: number = 0,
   /** Per-cell volume signal (0..1), available to the `volume` source module. */
   vol: Node = 1,
+  /** Per-row effect 01 signal (0..1), from tracker E xx. */
+  eff1: Node = 1,
+  /** Per-row effect 02 signal (0..1), from tracker F xx. */
+  eff2: Node = 1,
 ): StereoOut {
   const memo = new Map<string, Node>()
   const visiting = new Set<string>()
@@ -146,6 +150,10 @@ export function compileModular(
         return gate
       case 'volume':
         return vol
+      case 'effect1':
+        return eff1
+      case 'effect2':
+        return eff2
 
       case 'osc': {
         const f = inlet(m.id, 'freq') ?? 440

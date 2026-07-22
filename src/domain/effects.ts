@@ -19,6 +19,10 @@ export const enum Eff {
   SetPanning     = 0x8,
   VolumeSlide    = 0xA,
   PatternBreak   = 0xD,
+  /** Route effect operand (0x00–0xFF → 0..1) into synth as "Effect 01" source. */
+  Effect01       = 0xE,
+  /** Route effect operand (0x00–0xFF → 0..1) into synth as "Effect 02" source. */
+  Effect02       = 0xF,
 }
 
 export interface EffectDef {
@@ -42,6 +46,8 @@ export const EFFECT_DEFS: Record<number, EffectDef> = {
   [Eff.SetPanning]:   { name: 'Set Panning',    mnemonic: 'Pan',  description: 'Stereo position: 00=left, 80=center, FF=right', operandFormat: 'xx' },
   [Eff.VolumeSlide]:  { name: 'Volume Slide',   mnemonic: 'VSl',  description: 'Slide volume up (x) or down (y) each row', operandFormat: 'xy' },
   [Eff.PatternBreak]: { name: 'Pattern Break',  mnemonic: 'Brk',  description: 'Jump to row xx of next pattern',           operandFormat: 'xx' },
+  [Eff.Effect01]:    { name: 'Effect 01',      mnemonic: 'Ef1',  description: 'Route operand (0..1) into synth EF1 inlet', operandFormat: 'xx' },
+  [Eff.Effect02]:    { name: 'Effect 02',      mnemonic: 'Ef2',  description: 'Route operand (0..1) into synth EF2 inlet', operandFormat: 'xx' },
 }
 
 /** Pack an effect type + operand into a single 12-bit value. */

@@ -34,10 +34,14 @@ export function renderInstrument(
   baseFreq: number = 0,
   /** Per-cell volume signal (0..1). Defaults to 1 (no attenuation). */
   volume: NodeRepr_t | number = 1,
+  /** Per-row effect 01 signal (0..1), from tracker E xx. */
+  effect1: NodeRepr_t | number = 1,
+  /** Per-row effect 02 signal (0..1), from tracker F xx. */
+  effect2: NodeRepr_t | number = 1,
 ): StereoOut {
   switch (inst.kind) {
     case 'osc': {
-      void voiceKey; void note; void baseFreq
+      void voiceKey; void note; void baseFreq; void effect1; void effect2
       const env = makeAdsr(0.005, 0.12, 0.7, 0.25, gate)
       const tone = el.blepsaw(freq)
       const out = el.mul(tone, env, inst.params.gain, volume)
@@ -45,7 +49,7 @@ export function renderInstrument(
     }
     case 'modular': {
       void note
-      return compileModular(inst, freq, gate, voiceKey, sampleMeta, baseFreq, volume)
+      return compileModular(inst, freq, gate, voiceKey, sampleMeta, baseFreq, volume, effect1, effect2)
     }
     case 'drumkit': {
       // Drumkit rendering is handled at the compile level via renderDrumKitSlot,
@@ -125,7 +129,9 @@ export function renderDrumKitSlot(
         0,
         sampleHashById,
         midiToFreq(slot.note),
-        1,
+        1, // volume
+        1, // effect1 (drumkit slots use static 1)
+        1, // effect2
       )
       rawL = voice.left
       rawR = voice.right

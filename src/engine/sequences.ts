@@ -1,6 +1,7 @@
 import type { DrumKitInstrument, Track } from '../domain/types'
 import { getSlotForNote } from '../domain/types'
 import { midiToFreq } from '../domain/notes'
+import { Eff, effectType, effectOperand } from '../domain/effects'
 
 /**
  * Per-row control signals for one track, ready to feed into el.seq2.
@@ -28,6 +29,10 @@ export interface TrackSequences {
   effectSeq: (number | null)[]
   /** Effect operand per row (0x00–0xFF), or null when no effect. */
   effectValueSeq: (number | null)[]
+  /** Per-row effect 01 operand normalized to 0..1 (from tracker E xx). */
+  effect1Seq: number[]
+  /** Per-row effect 02 operand normalized to 0..1 (from tracker F xx). */
+  effect2Seq: number[]
 }
 
 export function buildSequences(track: Track, length: number): TrackSequences {
@@ -37,6 +42,8 @@ export function buildSequences(track: Track, length: number): TrackSequences {
   const noteSeq: (number | null)[] = new Array(length)
   const effectSeq: (number | null)[] = new Array(length)
   const effectValueSeq: (number | null)[] = new Array(length)
+  const effect1Seq: number[] = new Array(length).fill(0)
+  const effect2Seq: number[] = new Array(length).fill(0)
   let lastFreq = 0
   let holding = false
 
@@ -48,6 +55,13 @@ export function buildSequences(track: Track, length: number): TrackSequences {
     volumeSeq[row] = cell?.volume ?? 1
     effectSeq[row] = cell?.effect ?? null
     effectValueSeq[row] = cell?.effectValue ?? null
+
+    // Extract effect 01 / 02 operand values for synth routing.
+    if (cell?.effect != null) {
+      const eType = effectType(cell.effect)
+      if (eType === Eff.Effect01) effect1Seq[row] = effectOperand(cell.effect) / 255
+      else if (eType === Eff.Effect02) effect2Seq[row] = effectOperand(cell.effect) / 255
+    }
 
     if (note !== null) {
       // New note — retrigger gate, update frequency.
@@ -83,7 +97,7 @@ export function buildSequences(track: Track, length: number): TrackSequences {
     }
   }
 
-  return { freqSeq, gateSeq, volumeSeq, noteSeq, effectSeq, effectValueSeq }
+  return { freqSeq, gateSeq, volumeSeq, noteSeq, effectSeq, effectValueSeq, effect1Seq, effect2Seq }
 }
 
 /** Per-slot sequences for a drumkit track: one gate + freq per slot. */
