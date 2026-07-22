@@ -12,7 +12,6 @@ import { InstrumentsView } from './ui/InstrumentsView'
 import { SampleLibraryView } from './ui/SampleLibraryView'
 import { loadRecent, readSong } from './persist/opfsStore'
 import { useProjectStore } from './state/projectStore'
-import { usePreviewStore } from './state/previewStore'
 import { useMidiStore } from './state/midiStore'
 import { useMidi } from './midi/useMidi'
 import { packEffect } from './domain/effects'
@@ -88,8 +87,6 @@ export default function App() {
   const setMidiActiveInst = useMidiStore((s) => s.setActiveInstrument)
 
   const projectName = useProjectStore((s) => s.name)
-  const noteOn = usePreviewStore((s) => s.noteOn)
-  const noteOff = usePreviewStore((s) => s.noteOff)
   const playing = useTransportStore((s) => s.playing)
   const bpm = useTransportStore((s) => s.bpm)
   const linesPerBeat = useTransportStore((s) => s.linesPerBeat)
@@ -457,13 +454,13 @@ export default function App() {
           if (!useTransportStore.getState().playing) {
             const d = useDocStore.getState().doc
             const instId = d.entities.tracks[trackId]?.instrumentId
-            if (instId) { void host.start().then(() => { noteOn(instId, note); setTimeout(() => noteOff(note), 120) }) }
+            if (instId) { void host.start().then(() => { host.voicePool(instId).noteOn(note); setTimeout(() => host.voicePool(instId).noteOff(note), 120) }) }
           }
           setCursor((c) => ({ ...c, row: (c.row + 1) % pattern.length }))
         }
       }
     },
-    [view, pattern, host, toggle, undo, redo, setCellNote, setCellNoteOff, setCellVolume, setCellEffect, addTrack, removeTrack, moveTrack, copyTrack, pasteTrack, duplicateTrack, shiftTrack, toggleMute, copyRect, cutRect, pasteRect, noteOn, noteOff],
+    [view, pattern, host, toggle, undo, redo, setCellNote, setCellNoteOff, setCellVolume, setCellEffect, addTrack, removeTrack, moveTrack, copyTrack, pasteTrack, duplicateTrack, shiftTrack, toggleMute, copyRect, cutRect, pasteRect],
   )
 
   useEffect(() => {

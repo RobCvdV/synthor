@@ -78,6 +78,8 @@ export function useEngine(): AudioHost {
       const doRender = () => {
         const { bpm, linesPerBeat, playing, startRow, playEpoch } = useTransportStore.getState()
         const { instrumentId, voices } = usePreviewStore.getState()
+        const midiInstId = useMidiStore.getState().activeInstrumentId
+        const activeInstId = instrumentId || midiInstId
         const active = Object.values(voices)
 
         // Refine playStartTime at render time for every new play session
@@ -101,11 +103,11 @@ export function useEngine(): AudioHost {
             startRow,
             playEpoch,
             mutedTracks: effectiveMute,
-            preview: instrumentId && active.length ? { instrumentId, voices: active } : undefined,
+            preview: activeInstId ? { instrumentId: activeInstId, voices: active } : undefined,
             vfsLoadedHashes: vfsLoadedRef.current,
             midiCcValues: useMidiStore.getState().ccValues,
             paramRefs: host.paramRefs,
-            voicePool: instrumentId ? host.voicePool(instrumentId) : undefined,
+            voicePool: activeInstId ? host.voicePool(activeInstId) : undefined,
           }),
         )
       }

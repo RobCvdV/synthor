@@ -153,6 +153,10 @@ export class VoicePool {
 
   private setRefs(slot: number, note: number, gate: number): void {
     if (!this.registry) return
+    // Ensure refs exist before trying to set them (first note may arrive
+    // before the initial compile has primed the pool).
+    this.registry.getOrCreate(this.freqKeys[slot], note > 0 ? midiToFreq(note) : 0)
+    this.registry.getOrCreate(this.gateKeys[slot], gate)
     this.registry.setValue(this.freqKeys[slot], note > 0 ? midiToFreq(note) : 0)
     this.registry.setValue(this.gateKeys[slot], gate)
   }
