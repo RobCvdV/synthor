@@ -78,8 +78,8 @@ export function useMidi(host: AudioHost) {
             }
             case 0xb0: { // Control Change
               setCc(msg[1], msg[2])
-              // Push CC value directly to effect module refs — no compile needed.
-              host.ccBindings.update(msg[1], msg[2], host.paramRefs)
+              // Buffer and rAF-coalesce — only the latest value per CC is flushed.
+              host.ccBindings.queue(msg[1], msg[2])
               break
             }
             case 0xe0: { // Pitch Bend

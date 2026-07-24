@@ -94,6 +94,7 @@ export class AudioHost {
       this.core = new WebRenderer()
       this.paramRefs.attach(this.core)
       setActiveParamRefs(this.paramRefs)
+      this.ccBindings.attach(this.paramRefs)
       const node = await this.core.initialize(this.ctx, {
         numberOfInputs: 0,
         numberOfOutputs: 1,

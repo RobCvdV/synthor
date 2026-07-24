@@ -4,11 +4,24 @@ import type { ParamRefRegistry } from './paramRefs'
  * Maps MIDI CC numbers to param-ref keys so CC knob turns update the right
  * refs directly — no graph recompile needed.
  *
+ * CC values are rAF-coalesced: incoming events are buffered, and only the
+ * latest value per CC number is flushed once per animation frame.  This
+ * prevents the audio worklet message queue from backing up when a MIDI
+ * controller sends dozens of CC events per frame.
+ *
  * Populated during compile (effect1/effect2/midicc modules call `register`).
  * Cleared before each structural recompile so stale bindings don't accumulate.
  */
 export class CcBindings {
   private map = new Map<number, Set<string>>()
+  private pending = new Map<number, number>()
+  private frame = 0
+  private refs: ParamRefRegistry | null = null
+
+  /** Must be called after the host creates the paramRefs registry. */
+  attach(refs: ParamRefRegistry): void {
+    this.refs = refs
+  }
 
   /** Record that `refKey` should be updated when CC `cc` changes.
    *  cc=0 means "no CC assigned" — silently skipped. */
@@ -22,16 +35,32 @@ export class CcBindings {
     keys.add(refKey)
   }
 
-  /** Push a CC value (raw 0-127) to every ref registered for that CC number. */
-  update(cc: number, raw: number, refs: ParamRefRegistry): void {
-    const keys = this.map.get(cc)
-    if (!keys) return
-    const norm = raw / 127
-    for (const key of keys) refs.setValue(key, norm)
+  /** Buffer a CC value (raw 0-127).  Flushed once per animation frame so the
+   *  audio worklet only gets the latest value, not every intermediate event. */
+  queue(cc: number, raw: number): void {
+    this.pending.set(cc, raw)
+    if (this.frame === 0) {
+      this.frame = requestAnimationFrame(() => this.flushPending())
+    }
   }
 
   /** Discard all registrations — call before each structural recompile. */
   clear(): void {
     this.map.clear()
+    this.pending.clear()
+  }
+
+  // ── internal ────────────────────────────────────────────────────────
+
+  private flushPending(): void {
+    this.frame = 0
+    if (!this.refs || this.pending.size === 0) return
+    for (const [cc, raw] of this.pending) {
+      const keys = this.map.get(cc)
+      if (!keys) continue
+      const norm = raw / 127
+      for (const key of keys) this.refs.setValue(key, norm)
+    }
+    this.pending.clear()
   }
 }
