@@ -137,10 +137,16 @@ export function useEngine(): AudioHost {
       schedule()
     })
     const unsubTransport = useTransportStore.subscribe(schedule)
-    // MIDI CC changes go through ccBindings.update() → direct ref setValue.
-    // Note events go through VoicePool refs.  Neither needs a graph recompile.
-    const unsubMidi = useMidiStore.subscribe(() => { /* kept for future UI use, no compile */ })
-    const unsubPreview = usePreviewStore.subscribe(() => { /* ditto */ })
+    // Only recompile when the selected MIDI instrument changes — voice slot
+    // refs and CC bindings need to be created for the new instrument.
+    let prevMidiInst: string | null = null
+    const unsubMidi = useMidiStore.subscribe((state) => {
+      if (state.activeInstrumentId !== prevMidiInst) {
+        prevMidiInst = state.activeInstrumentId
+        schedule()
+      }
+    })
+    const unsubPreview = usePreviewStore.subscribe(() => { /* kept for future UI use, no compile */ })
     schedule() // catch any state that changed before the host was ready
     return () => {
       if (frame) cancelAnimationFrame(frame)
