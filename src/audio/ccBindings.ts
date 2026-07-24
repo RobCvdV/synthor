@@ -17,6 +17,8 @@ export class CcBindings {
   private pending = new Map<number, number>()
   private frame = 0
   private refs: ParamRefRegistry | null = null
+  /** Called once per rAF per CC number after flush, for store updates. */
+  onFlush?: (cc: number, raw: number) => void
 
   /** Must be called after the host creates the paramRefs registry. */
   attach(refs: ParamRefRegistry): void {
@@ -38,6 +40,7 @@ export class CcBindings {
   /** Buffer a CC value (raw 0-127).  Flushed once per animation frame so the
    *  audio worklet only gets the latest value, not every intermediate event. */
   queue(cc: number, raw: number): void {
+    if (cc === 21) console.log(`[ccBindings] queue CC21 raw=${raw}  @ ${performance.now().toFixed(0)}`)
     this.pending.set(cc, raw)
     if (this.frame === 0) {
       this.frame = requestAnimationFrame(() => this.flushPending())
@@ -54,11 +57,15 @@ export class CcBindings {
 
   private flushPending(): void {
     this.frame = 0
-    if (!this.refs || this.pending.size === 0) return
+    if (this.pending.size === 0) return
     for (const [cc, raw] of this.pending) {
+      // Update the store once per frame per CC (not on every event).
+      this.onFlush?.(cc, raw)
+      if (!this.refs) continue
       const keys = this.map.get(cc)
       if (!keys) continue
       const norm = raw / 127
+      if (cc === 21) console.log(`[ccBindings] FLUSH CC21 norm=${norm.toFixed(3)}  @ ${performance.now().toFixed(0)}`)
       for (const key of keys) this.refs.setValue(key, norm)
     }
     this.pending.clear()

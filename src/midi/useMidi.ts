@@ -15,6 +15,10 @@ export function useMidi(host: AudioHost) {
   const setCc = useMidiStore((s) => s.setCcValue)
   const setPitchBend = useMidiStore((s) => s.setPitchBend)
 
+  // CC values update the store once per rAF frame, not on every MIDI event.
+  // This keeps the MIDI event loop fast for note on/off during CC floods.
+  host.ccBindings.onFlush = (cc, raw) => setCc(cc, raw)
+
   useEffect(() => {
     // Feature detection — Web MIDI is not available in all browsers.
     if (!('requestMIDIAccess' in navigator)) return
@@ -77,8 +81,9 @@ export function useMidi(host: AudioHost) {
               break
             }
             case 0xb0: { // Control Change
-              setCc(msg[1], msg[2])
-              // Buffer and rAF-coalesce — only the latest value per CC is flushed.
+              if (msg[1] === 21) console.log(`[midi] CC21 raw=${msg[2]}  @ ${performance.now().toFixed(0)}`)
+              // Only buffer — the store is updated once per rAF in flushPending
+              // so the MIDI event loop stays fast for note on/off messages.
               host.ccBindings.queue(msg[1], msg[2])
               break
             }
