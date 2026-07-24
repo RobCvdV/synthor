@@ -147,8 +147,10 @@ export function useEngine(): AudioHost {
       }
     })
     const unsubPreview = usePreviewStore.subscribe(() => { /* kept for future UI use, no compile */ })
+    host.onReady = schedule // compile after start() creates AudioContext (MIDI init)
     schedule() // catch any state that changed before the host was ready
     return () => {
+      host.onReady = null
       if (frame) cancelAnimationFrame(frame)
       unsubDoc()
       unsubTransport()

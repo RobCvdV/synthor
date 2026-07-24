@@ -47,10 +47,16 @@ export class ParamRefRegistry {
   }
 
   /** Update a ref's value without recompiling.  If the ref isn't mounted yet
-   *  (setter throws), queues the value and applies it after the next render. */
+   *  the value is queued and applied via flushPending after the next render. */
   setValue(key: string, value: number): void {
     const ref = this.refs.get(key)
-    if (!ref) return
+    if (!ref) {
+      // Ref not created yet (no compile has run).  Queue for flush after render
+      // so values aren't silently dropped — critical for the first MIDI note-on
+      // after host.start() where compile runs on next rAF.
+      this.pending.push({ key, value })
+      return
+    }
     try { ref.setter({ value }) } catch {
       this.pending.push({ key, value })
     }

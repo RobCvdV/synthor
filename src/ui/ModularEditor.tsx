@@ -121,14 +121,15 @@ function ModuleNode({ data }: NodeProps) {
     return () => clearInterval(id)
   }, [isOutput, host])
 
-  // EARLY RETURN only after ALL hooks have been called.
-  if (!module || !def) return null
-
-  // Live CC readout for effect modules.
+  // Live CC readout for effect modules — must be above the early return
+  // because hooks must never be skipped between renders.
   const ccValues = useMidiStore((s) => s.ccValues)
   const isEff = module?.type === 'effect1' || module?.type === 'effect2'
   const effCc = isEff ? (module?.params.cc ?? 0) : 0
   const effCcVal = effCc > 0 ? (ccValues[effCc] ?? 0) / 127 : 0
+
+  // EARLY RETURN only after ALL hooks have been called.
+  if (!module || !def) return null
 
   const clip = levelRef.current > CLIP_THRESHOLD
 

@@ -25,9 +25,10 @@ export class AudioHost {
   /** CC# → ref-key mapping so MIDI knob turns update the right refs directly. */
   readonly ccBindings = new CcBindings()
 
-  /** Set after start() completes; cleared by the first post-start compile.
-   *  useEngine checks this to force a render that mounts voice-pool refs. */
-  needsInitialCompile = false
+  /** Called when start() creates a fresh AudioContext (not a resume).
+   *  useEngine wires this to schedule a compile so voice-pool refs exist
+   *  before the first MIDI note-on. */
+  onReady: (() => void) | null = null
 
   /** Fixed voice pools per instrument (lazily created). */
   readonly voicePools = new Map<string, VoicePool>()
@@ -106,6 +107,7 @@ export class AudioHost {
       await this.ctx.resume()
       this.ready = true
       this.starting = null
+      this.onReady?.()
     })()
     return this.starting
   }

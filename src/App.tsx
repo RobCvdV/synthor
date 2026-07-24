@@ -507,19 +507,17 @@ export default function App() {
         >
           {midiConnected ? 'MIDI' : 'midi'}
         </span>
-        {midiConnected && (
-          <select
-            className="midi-inst-select"
-            value={midiActiveInst ?? ''}
-            onChange={(e) => setMidiActiveInst(e.target.value || null)}
-            title="Instrument for MIDI input"
-          >
-            <option value="">(none)</option>
-            {Object.values(doc.entities.instruments).map((inst) => (
-              <option key={inst.id} value={inst.id}>{inst.name}</option>
-            ))}
-          </select>
-        )}
+        <select
+          className="midi-inst-select"
+          value={midiActiveInst ?? ''}
+          onChange={(e) => setMidiActiveInst(e.target.value || null)}
+          title="Instrument for MIDI input"
+        >
+          <option value="">(none)</option>
+          {Object.values(doc.entities.instruments).map((inst) => (
+            <option key={inst.id} value={inst.id}>{inst.name}</option>
+          ))}
+        </select>
         <span className="spacer" />
         <button
           className={'octbtn' + (view === 'tracker' ? ' active' : '')}
