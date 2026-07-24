@@ -2,6 +2,7 @@ import { el } from '@elemaudio/core'
 import WebRenderer from '@elemaudio/web-renderer'
 import type { StereoOut } from '../engine/modular'
 import { ParamRefRegistry, setActiveParamRefs } from './paramRefs'
+import { CcBindings } from './ccBindings'
 import { VoicePool } from '../engine/voicePool'
 
 /**
@@ -21,6 +22,9 @@ export class AudioHost {
   /** Registry of createRef-backed param nodes for zero-recompile value updates. */
   readonly paramRefs = new ParamRefRegistry()
 
+  /** CC# → ref-key mapping so MIDI knob turns update the right refs directly. */
+  readonly ccBindings = new CcBindings()
+
   /** Set after start() completes; cleared by the first post-start compile.
    *  useEngine checks this to force a render that mounts voice-pool refs. */
   needsInitialCompile = false
@@ -28,11 +32,12 @@ export class AudioHost {
   /** Fixed voice pools per instrument (lazily created). */
   readonly voicePools = new Map<string, VoicePool>()
 
-  /** Get (or create) a voice pool for an instrument. */
+  /** Get (or create) a voice pool for an instrument.
+   *  The pool updates per-voice refs directly — no graph recompile needed. */
   voicePool(instId: string, maxVoices = 8): VoicePool {
     let pool = this.voicePools.get(instId)
     if (!pool) {
-      pool = new VoicePool(maxVoices)
+      pool = new VoicePool(this.paramRefs, instId, maxVoices)
       this.voicePools.set(instId, pool)
     }
     return pool

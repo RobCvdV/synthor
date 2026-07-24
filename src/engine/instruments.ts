@@ -42,23 +42,29 @@ export function renderInstrument(
   midiCcValues?: Record<number, number>,
   /** Param ref registry for zero-recompile value updates. */
   paramRefs?: import('../audio/paramRefs').ParamRefRegistry,
+  /** CC binding table — populated during compile so MIDI CC changes update refs. */
+  ccBindings?: import('../audio/ccBindings').CcBindings,
 ): StereoOut {
   switch (inst.kind) {
     case 'osc': {
-      void voiceKey; void note; void baseFreq; void effect1; void effect2; void midiCcValues; void paramRefs
+      void voiceKey; void note; void baseFreq; void effect1; void effect2; void midiCcValues; void ccBindings
       const env = makeAdsr(0.005, 0.12, 0.7, 0.25, gate)
       const tone = el.blepsaw(freq)
-      const out = el.mul(tone, env, inst.params.gain, volume)
+      // Use createRef when available so slider changes take effect without recompile.
+      const gain = paramRefs
+        ? paramRefs.getOrCreate(`${inst.id}:gain`, inst.params.gain)
+        : el.const({ value: inst.params.gain })
+      const out = el.mul(tone, env, gain, volume)
       return { left: out, right: out }
     }
     case 'modular': {
       void note
-      return compileModular(inst, freq, gate, voiceKey, sampleMeta, baseFreq, volume, effect1, effect2, midiCcValues, paramRefs)
+      return compileModular(inst, freq, gate, voiceKey, sampleMeta, baseFreq, volume, effect1, effect2, midiCcValues, paramRefs, ccBindings)
     }
     case 'drumkit': {
       // Drumkit rendering is handled at the compile level via renderDrumKitSlot,
       // so per-slot sequencer signals (gate + freq) can be used.
-      void voiceKey; void freq; void note; void baseFreq; void sampleMeta; void sampleHashById; void volume; void gate
+      void voiceKey; void freq; void note; void baseFreq; void sampleMeta; void sampleHashById; void volume; void gate; void ccBindings
       return { left: el.const({ value: 0 }), right: el.const({ value: 0 }) }
     }
   }
@@ -82,6 +88,9 @@ export function renderDrumKitSlot(
   sampleHashById: Record<Id, string>,
   midiCcValues?: Record<number, number>,
   paramRefs?: import('../audio/paramRefs').ParamRefRegistry,
+  ccBindings?: import('../audio/ccBindings').CcBindings,
+  /** Drumkit instrument id — when provided, slot gain/pan use createRef. */
+  kitInstId?: string,
 ): StereoOut {
   const zero = el.const({ value: 0 })
   let rawL: NodeRepr_t = zero
@@ -140,6 +149,7 @@ export function renderDrumKitSlot(
         1, // effect2
         midiCcValues,
         paramRefs,
+        ccBindings,
       )
       rawL = voice.left
       rawR = voice.right
@@ -147,11 +157,17 @@ export function renderDrumKitSlot(
   }
 
   // Apply per-slot gain and constant-power pan.
-  // Pan gains are computed in JS (static per slot) to keep the Elementary
-  // graph simple and avoid any nesting issues with el.add/el.sub.
-  const g = el.const({ value: slot.gain })
-  const panL = el.const({ value: 0.5 * (1 - slot.pan) })
-  const panR = el.const({ value: 0.5 * (1 + slot.pan) })
+  // Use createRef when available so slider changes don't need a recompile.
+  const slotKey = (name: string) => kitInstId ? `${kitInstId}:slot:${slot.id}:${name}` : ''
+  const g = paramRefs && kitInstId
+    ? paramRefs.getOrCreate(slotKey('gain'), slot.gain)
+    : el.const({ value: slot.gain })
+  const panL = paramRefs && kitInstId
+    ? paramRefs.getOrCreate(slotKey('panL'), 0.5 * (1 - slot.pan))
+    : el.const({ value: 0.5 * (1 - slot.pan) })
+  const panR = paramRefs && kitInstId
+    ? paramRefs.getOrCreate(slotKey('panR'), 0.5 * (1 + slot.pan))
+    : el.const({ value: 0.5 * (1 + slot.pan) })
   return {
     left: el.mul(rawL, g, panL),
     right: el.mul(rawR, g, panR),

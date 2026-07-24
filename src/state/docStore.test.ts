@@ -473,3 +473,50 @@ describe('setOrPromoteSlotParam', () => {
     expect(slot48!.sampleId).toBe(samples[0].id) // inherited source
   })
 })
+
+describe('docStore silent mutations', () => {
+  beforeEach(() => {
+    useDocStore.setState({ doc: createDefaultDoc(), past: [], future: [], silentBatch: false })
+  })
+
+  it('mutateSilent records an undo entry', () => {
+    useDocStore.getState().mutateSilent((draft) => {
+      draft.entities.patterns[draft.patternId].name = 'silent-renamed'
+    })
+    const pattern = useDocStore.getState().doc.entities.patterns[useDocStore.getState().doc.patternId]
+    expect(pattern.name).toBe('silent-renamed')
+    expect(useDocStore.getState().past).toHaveLength(1)
+  })
+
+  it('sets silentBatch flag during mutateSilent execution', () => {
+    const flags: boolean[] = []
+    const unsub = useDocStore.subscribe((s) => flags.push(s.silentBatch))
+    useDocStore.getState().mutateSilent((draft) => {
+      draft.entities.patterns[draft.patternId].name = 'flagged'
+    })
+    unsub()
+    // silentBatch should be true during the mutate, false afterwards
+    expect(flags.some((f) => f === true)).toBe(true)
+    expect(useDocStore.getState().silentBatch).toBe(false)
+  })
+
+  it('regular mutate does not set silentBatch', () => {
+    useDocStore.getState().setCellNote(firstTrackId(), 0, 72)
+    expect(useDocStore.getState().silentBatch).toBe(false)
+  })
+
+  it('undo after silent mutate restores previous value', () => {
+    const pattern = useDocStore.getState().doc.entities.patterns[useDocStore.getState().doc.patternId]
+    const original = pattern.name
+    useDocStore.getState().mutateSilent((draft) => {
+      draft.entities.patterns[draft.patternId].name = 'undone'
+    })
+    useDocStore.getState().undo()
+    expect(useDocStore.getState().doc.entities.patterns[useDocStore.getState().doc.patternId].name).toBe(original)
+  })
+
+  it('silent mutate is a no-op when recipe makes no changes', () => {
+    useDocStore.getState().mutateSilent((_draft) => { /* no-op */ })
+    expect(useDocStore.getState().past).toHaveLength(0)
+  })
+})

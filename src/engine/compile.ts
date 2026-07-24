@@ -62,6 +62,9 @@ export interface RenderContext {
   paramRefs?: import('../audio/paramRefs').ParamRefRegistry
   /** Voice pool for the currently previewed instrument (fixed polyphony). */
   voicePool?: import('./voicePool').VoicePool
+  /** CC# → ref-key mapping, populated during compile so MIDI CC changes
+   *  update the right refs without a recompile. */
+  ccBindings?: import('../audio/ccBindings').CcBindings
 }
 
 /**
@@ -77,6 +80,7 @@ function compilePreview(
   midiCcValues?: Record<number, number>,
   paramRefs?: RenderContext['paramRefs'],
   voicePool?: RenderContext['voicePool'],
+  ccBindings?: RenderContext['ccBindings'],
 ): StereoOut | null {
   if (!preview) return null
   const inst = doc.entities.instruments[preview.instrumentId]
@@ -94,7 +98,7 @@ function compilePreview(
       const freq = el.const({ key: `${voiceKey}:freq`, value: midiToFreq(v.note) })
       const gate = el.const({ key: `${voiceKey}:gate`, value: v.gate })
       const velGain = v.velocity / 127
-      return renderInstrument(inst, freq, gate, voiceKey, sampleMeta, 0, sampleHashById, midiToFreq(v.note), velGain, 1, 1, midiCcValues, paramRefs)
+      return renderInstrument(inst, freq, gate, voiceKey, sampleMeta, 0, sampleHashById, midiToFreq(v.note), velGain, 1, 1, midiCcValues, paramRefs, ccBindings)
     })
     return {
       left: el.mul(voices.reduce((a, v) => el.add(a, v.left), zero), 0.3),
@@ -102,23 +106,36 @@ function compilePreview(
     }
   }
 
-  const slots = voicePool.snapshot()
-  const active = slots.some((s) => s.gate === 1 || s.note !== null)
+  // Fixed voice slots: always build all slots with createRef nodes.
+  // VoicePool updates ref values directly — no recompile for note events.
+  const slotCount = voicePool.size
   if (inst.kind === 'drumkit') {
-    const slotVoices = slots.map((v, i) => {
-      if (v.note == null) return { left: zero, right: zero }
-      const slot = getSlotForNote(inst, v.note)
-      if (!slot) return { left: zero, right: zero }
+    const slotVoices: StereoOut[] = []
+    for (let i = 0; i < slotCount; i++) {
       const voiceKey = `${inst.id}:v:${i}`
-      const baseNote = slot.instrumentId ? v.note : slot.note
-      const freq = el.const({ key: `${voiceKey}:freq`, value: midiToFreq(baseNote + slot.pitchOffset) })
-      const gate = el.const({ key: `${voiceKey}:gate`, value: v.gate })
-      const velGain = el.const({ value: v.velocity / 127 })
-      const voice = renderDrumKitSlot(slot, doc.entities.instruments, gate, freq, voiceKey, sampleMeta, sampleHashById, midiCcValues, paramRefs)
-      return { left: el.mul(voice.left, velGain), right: el.mul(voice.right, velGain) }
-    })
-    if (!active) return null
-    const masterGain = el.const({ value: inst.params.gain })
+      const freq = paramRefs
+        ? paramRefs.getOrCreate(`${voiceKey}:freq`, 0)
+        : el.const({ key: `${voiceKey}:freq`, value: 0 })
+      const gate = paramRefs
+        ? paramRefs.getOrCreate(`${voiceKey}:gate`, 0)
+        : el.const({ key: `${voiceKey}:gate`, value: 0 })
+      // Velocity is baked into the slot voice — use a ref so it can change.
+      const velRef = paramRefs
+        ? paramRefs.getOrCreate(`${voiceKey}:vel`, 1)
+        : el.const({ key: `${voiceKey}:vel`, value: 1 })
+      // For drumkit, freq already carries MIDI note → slot lookup is per-slot.
+      // We build the slot voice chain unconditionally; gate=0 produces silence.
+      const dummySlot = getSlotForNote(inst, 60) // fallback slot for graph structure
+      if (!dummySlot) {
+        slotVoices.push({ left: zero, right: zero })
+        continue
+      }
+      const voice = renderDrumKitSlot(dummySlot, doc.entities.instruments, gate, freq, voiceKey, sampleMeta, sampleHashById, midiCcValues, paramRefs, ccBindings, inst.id)
+      slotVoices.push({ left: el.mul(voice.left, velRef), right: el.mul(voice.right, velRef) })
+    }
+    const masterGain = paramRefs
+      ? paramRefs.getOrCreate(`${inst.id}:masterGain`, inst.params.gain)
+      : el.const({ value: inst.params.gain })
     return {
       left: el.mul(slotVoices.reduce((a, v) => el.add(a, v.left), zero), 0.3, masterGain),
       right: el.mul(slotVoices.reduce((a, v) => el.add(a, v.right), zero), 0.3, masterGain),
@@ -126,16 +143,21 @@ function compilePreview(
   }
 
   // Osc / modular: one signal chain per voice slot, all slots always in the
-  // graph.  Gate/freq use plain el.const — Elementary reconciles by key so
-  // only the values change, not the graph structure.
-  const slotVoices = slots.map((v, i) => {
+  // graph.  Gate/freq/vel use createRef — VoicePool updates them directly.
+  const slotVoices: StereoOut[] = []
+  for (let i = 0; i < slotCount; i++) {
     const voiceKey = `${inst.id}:v:${i}`
-    const freq = el.const({ key: `${voiceKey}:freq`, value: v.note != null ? midiToFreq(v.note) : 0 })
-    const gate = el.const({ key: `${voiceKey}:gate`, value: v.gate })
-    const velGain = v.velocity / 127
-    return renderInstrument(inst, freq, gate, voiceKey, sampleMeta, 0, sampleHashById, 0, velGain, 1, 1, midiCcValues, paramRefs)
-  })
-  if (!active) return null
+    const freq = paramRefs
+      ? paramRefs.getOrCreate(`${voiceKey}:freq`, 0)
+      : el.const({ key: `${voiceKey}:freq`, value: 0 })
+    const gate = paramRefs
+      ? paramRefs.getOrCreate(`${voiceKey}:gate`, 0)
+      : el.const({ key: `${voiceKey}:gate`, value: 0 })
+    const velRef = paramRefs
+      ? paramRefs.getOrCreate(`${voiceKey}:vel`, 1)
+      : el.const({ key: `${voiceKey}:vel`, value: 1 })
+    slotVoices.push(renderInstrument(inst, freq, gate, voiceKey, sampleMeta, 0, sampleHashById, 0, velRef, 1, 1, midiCcValues, paramRefs, ccBindings))
+  }
   return {
     left: el.mul(slotVoices.reduce((a, v) => el.add(a, v.left), zero), 0.3),
     right: el.mul(slotVoices.reduce((a, v) => el.add(a, v.right), zero), 0.3),
@@ -158,7 +180,9 @@ function rotateSeq<T>(seq: T[], offset: number): T[] {
  * AudioContext — pure, unit-testable, and reusable for offline bounce.
  */
 export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
-  const preview = compilePreview(doc, ctx.preview, ctx.vfsLoadedHashes, ctx.midiCcValues, ctx.paramRefs, ctx.voicePool)
+  // Re-populated during graph build; clearing first prevents stale registrations.
+  ctx.ccBindings?.clear()
+  const preview = compilePreview(doc, ctx.preview, ctx.vfsLoadedHashes, ctx.midiCcValues, ctx.paramRefs, ctx.voicePool, ctx.ccBindings)
   const silence: StereoOut = {
     left: el.const({ value: 0 }),
     right: el.const({ value: 0 }),
@@ -225,7 +249,7 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
         const slotGate = el.seq2({ key: `${trackId}:${slot.id}:gate:${ctx.playEpoch}`, seq: rotatedGate, hold: false, loop: true }, clock, reset)
         // hold:true so instrument release tails keep the correct frequency.
         const slotFreq = el.seq2({ key: `${trackId}:${slot.id}:freq:${ctx.playEpoch}`, seq: rotatedFreq, hold: true, loop: true }, clock, reset)
-        const voice = renderDrumKitSlot(slot, doc.entities.instruments, slotGate, slotFreq, trackId, sampleMeta, sampleHashById, ctx.midiCcValues, ctx.paramRefs)
+        const voice = renderDrumKitSlot(slot, doc.entities.instruments, slotGate, slotFreq, trackId, sampleMeta, sampleHashById, ctx.midiCcValues, ctx.paramRefs, ctx.ccBindings, inst.id)
         mixL = el.add(mixL, voice.left)
         mixR = el.add(mixR, voice.right)
       }
@@ -266,7 +290,7 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
     // Apply effect modulation to frequency and volume.
     const { freq: effFreq, vol: effVol } = applyEffectModulation(freq, vol, freqMulSeq, volModSeq)
 
-    const voice = renderInstrument(inst, effFreq, gate, trackId, sampleMeta, 0, sampleHashById, trackBaseFreq, effVol, eff1SeqNode, eff2SeqNode, ctx.midiCcValues, ctx.paramRefs)
+    const voice = renderInstrument(inst, effFreq, gate, trackId, sampleMeta, 0, sampleHashById, trackBaseFreq, effVol, eff1SeqNode, eff2SeqNode, ctx.midiCcValues, ctx.paramRefs, ctx.ccBindings)
 
     // Apply per-row panning if any row has a pan effect.
     const hasPan = pan.some((p) => p !== null)

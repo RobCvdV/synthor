@@ -1,6 +1,5 @@
 import { useEffect } from 'react'
 import { useMidiStore } from '../state/midiStore'
-import { useDocStore } from '../state/docStore'
 import type { AudioHost } from '../audio/host'
 
 /**
@@ -62,11 +61,11 @@ export function useMidi(host: AudioHost) {
               const pool = host.voicePool(instId)
               if (vel === 0) {
                 pool.noteOff(note)
+                // noteOff triggers onChange → bumpCompile automatically
               } else {
-                void host.start().then(() => {
-                  pool.noteOn(note, vel)
-                  useDocStore.getState().bumpCompile()
-                })
+                // host.start() ensures the AudioContext is running;
+                // noteOn triggers onChange → bumpCompile automatically.
+                void host.start().then(() => { pool.noteOn(note, vel) })
               }
               break
             }
@@ -74,10 +73,13 @@ export function useMidi(host: AudioHost) {
               const instId = useMidiStore.getState().activeInstrumentId
               if (!instId) break
               host.voicePool(instId).noteOff(msg[1])
+              // noteOff triggers onChange → bumpCompile automatically
               break
             }
             case 0xb0: { // Control Change
               setCc(msg[1], msg[2])
+              // Push CC value directly to effect module refs — no compile needed.
+              host.ccBindings.update(msg[1], msg[2], host.paramRefs)
               break
             }
             case 0xe0: { // Pitch Bend

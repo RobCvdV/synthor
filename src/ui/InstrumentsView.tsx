@@ -32,7 +32,7 @@ export function InstrumentsView({ host }: { host: AudioHost }) {
   const removeInstrument = useDocStore((s) => s.removeInstrument)
   const duplicateInstrument = useDocStore((s) => s.duplicateInstrument)
   const renameInstrument = useDocStore((s) => s.renameInstrument)
-  const setOscParam = useDocStore((s) => s.setOscParam)
+  const setOscParamSilent = useDocStore((s) => s.setOscParamSilent)
 
   const noteOn = usePreviewStore((s) => s.noteOn)
   const noteOff = usePreviewStore((s) => s.noteOff)
@@ -257,7 +257,7 @@ export function InstrumentsView({ host }: { host: AudioHost }) {
                     max={1}
                     step={0.01}
                     value={selected.params.gain}
-                    onChange={(e) => setOscParam(selected.id, 'gain', Number(e.target.value))}
+                    onChange={(e) => setOscParamSilent(selected.id, 'gain', Number(e.target.value))}
                   />
                 </label>
                 <p className="muted">A built-in saw voice. Convert to modular by adding a new modular instrument.</p>

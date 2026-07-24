@@ -11,7 +11,8 @@ export function setActiveParamRefs(r: ParamRefRegistry | null): void {
 
 /** Quick ref update from anywhere — no-op when the host isn't ready. */
 export function updateParamRef(key: string, value: number): void {
-  activeRegistry?.setValue(key, value)
+  if (!activeRegistry) return
+  activeRegistry.setValue(key, value)
 }
 
 /** Clear all refs — call on undo/redo so the next compile recreates them. */
@@ -27,16 +28,13 @@ export class ParamRefRegistry {
   private refs = new Map<string, { node: NodeRepr_t; setter: (props: Record<string, unknown>) => void }>()
   private core: WebRenderer | null = null
   /** Values queued while refs were unmounted — flushed after render completes.
-   *  Array preserves order so rapid on→off sequences aren't collapsed to just
-   *  the last value (which would drop note-ons entirely). */
+   *  Array preserves order so rapid on→off sequences aren't collapsed. */
   private pending: { key: string; value: number }[] = []
 
   attach(core: WebRenderer): void { this.core = core }
 
   /** Return a ref node for the given key, creating one on first call.
-   *  Does NOT sync the value on existing refs — syncing here races with
-   *  setValue() calls from slider/CC changes (both post async messages to
-   *  the worklet; a stale compile-time sync arriving last flips the value). */
+   *  Does NOT sync the value on existing refs — the setter handles that. */
   getOrCreate(key: string, value: number): NodeRepr_t {
     const existing = this.refs.get(key)
     if (existing) return existing.node
@@ -54,7 +52,6 @@ export class ParamRefRegistry {
     const ref = this.refs.get(key)
     if (!ref) return
     try { ref.setter({ value }) } catch {
-      // Ref not mounted yet — queue for after the next render.
       this.pending.push({ key, value })
     }
   }
@@ -67,7 +64,7 @@ export class ParamRefRegistry {
     for (const { key, value } of batch) {
       const ref = this.refs.get(key)
       if (ref) {
-        try { ref.setter({ value }) } catch { /* still unmounted, keep queued */ }
+        try { ref.setter({ value }) } catch { /* still unmounted */ }
       }
     }
   }

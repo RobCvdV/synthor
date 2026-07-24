@@ -108,6 +108,7 @@ export function useEngine(): AudioHost {
             midiCcValues: useMidiStore.getState().ccValues,
             paramRefs: host.paramRefs,
             voicePool: activeInstId ? host.voicePool(activeInstId) : undefined,
+            ccBindings: host.ccBindings,
           }),
         )
       }
@@ -127,10 +128,19 @@ export function useEngine(): AudioHost {
       if (frame === 0) frame = requestAnimationFrame(render)
     }
 
-    const unsubDoc = useDocStore.subscribe(schedule)
+    const unsubDoc = useDocStore.subscribe((state, prev) => {
+      // Skip when only the flag toggled (mutateSilent), or when flag is active.
+      if (state.silentBatch) return
+      // When silentBatch flips false→true→false, the final publish fires with
+      // doc === prev.doc — skip it, nothing structural changed.
+      if (state.doc === prev.doc) return
+      schedule()
+    })
     const unsubTransport = useTransportStore.subscribe(schedule)
-    const unsubPreview = usePreviewStore.subscribe(schedule)
-    const unsubMidi = useMidiStore.subscribe(schedule)
+    // MIDI CC changes go through ccBindings.update() → direct ref setValue.
+    // Note events go through VoicePool refs.  Neither needs a graph recompile.
+    const unsubMidi = useMidiStore.subscribe(() => { /* kept for future UI use, no compile */ })
+    const unsubPreview = usePreviewStore.subscribe(() => { /* ditto */ })
     schedule() // catch any state that changed before the host was ready
     return () => {
       if (frame) cancelAnimationFrame(frame)

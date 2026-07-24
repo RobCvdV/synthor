@@ -47,6 +47,12 @@ interface DocState {
   compileTick: number
   /** Bump to trigger a render via store subscription. */
   bumpCompile: () => void
+  /** When true, docStore subscribers skip their side effects — used by
+   *  mutateSilent to persist values without triggering graph recompiles. */
+  silentBatch: boolean
+  /** Like mutate, but sets silentBatch so subscribers can skip the compile.
+   *  Use for slider release — persist to store + undo without recompile. */
+  mutateSilent: (recipe: (draft: Doc) => void) => void
 
   /** Hashes of samples that loaded successfully into VFS. null = not yet synced. */
   vfsLoadedHashes: Set<string> | null
@@ -91,7 +97,8 @@ interface DocState {
   renameInstrument: (instrumentId: Id, name: string) => void
   /** Set a top-level param on an osc instrument (e.g. gain). */
   setOscParam: (instrumentId: Id, key: string, value: number) => void
-  /** Point a track at any existing instrument. */
+  setOscParamFast: (instrumentId: Id, key: string, value: number) => void
+  setOscParamSilent: (instrumentId: Id, key: string, value: number) => void
   setTrackInstrument: (trackId: Id, instrumentId: Id) => void
 
   // --- Modular graph editing (on a modular instrument) ---
@@ -99,6 +106,14 @@ interface DocState {
   removeModule: (instrumentId: Id, moduleId: Id) => void
   moveModule: (instrumentId: Id, moduleId: Id, pos: { x: number; y: number }) => void
   setModuleParam: (instrumentId: Id, moduleId: Id, key: string, value: number) => void
+  /** Update param ref immediately without triggering a recompile.
+   *  Use during slider drags for smooth audio; call setModuleParamSilent
+   *  on drag-end to persist the value in the store without triggering compile. */
+  setModuleParamFast: (instrumentId: Id, moduleId: Id, key: string, value: number) => void
+  /** Persist a module param to the store + undo history WITHOUT triggering
+   *  a graph recompile. Use on slider mouseUp after the fast path already
+   *  updated the ref. */
+  setModuleParamSilent: (instrumentId: Id, moduleId: Id, key: string, value: number) => void
   addConnection: (instrumentId: Id, from: Port, to: Port) => void
   removeConnection: (instrumentId: Id, connectionId: Id) => void
   setConnectionGain: (instrumentId: Id, connectionId: Id, gain: number) => void
@@ -128,6 +143,7 @@ interface DocState {
   setOrPromoteSlotParam: (instrumentId: Id, note: number, key: 'pitchOffset' | 'gain' | 'pan', value: number) => void
   setDrumKitSlotSource: (instrumentId: Id, slotId: Id, sampleId: Id | null, slotInstrumentId: Id | null) => void
   setDrumKitParam: (instrumentId: Id, key: string, value: number) => void
+  setDrumKitParamFast: (instrumentId: Id, key: string, value: number) => void
   setDrumKitKeyRange: (instrumentId: Id, keyLo: number, keyHi: number) => void
 
   // --- Track operations (atIndex = position within the current pattern) ---
@@ -162,8 +178,15 @@ export const useDocStore = create<DocState>((set, get) => ({
   soloedTracks: {},
   vfsLoadedHashes: null,
   compileTick: 0,
+  silentBatch: false,
 
   bumpCompile: () => set((s) => ({ compileTick: s.compileTick + 1 })),
+
+  mutateSilent: (recipe) => {
+    set({ silentBatch: true })
+    get().mutate(recipe)
+    set({ silentBatch: false })
+  },
 
   mutate: (recipe) => {
     const { doc, past } = get()
@@ -402,13 +425,33 @@ export const useDocStore = create<DocState>((set, get) => ({
       if (inst) inst.name = name
     }),
 
-  setOscParam: (instrumentId, key, value) =>
+  setOscParam: (instrumentId, key, value) => {
     get().mutate((draft) => {
       const inst = draft.entities.instruments[instrumentId]
       if (inst?.kind === 'osc' && key in inst.params) {
         ;(inst.params as Record<string, number>)[key] = value
       }
-    }),
+    })
+    // Direct ref update so slider changes take effect without waiting for recompile.
+    updateParamRef(`${instrumentId}:${key}`, value)
+  },
+  /** Update osc param ref immediately without triggering a recompile.
+   *  Use during slider drags; call setOscParam on drag-end to persist. */
+  setOscParamFast: (instrumentId: Id, key: string, value: number) => {
+    updateParamRef(`${instrumentId}:${key}`, value)
+  },
+
+	  /** Like setOscParam but uses mutateSilent — persists to store + undo
+	   *  without triggering a graph recompile. Use during slider drags. */
+	  setOscParamSilent: (instrumentId: Id, key: string, value: number) => {
+	    get().mutateSilent((draft) => {
+	      const inst = draft.entities.instruments[instrumentId];
+	      if (inst?.kind === 'osc' && key in inst.params) {
+	        ;(inst.params as Record<string, number>)[key] = value;
+	      }
+	    });
+	    updateParamRef(`${instrumentId}:${key}`, value);
+	  },
 
   setTrackInstrument: (trackId, instrumentId) =>
     get().mutate((draft) => {
@@ -449,6 +492,25 @@ export const useDocStore = create<DocState>((set, get) => ({
       if (mod) mod.pos = pos
     }),
 
+  setModuleParamFast: (_instrumentId, _moduleId, key, value) => {
+    // Only update the ref — no store mutation, no compile trigger.
+    // Combine instrument+module+key the same way compileModular's kconst does.
+    const refKey = `${_instrumentId}:${_moduleId}:${key}`
+    updateParamRef(refKey, value)
+  },
+
+  setModuleParamSilent: (instrumentId, moduleId, key, value) => {
+    get().mutateSilent((draft) => {
+      const inst = draft.entities.instruments[instrumentId]
+      if (inst?.kind !== 'modular') return
+      const mod = inst.modules[moduleId]
+      if (mod) mod.params[key] = value
+    })
+    // Ref already has this value from the fast path — updateParamRef is
+    // a no-op here but included for safety.
+    updateParamRef(`${instrumentId}:${moduleId}:${key}`, value)
+  },
+
   setModuleParam: (instrumentId, moduleId, key, value) => {
     get().mutate((draft) => {
       const inst = draft.entities.instruments[instrumentId]
@@ -456,7 +518,6 @@ export const useDocStore = create<DocState>((set, get) => ({
       const mod = inst.modules[moduleId]
       if (mod) mod.params[key] = value
     })
-    // Direct ref update for zero-recompile slider response.
     updateParamRef(`${instrumentId}:${moduleId}:${key}`, value)
   },
 
@@ -672,12 +733,18 @@ export const useDocStore = create<DocState>((set, get) => ({
       slot.instrumentId = slotInstrumentId
     }),
 
-  setDrumKitParam: (instrumentId, key, value) =>
+  setDrumKitParam: (instrumentId, key, value) => {
     get().mutate((draft) => {
       const inst = draft.entities.instruments[instrumentId]
       if (inst?.kind !== 'drumkit') return
       if (key in inst.params) (inst.params as Record<string, number>)[key] = value
-    }),
+    })
+    updateParamRef(`${instrumentId}:${key}`, value)
+  },
+  /** Update drumkit param ref immediately without triggering a recompile. */
+  setDrumKitParamFast: (instrumentId: Id, key: string, value: number) => {
+    updateParamRef(`${instrumentId}:${key}`, value)
+  },
 
   setDrumKitKeyRange: (instrumentId, keyLo, keyHi) =>
     get().mutate((draft) => {

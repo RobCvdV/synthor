@@ -93,6 +93,9 @@ export function compileModular(
   midiCcValues?: Record<number, number>,
   /** Param ref registry — uses createRef so values update without recompile. */
   paramRefs?: import('../audio/paramRefs').ParamRefRegistry,
+  /** CC binding table — populated during graph build so MIDI CC changes
+   *  can update the right refs without a recompile. */
+  ccBindings?: import('../audio/ccBindings').CcBindings,
 ): StereoOut {
   const memo = new Map<string, Node>()
   const visiting = new Set<string>()
@@ -103,10 +106,15 @@ export function compileModular(
   // Without this, slider changes via updateParamRef wouldn't find the ref
   // because it was stored under a per-voice key like "preview:inst:60:mod:cutoff".
   const refKey = (key: string) => `${inst.id}:${key}`
-  const kconst = (key: string, value: number): NodeRepr_t =>
-    paramRefs
-      ? paramRefs.getOrCreate(refKey(key), value)
-      : el.const({ key: `${keyPrefix}:${key}`, value })
+  const kconst = (key: string, value: number): NodeRepr_t => {
+    if (paramRefs) {
+      const fullKey = refKey(key)
+      const existing = paramRefs.getOrCreate(fullKey, value)
+      // Log only on first creation (getOrCreate logs CREATE internally).
+      return existing
+    }
+    return el.const({ key: `${keyPrefix}:${key}`, value })
+  }
 
   const conns = Object.values(inst.connections)
 
@@ -162,18 +170,24 @@ export function compileModular(
       case 'effect1': {
         const cc = Math.round(p.cc ?? 0)
         const ccVal = cc > 0 ? (midiCcValues?.[cc] ?? 0) / 127 : 0
-        return el.add(eff1, kconst(key('cc'), ccVal))
+        const node = kconst(key('cc'), ccVal)
+        ccBindings?.register(cc, refKey(key('cc')))
+        return el.add(eff1, node)
       }
       case 'effect2': {
         const cc = Math.round(p.cc ?? 0)
         const ccVal = cc > 0 ? (midiCcValues?.[cc] ?? 0) / 127 : 0
-        return el.add(eff2, kconst(key('cc'), ccVal))
+        const node = kconst(key('cc'), ccVal)
+        ccBindings?.register(cc, refKey(key('cc')))
+        return el.add(eff2, node)
       }
 
       case 'midicc': {
         const cc = Math.round(p.cc ?? 1)
         const raw = midiCcValues?.[cc] ?? 0
-        return kconst(key('val'), raw / 127)
+        const node = kconst(key('val'), raw / 127)
+        ccBindings?.register(cc, refKey(key('val')))
+        return node
       }
 
       case 'osc': {

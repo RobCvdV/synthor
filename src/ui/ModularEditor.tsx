@@ -51,6 +51,7 @@ function ModuleNode({ data }: NodeProps) {
     return inst?.kind === 'modular' ? inst.modules[moduleId] : undefined
   })
   const setModuleParam = useDocStore((s) => s.setModuleParam)
+  const setModuleParamSilent = useDocStore((s) => s.setModuleParamSilent)
   const removeModule = useDocStore((s) => s.removeModule)
   const [ccLearning, setCcLearning] = useState(false)
   const ccLearningRef = useRef(false)
@@ -245,7 +246,7 @@ function ModuleNode({ data }: NodeProps) {
                   max={max}
                   step={p.step}
                   value={value}
-                  onChange={(e) => setModuleParam(instrumentId, moduleId, p.key, Number(e.target.value))}
+                  onChange={(e) => setModuleParamSilent(instrumentId, moduleId, p.key, Number(e.target.value))}
                 />
               )}
             </label>
