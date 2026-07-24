@@ -91,6 +91,7 @@ export function InstrumentsView({ host }: { host: AudioHost }) {
         e.preventDefault()
         heldRef.current = {}
         panic()
+        host.panic()
         return
       }
       if (e.code === 'Minus') { e.preventDefault(); octaveManualRef.current = true; setOctave((o) => Math.max(0, o - 1)); return }
@@ -103,7 +104,13 @@ export function InstrumentsView({ host }: { host: AudioHost }) {
       e.preventDefault()
       const note = octaveRef.current * 12 + semi
       heldRef.current[e.code] = note
-      void host.start().then(() => noteOn(instId, note))
+      // Update previewStore for UI voice counter + fallback compile path,
+      // and VoicePool for the audio ref path.
+      void host.start().then(() => {
+        noteOn(instId, note)
+        const kit = useDocStore.getState().doc.entities.instruments[instId]
+        host.voicePool(instId, 8, kit?.kind === 'drumkit' ? kit : undefined).noteOn(note, 127)
+      })
     },
     [host, noteOn, panic],
   )
@@ -114,8 +121,10 @@ export function InstrumentsView({ host }: { host: AudioHost }) {
       if (note === undefined) return
       delete heldRef.current[e.code]
       noteOff(note)
+      const instId = selectedIdRef.current
+      if (instId) host.voicePool(instId).noteOff(note)
     },
-    [noteOff],
+    [host, noteOff],
   )
 
   useEffect(() => {

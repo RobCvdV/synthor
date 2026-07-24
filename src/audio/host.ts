@@ -4,6 +4,7 @@ import type { StereoOut } from '../engine/modular'
 import { ParamRefRegistry, setActiveParamRefs } from './paramRefs'
 import { CcBindings } from './ccBindings'
 import { VoicePool } from '../engine/voicePool'
+import type { DrumKitInstrument } from '../domain/types'
 
 /**
  * Owns the AudioContext + Elementary WebRenderer and pushes compiled graphs to
@@ -34,13 +35,18 @@ export class AudioHost {
   readonly voicePools = new Map<string, VoicePool>()
 
   /** Get (or create) a voice pool for an instrument.
-   *  The pool updates per-voice refs directly — no graph recompile needed. */
-  voicePool(instId: string, maxVoices = 8): VoicePool {
+   *  The pool updates per-voice refs directly — no graph recompile needed.
+   *  Pass `kit` for drumkit instruments to enable per-slot note routing.
+   *  Safe to call from any path (MIDI, keyboard, engine) — `setKit` is a
+   *  no-op on already-configured pools, so callers can pass kit late without
+   *  worrying about creation order. */
+  voicePool(instId: string, maxVoices = 8, kit?: DrumKitInstrument): VoicePool {
     let pool = this.voicePools.get(instId)
     if (!pool) {
       pool = new VoicePool(this.paramRefs, instId, maxVoices)
       this.voicePools.set(instId, pool)
     }
+    if (kit) pool.setKit(kit)
     return pool
   }
 

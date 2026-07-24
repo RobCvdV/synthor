@@ -107,7 +107,15 @@ export function useEngine(): AudioHost {
             vfsLoadedHashes: vfsLoadedRef.current,
             midiCcValues: useMidiStore.getState().ccValues,
             paramRefs: host.paramRefs,
-            voicePool: activeInstId ? host.voicePool(activeInstId) : undefined,
+            voicePool: activeInstId
+              ? host.voicePool(
+                  activeInstId,
+                  8,
+                  doc.entities.instruments[activeInstId]?.kind === 'drumkit'
+                    ? doc.entities.instruments[activeInstId]
+                    : undefined,
+                )
+              : undefined,
             ccBindings: host.ccBindings,
           }),
         )
@@ -146,7 +154,15 @@ export function useEngine(): AudioHost {
         schedule()
       }
     })
-    const unsubPreview = usePreviewStore.subscribe(() => { /* kept for future UI use, no compile */ })
+    // Recompile when the keyboard instrument changes so createRef nodes exist
+    // for the new instrument before the first VoicePool noteOn is called.
+    let prevPreviewInst: string | null = null
+    const unsubPreview = usePreviewStore.subscribe((state) => {
+      if (state.instrumentId !== prevPreviewInst) {
+        prevPreviewInst = state.instrumentId
+        schedule()
+      }
+    })
     host.onReady = schedule // compile after start() creates AudioContext (MIDI init)
     schedule() // catch any state that changed before the host was ready
     return () => {

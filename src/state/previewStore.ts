@@ -82,6 +82,8 @@ export const usePreviewStore = create<PreviewState>((set, get) => ({
   panic: () => {
     for (const t of releaseTimers.values()) clearTimeout(t)
     releaseTimers.clear()
-    set({ voices: {} })
+    // Clear instrumentId so a stale keyboard instrument doesn't shadow the
+    // MIDI instrument selection (activeInstId = instrumentId || midiInstId).
+    set({ instrumentId: null, voices: {} })
   },
 }))

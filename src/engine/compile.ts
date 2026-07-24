@@ -1,6 +1,5 @@
 import { el, type NodeRepr_t } from '@elemaudio/core'
 import type { Doc, Id, SampleEntity } from '../domain/types'
-import { getSlotForNote } from '../domain/types'
 import { midiToFreq } from '../domain/notes'
 import { buildDrumKitSlotSequences, buildSequences } from './sequences'
 import { renderDrumKitSlot, renderInstrument } from './instruments'
@@ -110,28 +109,33 @@ function compilePreview(
   // VoicePool updates ref values directly — no recompile for note events.
   const slotCount = voicePool.size
   if (inst.kind === 'drumkit') {
+    // Drumkit preview: each drumkit slot gets its own signal chain with
+    // dedicated gate/freq/vel refs, so MIDI notes route to the correct
+    // sound (kick → kick slot, snare → snare slot, etc.).
+    //
+    // Two sub-voices per slot handle overlapping retriggers (e.g. hi-hat).
+    const kit = inst // narrow type to DrumKitInstrument for clarity
+    const subVoicesPerSlot = 2
     const slotVoices: StereoOut[] = []
-    for (let i = 0; i < slotCount; i++) {
-      const voiceKey = `${inst.id}:v:${i}`
-      const freq = paramRefs
-        ? paramRefs.getOrCreate(`${voiceKey}:freq`, 0)
-        : el.const({ key: `${voiceKey}:freq`, value: 0 })
-      const gate = paramRefs
-        ? paramRefs.getOrCreate(`${voiceKey}:gate`, 0)
-        : el.const({ key: `${voiceKey}:gate`, value: 0 })
-      // Velocity is baked into the slot voice — use a ref so it can change.
-      const velRef = paramRefs
-        ? paramRefs.getOrCreate(`${voiceKey}:vel`, 1)
-        : el.const({ key: `${voiceKey}:vel`, value: 1 })
-      // For drumkit, freq already carries MIDI note → slot lookup is per-slot.
-      // We build the slot voice chain unconditionally; gate=0 produces silence.
-      const dummySlot = getSlotForNote(inst, 60) // fallback slot for graph structure
-      if (!dummySlot) {
-        slotVoices.push({ left: zero, right: zero })
-        continue
+    for (let si = 0; si < kit.slots.length; si++) {
+      const slot = kit.slots[si]
+      for (let sv = 0; sv < subVoicesPerSlot; sv++) {
+        const voiceKey = `${inst.id}:ds:${si}:v${sv}`
+        const freq = paramRefs
+          ? paramRefs.getOrCreate(`${voiceKey}:freq`, 0)
+          : el.const({ key: `${voiceKey}:freq`, value: 0 })
+        const gate = paramRefs
+          ? paramRefs.getOrCreate(`${voiceKey}:gate`, 0)
+          : el.const({ key: `${voiceKey}:gate`, value: 0 })
+        const velRef = paramRefs
+          ? paramRefs.getOrCreate(`${voiceKey}:vel`, 1)
+          : el.const({ key: `${voiceKey}:vel`, value: 1 })
+        const voice = renderDrumKitSlot(
+          slot, doc.entities.instruments, gate, freq, voiceKey,
+          sampleMeta, sampleHashById, midiCcValues, paramRefs, ccBindings, inst.id,
+        )
+        slotVoices.push({ left: el.mul(voice.left, velRef), right: el.mul(voice.right, velRef) })
       }
-      const voice = renderDrumKitSlot(dummySlot, doc.entities.instruments, gate, freq, voiceKey, sampleMeta, sampleHashById, midiCcValues, paramRefs, ccBindings, inst.id)
-      slotVoices.push({ left: el.mul(voice.left, velRef), right: el.mul(voice.right, velRef) })
     }
     const masterGain = paramRefs
       ? paramRefs.getOrCreate(`${inst.id}:masterGain`, inst.params.gain)

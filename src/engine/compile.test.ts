@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { compileGraph } from './compile'
 import { createDefaultDoc, newOscInstrument, newTrack } from '../domain/factory'
-import type { Doc } from '../domain/types'
+import type { Doc, DrumKitInstrument } from '../domain/types'
+import { VoicePool } from './voicePool'
+import { ParamRefRegistry } from '../audio/paramRefs'
 
 /** Unwrap the left channel from a StereoOut. */
 function mono(out: ReturnType<typeof compileGraph>) {
@@ -255,5 +257,119 @@ describe('compileGraph mute', () => {
       childArray(m.children).some((c) => isNode(c) && (c as ElNode).kind === 'const' && (c as ElNode).props.value === 0),
     )
     expect(muteMuls.length).toBeGreaterThanOrEqual(ids.length)
+  })
+})
+
+// ── compilePreview with VoicePool ───────────────────────────────────────
+
+/** Return const nodes whose key matches the given prefix. */
+function keysStartingWith(root: unknown, prefix: string): string[] {
+  return collect(root, 'const')
+    .map((c) => c.props.key)
+    .filter((k): k is string => typeof k === 'string' && k.startsWith(prefix))
+}
+
+describe('compilePreview with VoicePool', () => {
+  it('compiles osc preview with VoicePool without throwing', () => {
+    const doc = createDefaultDoc()
+    const instId = doc.entities.tracks[doc.entities.patterns[doc.patternId].trackIds[0]].instrumentId
+    const refs = new ParamRefRegistry()
+    const pool = new VoicePool(refs, instId)
+    const out = compileGraph(doc, {
+      rowHz: 8, playing: 0, startRow: 0, playEpoch: 0,
+      preview: { instrumentId: instId, voices: [] },
+      paramRefs: refs,
+      voicePool: pool,
+    })
+    expect(out).toBeTruthy()
+    // Voice pool path creates const keys with the :v: pattern
+    const keys = keysStartingWith(mono(out), `${instId}:v:`)
+    expect(keys.length).toBeGreaterThan(0)
+  })
+
+  it('creates 8 voice slot ref groups for osc preview with VoicePool', () => {
+    const doc = createDefaultDoc()
+    const instId = doc.entities.tracks[doc.entities.patterns[doc.patternId].trackIds[0]].instrumentId
+    const refs = new ParamRefRegistry()
+    const pool = new VoicePool(refs, instId)
+    const out = compileGraph(doc, {
+      rowHz: 8, playing: 0, startRow: 0, playEpoch: 0,
+      preview: { instrumentId: instId, voices: [] },
+      paramRefs: refs,
+      voicePool: pool,
+    })
+    // Should have keys for all 8 slots with freq/gate/vel
+    const gateKeys = keysStartingWith(mono(out), `${instId}:v:`).filter((k) => k.endsWith(':gate'))
+    expect(new Set(gateKeys).size).toBe(8)
+  })
+
+  /** Create a doc with a drumkit. Slots reference the default osc instrument
+   *  so ref nodes appear in the graph (empty slots are optimized away). */
+  function docWithKit(): { doc: Doc; kit: DrumKitInstrument } {
+    const doc = createDefaultDoc()
+    const oscId = doc.entities.tracks[doc.entities.patterns[doc.patternId].trackIds[0]].instrumentId
+    const kit: DrumKitInstrument = {
+      id: 'kit_test',
+      kind: 'drumkit',
+      name: 'Test Kit',
+      keyLo: 36,
+      keyHi: 60,
+      params: { gain: 1 },
+      slots: [
+        { id: 'slot_36', note: 36, sampleId: null, instrumentId: oscId, pitchOffset: 0, gain: 1, pan: 0 },
+        { id: 'slot_48', note: 48, sampleId: null, instrumentId: oscId, pitchOffset: 0, gain: 1, pan: 0 },
+      ],
+    }
+    const entities: any = { ...doc.entities, instruments: { ...doc.entities.instruments, [kit.id]: kit } }
+    return { doc: { ...doc, entities }, kit }
+  }
+
+  it('compiles drumkit preview with VoicePool without throwing', () => {
+    const { doc, kit } = docWithKit()
+    const refs = new ParamRefRegistry()
+    const pool = new VoicePool(refs, kit.id)
+    pool.setKit(kit)
+    const out = compileGraph(doc, {
+      rowHz: 8, playing: 0, startRow: 0, playEpoch: 0,
+      preview: { instrumentId: kit.id, voices: [] },
+      paramRefs: refs,
+      voicePool: pool,
+    })
+    expect(out).toBeTruthy()
+  })
+
+  it('uses drumkit ref key pattern (:ds:) for drumkit preview', () => {
+    const { doc, kit } = docWithKit()
+    const refs = new ParamRefRegistry()
+    const pool = new VoicePool(refs, kit.id)
+    pool.setKit(kit)
+    const out = compileGraph(doc, {
+      rowHz: 8, playing: 0, startRow: 0, playEpoch: 0,
+      preview: { instrumentId: kit.id, voices: [] },
+      paramRefs: refs,
+      voicePool: pool,
+    })
+    // 2 slots × 2 sub-voices = 4 gate keys with the :ds: pattern
+    const dsKeys = keysStartingWith(mono(out), `${kit.id}:ds:`)
+    expect(dsKeys.length).toBeGreaterThan(0)
+    // Should be per-slot keys, not generic voice keys
+    const vKeys = keysStartingWith(mono(out), `${kit.id}:v:`)
+    expect(vKeys.length).toBe(0)
+  })
+
+  it('produces correct number of sub-voice chains per drumkit slot', () => {
+    const { doc, kit } = docWithKit()
+    const refs = new ParamRefRegistry()
+    const pool = new VoicePool(refs, kit.id)
+    pool.setKit(kit)
+    const out = compileGraph(doc, {
+      rowHz: 8, playing: 0, startRow: 0, playEpoch: 0,
+      preview: { instrumentId: kit.id, voices: [] },
+      paramRefs: refs,
+      voicePool: pool,
+    })
+    const gateKeys = keysStartingWith(mono(out), `${kit.id}:ds:`).filter((k) => k.endsWith(':gate'))
+    // 2 slots × 2 sub-voices = 4 gate refs
+    expect(new Set(gateKeys).size).toBe(4)
   })
 })

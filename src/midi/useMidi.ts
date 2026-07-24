@@ -1,6 +1,15 @@
 import { useEffect } from 'react'
 import { useMidiStore } from '../state/midiStore'
+import { useDocStore } from '../state/docStore'
 import type { AudioHost } from '../audio/host'
+import type { DrumKitInstrument } from '../domain/types'
+
+/** Look up the instrument for `instId` and return it if it's a drumkit
+ *  (so the VoicePool is configured with per-slot routing). */
+function getKit(instId: string): DrumKitInstrument | undefined {
+  const inst = useDocStore.getState().doc.entities.instruments[instId]
+  return inst?.kind === 'drumkit' ? inst : undefined
+}
 
 /**
  * Connects to the Web MIDI API and routes incoming messages.
@@ -62,13 +71,12 @@ export function useMidi(host: AudioHost) {
               const vel = msg[2]
               const instId = useMidiStore.getState().activeInstrumentId
               if (!instId) break
-              const pool = host.voicePool(instId)
+              const kit = getKit(instId)
+              const pool = host.voicePool(instId, 8, kit)
               if (vel === 0) {
                 pool.noteOff(note)
-                // noteOff triggers onChange → bumpCompile automatically
               } else {
-                // host.start() ensures the AudioContext is running;
-                // noteOn triggers onChange → bumpCompile automatically.
+                // host.start() ensures the AudioContext is running.
                 void host.start().then(() => { pool.noteOn(note, vel) })
               }
               break
@@ -76,8 +84,8 @@ export function useMidi(host: AudioHost) {
             case 0x80: { // Note Off
               const instId = useMidiStore.getState().activeInstrumentId
               if (!instId) break
-              host.voicePool(instId).noteOff(msg[1])
-              // noteOff triggers onChange → bumpCompile automatically
+              const kit = getKit(instId)
+              host.voicePool(instId, 8, kit).noteOff(msg[1])
               break
             }
             case 0xb0: { // Control Change
