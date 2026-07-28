@@ -43,17 +43,29 @@ export default defineConfig({
       },
     }),
   ],
-  server: {
-    // Listen on all interfaces so the dev server is reachable over the LAN.
-    host: true,
-    // Fixed port so OPFS localStorage is stable across dev restarts.
-    port: 5173,
-    strictPort: true,
-    https: {
-      key: readFileSync('./certs/privkey.pem'),
-      cert: readFileSync('./certs/fullchain.pem'),
-    },
-  },
+  server: (() => {
+    const certDir = './certs';
+    const keyPath = `${certDir}/privkey.pem`;
+    const certPath = `${certDir}/fullchain.pem`;
+    let https: { key: Buffer; cert: Buffer } | undefined;
+    try {
+      https = {
+        key: readFileSync(keyPath),
+        cert: readFileSync(certPath),
+      };
+    } catch {
+      // certs not available (CI, fresh clone) — skip HTTPS
+      https = undefined;
+    }
+    return {
+      // Listen on all interfaces so the dev server is reachable over the LAN.
+      host: true,
+      // Fixed port so OPFS localStorage is stable across dev restarts.
+      port: 5173,
+      strictPort: true,
+      ...(https ? { https } : {}),
+    };
+  })(),
   test: {
     environment: 'node',
     globals: true,
