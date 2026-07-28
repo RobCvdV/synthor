@@ -1,4 +1,4 @@
-import { el, type NodeRepr_t } from '@elemaudio/core'
+import { createNode, el, type NodeRepr_t, type ElemNode } from '@elemaudio/core'
 import type WebRenderer from '@elemaudio/web-renderer'
 
 /** Module-level singleton so the store can reach it without coupling to React. */
@@ -25,7 +25,7 @@ export function clearParamRefs(): void {
  * updated directly (no graph recompilation) after the initial render.
  */
 export class ParamRefRegistry {
-  private refs = new Map<string, { node: NodeRepr_t; setter: (props: Record<string, unknown>) => void }>()
+  private refs = new Map<string, { node: NodeRepr_t; setter: (props: Record<string, unknown>) => void; apply?: (value: number) => void }>()
   private core: WebRenderer | null = null
   /** Values queued while refs were unmounted — flushed after render completes.
    *  Array preserves order so rapid on→off sequences aren't collapsed. */
@@ -46,18 +46,40 @@ export class ParamRefRegistry {
     return node
   }
 
+  /** Like getOrCreate but for any node kind (not just const).
+   *  `makeApply` receives the node's setter and returns an apply function
+   *  that translates a numeric slider value to the node's props.
+   *  Example: filter mode 0→1→2 mapped to 'lowpass'/'highpass'/'bandpass'. */
+  getOrCreateNode(
+    key: string,
+    kind: string,
+    props: Record<string, unknown>,
+    children: ElemNode[],
+    makeApply?: (setter: (props: Record<string, unknown>) => void) => (value: number) => void,
+  ): NodeRepr_t {
+    const existing = this.refs.get(key)
+    if (existing) return existing.node
+    if (!this.core) return createNode(kind, props, children) as unknown as NodeRepr_t
+    const pair = this.core.createRef(kind, props, children)
+    const node = pair[0] as NodeRepr_t
+    const setter = pair[1] as (props: Record<string, unknown>) => void
+    const apply = makeApply?.(setter)
+    this.refs.set(key, { node, setter, apply })
+    return node
+  }
+
   /** Update a ref's value without recompiling.  If the ref isn't mounted yet
    *  the value is queued and applied via flushPending after the next render. */
   setValue(key: string, value: number): void {
     const ref = this.refs.get(key)
     if (!ref) {
-      // Ref not created yet (no compile has run).  Queue for flush after render
-      // so values aren't silently dropped — critical for the first MIDI note-on
-      // after host.start() where compile runs on next rAF.
       this.pending.push({ key, value })
       return
     }
-    try { ref.setter({ value }) } catch {
+    try {
+      if (ref.apply) ref.apply(value)
+      else ref.setter({ value })
+    } catch {
       this.pending.push({ key, value })
     }
   }
@@ -70,7 +92,10 @@ export class ParamRefRegistry {
     for (const { key, value } of batch) {
       const ref = this.refs.get(key)
       if (ref) {
-        try { ref.setter({ value }) } catch { /* still unmounted */ }
+        try {
+          if (ref.apply) ref.apply(value)
+          else ref.setter({ value })
+        } catch { /* still unmounted */ }
       }
     }
   }

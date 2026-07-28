@@ -71,16 +71,21 @@ describe('compileModular', () => {
     expect(before.props.key).toBe(`${inst.id}:${filterId}`)
   })
 
-  it('selects the oscillator waveform from the osc param', () => {
+  it('builds all oscillator types in the graph for ref-based waveform selection', () => {
     const inst = newModularInstrument('Test')
     const oscId = Object.values(inst.modules).find((m) => m.type === 'osc')!.id
+    // Even with waveform=1 (square), all 5 osc types are present — the ref
+    // selects between them at runtime so waveform changes don't need a recompile.
     const square: ModularInstrument = {
       ...inst,
       modules: { ...inst.modules, [oscId]: { ...inst.modules[oscId], params: { ...inst.modules[oscId].params, waveform: 1 } } },
     }
     const node = m(square)
-    expect(collect(node, 'blepsquare').length).toBe(1)
-    expect(collect(node, 'blepsaw').length).toBe(0)
+    // All osc types are always in the graph.
+    expect(collect(node, 'blepsaw').length).toBeGreaterThanOrEqual(1)
+    expect(collect(node, 'blepsquare').length).toBeGreaterThanOrEqual(1)
+    expect(collect(node, 'bleptriangle').length).toBeGreaterThanOrEqual(1)
+    expect(collect(node, 'sin').length).toBeGreaterThanOrEqual(1) // el.cycle → kind 'sin'
   })
 
   it('returns silence for an empty output (nothing connected)', () => {

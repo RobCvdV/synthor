@@ -1,15 +1,12 @@
 /// <reference types="vitest/config" />
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import basicSsl from '@vitejs/plugin-basic-ssl'
+import { readFileSync } from 'node:fs'
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
   plugins: [
     react(),
-    // Self-signed HTTPS so AudioWorklet + the service worker get a secure
-    // context when the dev server is opened from other devices on the LAN.
-    basicSsl(),
     VitePWA({
       registerType: 'autoUpdate',
       // Register/serve the service worker under `vite dev` too, not just builds.
@@ -52,6 +49,10 @@ export default defineConfig({
     // Fixed port so OPFS localStorage is stable across dev restarts.
     port: 5173,
     strictPort: true,
+    https: {
+      key: readFileSync('./certs/privkey.pem'),
+      cert: readFileSync('./certs/fullchain.pem'),
+    },
   },
   test: {
     environment: 'node',

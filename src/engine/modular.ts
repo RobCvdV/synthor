@@ -192,29 +192,72 @@ export function compileModular(
 
       case 'osc': {
         const f = inlet(m.id, 'freq') ?? 440
-        let ratio = Math.pow(2, (p.detune ?? 0) / 12)
-        ratio *= Math.pow(2, (p.finetune ?? 0) / 1200)
-        const tuned = el.mul(f, kconst(key('detune'), ratio))
+        // Separate detune/finetune refs; ratio computed in the audio graph so
+        // slider changes take effect instantly without a recompile.
+        const detuneRef = kconst(key('detune'), p.detune ?? 0)
+        const finetuneRef = kconst(key('finetune'), p.finetune ?? 0)
+        const ln2 = el.const({ value: Math.LN2 })
+        const exponent = el.add(el.div(detuneRef, 12), el.div(finetuneRef, 1200))
+        const ratio = el.exp(el.mul(ln2, exponent))
+        const tuned = el.mul(f, ratio)
         const width = kconst(key('pulseWidth'), p.pulseWidth ?? 0.5)
-        return el.mul(oscAudio(p.waveform ?? 0, tuned, width), kconst(key('gain'), p.gain ?? 1))
+        const gain = kconst(key('gain'), p.gain ?? 1)
+        // Waveform selector ref: 0=saw,1=square,2=triangle,3=sine,4=pulse.
+        // All 5 oscillator types run in the graph so waveform changes are instant.
+        const wf = kconst(key('waveform'), p.waveform ?? 0)
+        const saw = el.blepsaw(tuned)
+        const square = el.blepsquare(tuned)
+        const triangle = el.bleptriangle(tuned)
+        const sine = el.cycle(tuned)
+        const phase = el.phasor(tuned)
+        const pulseWidth = el.sub(el.mul(el.le(phase, width), el.const({ value: 2 })), el.const({ value: 1 }))
+        const oscOut = el.select(
+          el.le(wf, el.const({ value: 0.5 })), saw,
+          el.select(el.le(wf, el.const({ value: 1.5 })), square,
+            el.select(el.le(wf, el.const({ value: 2.5 })), triangle,
+              el.select(el.le(wf, el.const({ value: 3.5 })), sine, pulseWidth),
+            ),
+          ),
+        )
+        return el.mul(oscOut, gain)
       }
 
       case 'filter': {
         const input = inlet(m.id, 'in') ?? SILENCE
         const cutoffMod = inlet(m.id, 'cutoffMod')
         const base = kconst(key('cutoff'), p.cutoff ?? 1200)
-        // cutoffMod is a ratio modifier: e.g. a 0→1 envelope swings the
-        // cutoff from base to base×(1+modDepth). Scaled by the modDepth
-        // knob so it's immediately musical — no inaudible ±1 Hz offsets.
-        if (cutoffMod !== null) {
-          const depth = kconst(key('modDepth'), p.modDepth ?? 0.5)
-          const scale = kconst(key('modDepthScale'), p.modDepthScale ?? 1)
-          const fc = el.mul(base, el.add(el.const({ value: 1 }), el.mul(cutoffMod, depth, scale)))
-          const mode = FILTER_MODES[Math.round(p.mode ?? 0)] ?? 'lowpass'
-          return el.svf({ key: `${keyPrefix}:${m.id}`, mode }, fc, kconst(key('q'), p.q ?? 0.7), input)
+        const q = kconst(key('q'), p.q ?? 0.7)
+        const fc =
+          cutoffMod !== null
+            ? el.mul(
+                base,
+                el.add(
+                  el.const({ value: 1 }),
+                  el.mul(
+                    cutoffMod,
+                    kconst(key('modDepth'), p.modDepth ?? 0.5),
+                    kconst(key('modDepthScale'), p.modDepthScale ?? 1),
+                  ),
+                ),
+              )
+            : base
+
+        // Ref-based SVF so mode can be switched without recompiling.
+        const modeIdx = Math.round(p.mode ?? 0)
+        const initialMode = FILTER_MODES[modeIdx] ?? 'lowpass'
+        const modeKey = refKey(key('mode'))
+        if (paramRefs) {
+          return paramRefs.getOrCreateNode(
+            modeKey,
+            'svf',
+            { key: `${keyPrefix}:${m.id}`, mode: initialMode },
+            [fc, q, input],
+            (setter) => (value: number) => {
+              setter({ mode: FILTER_MODES[Math.round(value)] ?? 'lowpass' })
+            },
+          )
         }
-        const mode = FILTER_MODES[Math.round(p.mode ?? 0)] ?? 'lowpass'
-        return el.svf({ key: `${keyPrefix}:${m.id}`, mode }, base, kconst(key('q'), p.q ?? 0.7), input)
+        return el.svf({ key: `${keyPrefix}:${m.id}`, mode: initialMode }, fc, q, input)
       }
 
       case 'adsr': {
@@ -239,27 +282,48 @@ export function compileModular(
           .map((port) => inlet(m.id, port))
           .filter((n): n is Node => n !== null)
         if (parts.length === 0) return SILENCE
-        const op = Math.round(p.mode ?? 0) === 1 ? el.mul : el.add
-        return parts.reduce((acc, n) => op(acc, n))
+        // Both add and multiply reductions run in the graph; mode ref picks.
+        const sum = parts.reduce((acc, n) => el.add(acc, n))
+        const prod = parts.reduce((acc, n) => el.mul(acc, n))
+        const mode = kconst(key('mode'), p.mode ?? 0)
+        return el.select(el.le(mode, el.const({ value: 0.5 })), sum, prod)
       }
 
       case 'lfo': {
         const rate = kconst(key('rate'), p.rate ?? 4)
-        const wf = Math.round(p.waveform ?? 0) // 0=sine,1=tri,2=saw,3=square,4=pulse
-        const syncMode = Math.round(p.sync ?? 0) // 0=free, 1=gate
         const width = kconst(key('pulseWidth'), p.pulseWidth ?? 0.5)
         const amount = kconst(key('amount'), p.amount ?? 1)
         const amountScale = kconst(key('amountScale'), p.amountScale ?? 1)
 
-        // Phase source: gate-synced resets when gate=0 and runs when gate=1,
-        // so each note-on starts the LFO from phase 0. Free-running ignores gate.
+        // Sync mode ref: 0=free, 1=gate.
+        const sync = kconst(key('sync'), p.sync ?? 0)
         const g = inlet(m.id, 'gate')
-        const phase =
-          syncMode === 1
-            ? el.syncphasor(rate, el.sub(el.const({ value: 1 }), g ?? SILENCE))
-            : el.phasor(rate)
+        const freePhase = el.phasor(rate)
+        const syncPhase = el.syncphasor(rate, el.sub(el.const({ value: 1 }), g ?? SILENCE))
+        const phase = el.select(el.le(sync, el.const({ value: 0.5 })), freePhase, syncPhase)
 
-        return el.mul(lfoShape(wf, phase, width), amount, amountScale)
+        // Waveform ref: 0=sine,1=tri,2=saw,3=square,4=pulse.
+        // All 5 shapes run in the graph so waveform changes are instant.
+        const wf = kconst(key('waveform'), p.waveform ?? 0)
+        const one = el.const({ value: 1 })
+        const two = el.const({ value: 2 })
+        const pi2 = el.const({ value: 2 * Math.PI })
+        const half = el.const({ value: 0.5 })
+        const lfoSine = el.sin(el.mul(phase, pi2))
+        const lfoTri = el.sub(one, el.mul(two, el.abs(el.sub(el.mul(phase, two), one))))
+        const lfoSaw = el.sub(el.mul(phase, two), one)
+        const lfoSq = el.sub(el.mul(el.le(phase, half), two), one)
+        const lfoPulse = el.sub(el.mul(el.le(phase, width), two), one)
+        const shape = el.select(
+          el.le(wf, el.const({ value: 0.5 })), lfoSine,
+          el.select(el.le(wf, el.const({ value: 1.5 })), lfoTri,
+            el.select(el.le(wf, el.const({ value: 2.5 })), lfoSaw,
+              el.select(el.le(wf, el.const({ value: 3.5 })), lfoSq, lfoPulse),
+            ),
+          ),
+        )
+
+        return el.mul(shape, amount, amountScale)
       }
 
       case 'tanh': {
@@ -440,43 +504,3 @@ export function compileModular(
   return { left: el.mul(node(left), outGain), right: el.mul(node(right), outGain) }
 }
 
-function oscAudio(waveform: number, freq: Node, pulseWidth?: Node): NodeRepr_t {
-  switch (Math.round(waveform)) {
-    case 1:
-      return el.blepsquare(freq)
-    case 2:
-      return el.bleptriangle(freq)
-    case 3:
-      return el.cycle(freq)
-    case 4: {
-      // Variable-width pulse: phase < width → +1, else -1.
-      const w = pulseWidth ?? el.const({ value: 0.5 })
-      const phase = el.phasor(freq)
-      return el.sub(el.mul(el.le(phase, w), el.const({ value: 2 })), el.const({ value: 1 }))
-    }
-    default:
-      return el.blepsaw(freq)
-  }
-}
-
-/** Shape a 0→1 phasor ramp into a sub-audio LFO waveform (bipolar ±1).
- *  Waveform indices match LFO_WAVEFORMS: 0=sine, 1=tri, 2=saw, 3=square, 4=pulse. */
-function lfoShape(wf: number, phase: Node, width: Node): Node {
-  const one = el.const({ value: 1 })
-  const two = el.const({ value: 2 })
-
-  switch (wf) {
-    case 0: // sine: sin(2π · phase)
-      return el.sin(el.mul(phase, el.const({ value: 2 * Math.PI })))
-    case 1: // triangle: 1 − 2·|2·phase − 1|
-      return el.sub(one, el.mul(two, el.abs(el.sub(el.mul(phase, two), one))))
-    case 2: // saw: 2·phase − 1
-      return el.sub(el.mul(phase, two), one)
-    case 3: // square: phase < 0.5 → +1 else −1
-      return el.sub(el.mul(el.le(phase, el.const({ value: 0.5 })), two), one)
-    case 4: // pulse: phase < width → +1 else −1
-      return el.sub(el.mul(el.le(phase, width), two), one)
-    default:
-      return el.sin(el.mul(phase, el.const({ value: 2 * Math.PI })))
-  }
-}
