@@ -1,0 +1,43 @@
+name: Build and deploy to synthor.akiar.nl
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build project
+        run: npm run build
+
+      - name: Install lftp
+        run: sudo apt-get update && sudo apt-get install -y lftp
+
+      - name: Deploy to server via FTP
+        timeout-minutes: 2
+        run: |
+          lftp -u "${{ secrets.SYNTHOR_FTP_USER }},${{ secrets.SYNTHOR_FTP_PASSWORD }}" ftp://${{ secrets.SYNTHOR_FTP_HOST }} -e "
+            set ftp:ssl-allow yes;
+            set net:timeout 15;
+            set net:max-retries 2;
+            mirror --reverse --delete --verbose dist/ .;
+            quit
+          "
