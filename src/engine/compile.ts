@@ -1,5 +1,6 @@
 import { el, type NodeRepr_t } from '@elemaudio/core'
 import type { Doc, Id, SampleEntity } from '../domain/types'
+import { isBuiltinLaneType } from '../domain/effects'
 import { midiToFreq } from '../domain/notes'
 import { buildDrumKitSlotSequences, buildSequences } from './sequences'
 import { renderDrumKitSlot, renderInstrument } from './instruments'
@@ -97,7 +98,7 @@ function compilePreview(
       const freq = el.const({ key: `${voiceKey}:freq`, value: midiToFreq(v.note) })
       const gate = el.const({ key: `${voiceKey}:gate`, value: v.gate })
       const velGain = v.velocity / 127
-      return renderInstrument(inst, freq, gate, voiceKey, sampleMeta, 0, sampleHashById, midiToFreq(v.note), velGain, 1, 1, midiCcValues, paramRefs, ccBindings)
+      return renderInstrument(inst, freq, gate, voiceKey, sampleMeta, 0, sampleHashById, midiToFreq(v.note), velGain, {}, midiCcValues, paramRefs, ccBindings)
     })
     return {
       left: el.mul(voices.reduce((a, v) => el.add(a, v.left), zero), 0.3),
@@ -160,7 +161,7 @@ function compilePreview(
     const velRef = paramRefs
       ? paramRefs.getOrCreate(`${voiceKey}:vel`, 1)
       : el.const({ key: `${voiceKey}:vel`, value: 1 })
-    slotVoices.push(renderInstrument(inst, freq, gate, voiceKey, sampleMeta, 0, sampleHashById, 0, velRef, 1, 1, midiCcValues, paramRefs, ccBindings))
+    slotVoices.push(renderInstrument(inst, freq, gate, voiceKey, sampleMeta, 0, sampleHashById, 0, velRef, {}, midiCcValues, paramRefs, ccBindings))
   }
   return {
     left: el.mul(slotVoices.reduce((a, v) => el.add(a, v.left), zero), 0.3),
@@ -232,9 +233,9 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
     if (inst.kind === 'drumkit') {
       // Per-slot sequencing: each slot gets its own gate + freq sequences.
       const { slotGateSeqs, slotFreqSeqs } = buildDrumKitSlotSequences(track, pattern.length, inst)
-      const { volumeSeq, effectSeq } = buildSequences(track, pattern.length)
-      // Build effect modulation for drumkit (volume + pan effects apply to the mix).
-      const { volMod } = buildEffectSignals(effectSeq, pattern.length)
+      const { volumeSeq } = buildSequences(track, pattern.length)
+      // Build effect modulation for drumkit (volume effects apply to the mix).
+      const { volMod } = buildEffectSignals({}, [], pattern.length) // no effect lanes for drumkit
       // Rotate sequences so playback starts at ctx.startRow.
       const rotatedVol = rotateSeq(volumeSeq, ctx.startRow)
       const rotatedVolMod = rotateSeq(volMod, ctx.startRow)
@@ -266,12 +267,12 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
     }
 
     // Osc / modular: single instrument per track.
-    const { freqSeq, gateSeq, volumeSeq, effectSeq, effect1Seq, effect2Seq } = buildSequences(track, pattern.length)
+    const { freqSeq, gateSeq, volumeSeq, effectLanes: laneSeqs, laneDefs } = buildSequences(track, pattern.length)
     const firstNote = track.cells.find((c) => c.note != null)?.note
     const trackBaseFreq = firstNote != null ? midiToFreq(firstNote) : 0
 
-    // Build per-row effect modulation signals.
-    const { freqMul, volMod, pan } = buildEffectSignals(effectSeq, pattern.length)
+    // Build per-row effect modulation signals from built-in lane types.
+    const { freqMul, volMod, pan } = buildEffectSignals(laneSeqs, laneDefs, pattern.length)
 
     // Rotate sequences so playback starts at ctx.startRow.
     const rotatedFreq = rotateSeq(freqSeq, ctx.startRow)
@@ -280,27 +281,49 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
     const rotatedFreqMul = rotateSeq(freqMul, ctx.startRow)
     const rotatedVolMod = rotateSeq(volMod, ctx.startRow)
     const rotatedPan = rotateSeq(pan, ctx.startRow)
-    const rotatedEffect1 = rotateSeq(effect1Seq, ctx.startRow)
-    const rotatedEffect2 = rotateSeq(effect2Seq, ctx.startRow)
+
+    // Rotate per-lane sequences.
+    const rotatedLaneSeqs: Record<Id, number[]> = {}
+    for (const [laneId, seq] of Object.entries(laneSeqs)) {
+      rotatedLaneSeqs[laneId] = rotateSeq(seq, ctx.startRow)
+    }
 
     const freq = el.seq2({ key: `${trackId}:freq:${ctx.playEpoch}`, seq: rotatedFreq, hold: true, loop: true }, clock, reset)
     const gate = el.seq2({ key: `${trackId}:gate:${ctx.playEpoch}`, seq: rotatedGate, hold: true, loop: true }, clock, reset)
     const vol = el.seq2({ key: `${trackId}:vol:${ctx.playEpoch}`, seq: rotatedVolume, hold: true, loop: true }, clock, reset)
     const freqMulSeq = el.seq2({ key: `${trackId}:freqMul:${ctx.playEpoch}`, seq: rotatedFreqMul, hold: true, loop: true }, clock, reset)
     const volModSeq = el.seq2({ key: `${trackId}:volMod:${ctx.playEpoch}`, seq: rotatedVolMod, hold: true, loop: true }, clock, reset)
-    const eff1SeqNode = el.seq2({ key: `${trackId}:eff1:${ctx.playEpoch}`, seq: rotatedEffect1, hold: true, loop: true }, clock, reset)
-    const eff2SeqNode = el.seq2({ key: `${trackId}:eff2:${ctx.playEpoch}`, seq: rotatedEffect2, hold: true, loop: true }, clock, reset)
+
+    // Build per-lane seq2 nodes.
+    const laneNodes: Record<Id, NodeRepr_t> = {}
+    for (const [laneId, seq] of Object.entries(rotatedLaneSeqs)) {
+      laneNodes[laneId] = el.seq2({
+        key: `${trackId}:eff:${laneId}:${ctx.playEpoch}`,
+        seq,
+        hold: true,
+        loop: true,
+      }, clock, reset)
+    }
+
+    // Build inlet name → seq2 node map for named instrument inlets.
+    // Named inlet lanes use the lane type as the inlet name.
+    const inletSignals: Record<string, NodeRepr_t> = {}
+    for (const lane of laneDefs) {
+      if (!isBuiltinLaneType(lane.type)) {
+        inletSignals[lane.type] = laneNodes[lane.id]
+      }
+    }
 
     // Apply effect modulation to frequency and volume.
     const { freq: effFreq, vol: effVol } = applyEffectModulation(freq, vol, freqMulSeq, volModSeq)
 
-    const voice = renderInstrument(inst, effFreq, gate, trackId, sampleMeta, 0, sampleHashById, trackBaseFreq, effVol, eff1SeqNode, eff2SeqNode, ctx.midiCcValues, ctx.paramRefs, ctx.ccBindings)
+    const voice = renderInstrument(inst, effFreq, gate, trackId, sampleMeta, 0, sampleHashById, trackBaseFreq, effVol, inletSignals, ctx.midiCcValues, ctx.paramRefs, ctx.ccBindings)
 
     // Apply per-row panning if any row has a pan effect.
-    const hasPan = pan.some((p) => p !== null)
+    const hasPan = pan.some((p) => p !== 0.5)
     if (hasPan && !muted) {
-      // Convert null→0.5 (center) for rows without panning.
-      const panArr = rotatedPan.map((p) => p ?? 0.5)
+      // Convert 0..1 pan values to constant-power stereo gains.
+      const panArr = rotatedPan
       const panSeq = el.seq2({ key: `${trackId}:pan:${ctx.playEpoch}`, seq: panArr, hold: true, loop: true }, clock, reset)
       const panAngle = el.mul(panSeq, Math.PI / 2)
       voices.push({ left: el.mul(voice.left, el.cos(panAngle)), right: el.mul(voice.right, el.sin(panAngle)) })

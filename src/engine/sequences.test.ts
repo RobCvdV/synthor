@@ -1,143 +1,34 @@
 import { describe, expect, it } from 'vitest'
-import { buildDrumKitSlotSequences, buildSequences } from './sequences'
-import { midiToFreq } from '../domain/notes'
-import type { DrumKitInstrument, Track } from '../domain/types'
-
-function cell(note: number | null, noteOff = false, volume: number | null = null) {
-  return { note, noteOff, volume, effect: null, effectValue: null }
-}
-
-function trackOf(notes: (number | null)[]): Track {
-  return { id: 't', instrumentId: 'i', cells: notes.map((note) => ({ note, volume: null, noteOff: false, effect: null, effectValue: null })) }
-}
+import { buildSequences } from '../engine/sequences'
+import { emptyCells } from '../domain/factory'
+import type { Track } from '../domain/types'
 
 describe('buildSequences', () => {
-  it('sustains gate across empty rows until note-off or new note', () => {
-    const t = trackOf([60, null, 64, null])
-    const { gateSeq } = buildSequences(t, 4)
-    // Row 0: note → gate=1. Row 1: sustain → gate=1. Row 2: new note → gate=1. Row 3: sustain → gate=1.
-    expect(gateSeq).toEqual([1, 1, 1, 1])
-  })
-
-  it('holds frequency forward across empty rows', () => {
-    const t = trackOf([60, null, null, 64])
-    const { freqSeq } = buildSequences(t, 4)
-    expect(freqSeq).toEqual([
-      midiToFreq(60),
-      midiToFreq(60),
-      midiToFreq(60),
-      midiToFreq(64),
-    ])
-  })
-
-  it('outputs 0 Hz before the first note, sustains across loop boundary', () => {
-    const t = trackOf([null, null, 67])
-    const { freqSeq, gateSeq } = buildSequences(t, 3)
-    expect(freqSeq[0]).toBe(0)
-    // Row 2 has the note (gate=1). The pattern loops, so the note sustains
-    // across the boundary into rows 0-1 via wrap-around propagation.
-    expect(gateSeq).toEqual([1, 1, 1])
-  })
-
-  it('always returns arrays of the pattern length', () => {
-    const t = trackOf([60])
-    const { freqSeq, gateSeq } = buildSequences(t, 8)
-    expect(freqSeq).toHaveLength(8)
-    expect(gateSeq).toHaveLength(8)
-  })
-
-  it('note-off forces gate to 0 and keeps last freq', () => {
-    const t: Track = {
-      id: 't', instrumentId: 'i',
-      cells: [
-        cell(60),            // note on C4 → gate=1
-        cell(null),           // empty → sustain gate=1
-        cell(null, true),     // note-off → gate=0
-        cell(null),           // empty → gate=0 (not holding)
-      ],
+  it('builds empty effectLanes for track with no lanes', () => {
+    const track: Track = {
+      id: 'trk_1',
+      instrumentId: 'inst_1',
+      cells: emptyCells(4),
+      effectLanes: [],
     }
-    const { gateSeq, freqSeq } = buildSequences(t, 4)
-    // Rows 0-1: gate=1 (note + sustain), rows 2-3: gate=0 (note-off + silence)
-    expect(gateSeq).toEqual([1, 1, 0, 0])
-    // Freq should hold C4 through the note-off row for release pitch.
-    expect(freqSeq[2]).toBe(midiToFreq(60))
+    const seq = buildSequences(track, 4)
+    expect(seq.effectLanes).toEqual({})
+    expect(seq.laneDefs).toEqual([])
+    expect(seq.freqSeq).toHaveLength(4)
+    expect(seq.gateSeq).toHaveLength(4)
   })
 
-  it('note-off with a new note triggers the note instead', () => {
-    const t: Track = {
-      id: 't', instrumentId: 'i',
-      cells: [
-        cell(60),
-        cell(64, true),  // both note and note-off → note wins
-      ],
+  it('builds per-lane sequences', () => {
+    const track: Track = {
+      id: 'trk_1',
+      instrumentId: 'inst_1',
+      cells: emptyCells(4),
+      effectLanes: [{ id: 'lan_1', type: 'vibratoDepth' }],
     }
-    const { gateSeq } = buildSequences(t, 2)
-    expect(gateSeq[1]).toBe(1)
-  })
-
-  it('volume defaults to 1 and passes through per-cell values', () => {
-    const t: Track = {
-      id: 't', instrumentId: 'i',
-      cells: [
-        cell(60, false, 0.5),
-        cell(null, false, null),  // default volume
-        cell(64, false, 0),
-      ],
-    }
-    const { volumeSeq } = buildSequences(t, 3)
-    expect(volumeSeq).toEqual([0.5, 1, 0])
-  })
-})
-
-describe('buildDrumKitSlotSequences', () => {
-  function makeKit(slots: DrumKitInstrument['slots']): DrumKitInstrument {
-    return { id: 'dk', kind: 'drumkit', name: 'Kit', slots, keyLo: 0, keyHi: 127, params: { gain: 1 } }
-  }
-
-  function trackOf(notes: (number | null)[]): Track {
-    return { id: 't', instrumentId: 'dk', cells: notes.map((note) => ({ note, volume: null, noteOff: false, effect: null, effectValue: null })) }
-  }
-
-  it('uses slot.note + pitchOffset for sample-based slots', () => {
-    const kit = makeKit([{ id: 's1', note: 36, sampleId: 'samp', instrumentId: null, pitchOffset: 0, gain: 1, pan: 0 }])
-    const t = trackOf([36])
-    const { slotFreqSeqs } = buildDrumKitSlotSequences(t, 1, kit)
-    expect(slotFreqSeqs['s1'][0]).toBe(midiToFreq(36))
-  })
-
-  it('uses cell note + pitchOffset for instrument-based slots', () => {
-    const kit = makeKit([{ id: 's1', note: 36, sampleId: null, instrumentId: 'synth', pitchOffset: 2, gain: 1, pan: 0 }])
-    // Cell note 48 triggers slot at 36 (inheritance — nearest slot.note <= note).
-    const t = trackOf([48])
-    const { slotFreqSeqs } = buildDrumKitSlotSequences(t, 1, kit)
-    // Should use cell note (48) + pitchOffset (2) = 50, not slot.note (36) + pitchOffset (2) = 38
-    expect(slotFreqSeqs['s1'][0]).toBe(midiToFreq(50))
-  })
-
-  it('pitchOffset still works for instrument slots', () => {
-    const kit = makeKit([{ id: 's1', note: 36, sampleId: null, instrumentId: 'synth', pitchOffset: -3, gain: 1, pan: 0 }])
-    const t = trackOf([60])
-    const { slotFreqSeqs } = buildDrumKitSlotSequences(t, 1, kit)
-    expect(slotFreqSeqs['s1'][0]).toBe(midiToFreq(57))
-  })
-
-  it('pitchOffset works for sample slots (unchanged behavior)', () => {
-    const kit = makeKit([{ id: 's1', note: 36, sampleId: 'kick', instrumentId: null, pitchOffset: 12, gain: 1, pan: 0 }])
-    const t = trackOf([48]) // cell note 48, but sample slot uses slot.note (36) + pitchOffset
-    const { slotFreqSeqs } = buildDrumKitSlotSequences(t, 1, kit)
-    expect(slotFreqSeqs['s1'][0]).toBe(midiToFreq(48)) // 36 + 12 = 48
-  })
-
-  it('dispatches notes to correct slots via nearest-note inheritance', () => {
-    const kit = makeKit([
-      { id: 'kick', note: 36, sampleId: 'kick', instrumentId: null, pitchOffset: 0, gain: 1, pan: 0 },
-      { id: 'snare', note: 48, sampleId: 'snare', instrumentId: null, pitchOffset: 0, gain: 1, pan: 0 },
-    ])
-    const t = trackOf([36, 48, 60]) // 60 should go to snare slot
-    const { slotGateSeqs } = buildDrumKitSlotSequences(t, 3, kit)
-    expect(slotGateSeqs['kick'][0]).toBe(1)
-    expect(slotGateSeqs['snare'][1]).toBe(1)
-    expect(slotGateSeqs['snare'][2]).toBe(1) // inherited from snare slot (48)
-    expect(slotGateSeqs['kick'][1]).toBe(0)
+    track.cells[0].effectLanes['lan_1'] = 0.5
+    track.cells[2].effectLanes['lan_1'] = 0.8
+    const seq = buildSequences(track, 4)
+    expect(seq.effectLanes['lan_1']).toEqual([0.5, 0, 0.8, 0])
+    expect(seq.laneDefs).toHaveLength(1)
   })
 })

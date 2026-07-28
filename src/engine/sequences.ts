@@ -1,7 +1,6 @@
-import type { DrumKitInstrument, Track } from '../domain/types'
+import type { DrumKitInstrument, EffectLaneDef, Id, Track } from '../domain/types'
 import { getSlotForNote } from '../domain/types'
 import { midiToFreq } from '../domain/notes'
-import { Eff, effectType, effectOperand } from '../domain/effects'
 
 /**
  * Per-row control signals for one track, ready to feed into el.seq2.
@@ -16,8 +15,7 @@ import { Eff, effectType, effectOperand } from '../domain/effects'
  * - `volumeSeq`: per-row volume modifier (0..1), defaults to 1.
  * - `noteSeq`: raw MIDI note numbers — used by drumkit instruments for slot
  *   mapping.
- * - `effectSeq`: packed effect command per row (0x000–0xFFF), or null.
- * - `effectValueSeq`: effect operand per row (0x00–0xFF), or null.
+ * - `effectLanes`: per-effect-lane value sequences (0..1), keyed by lane def id.
  */
 export interface TrackSequences {
   freqSeq: number[]
@@ -25,14 +23,10 @@ export interface TrackSequences {
   volumeSeq: number[]
   /** Raw MIDI note numbers — used by drumkit instruments for slot mapping. */
   noteSeq: (number | null)[]
-  /** Packed effect command per row (0x000–0xFFF), or null when no effect. */
-  effectSeq: (number | null)[]
-  /** Effect operand per row (0x00–0xFF), or null when no effect. */
-  effectValueSeq: (number | null)[]
-  /** Per-row effect 01 operand normalized to 0..1 (from tracker E xx). */
-  effect1Seq: number[]
-  /** Per-row effect 02 operand normalized to 0..1 (from tracker F xx). */
-  effect2Seq: number[]
+  /** Per-effect-lane value arrays (0..1), keyed by lane def id. Defaults to 0. */
+  effectLanes: Record<Id, number[]>
+  /** Lane definitions from the track, passed through for signal processing. */
+  laneDefs: EffectLaneDef[]
 }
 
 export function buildSequences(track: Track, length: number): TrackSequences {
@@ -40,12 +34,19 @@ export function buildSequences(track: Track, length: number): TrackSequences {
   const gateSeq: number[] = new Array(length)
   const volumeSeq: number[] = new Array(length)
   const noteSeq: (number | null)[] = new Array(length)
-  const effectSeq: (number | null)[] = new Array(length)
-  const effectValueSeq: (number | null)[] = new Array(length)
-  const effect1Seq: number[] = new Array(length).fill(0)
-  const effect2Seq: number[] = new Array(length).fill(0)
   let lastFreq = 0
   let holding = false
+
+  // Build per-lane sequences, default to 0 (no modulation).
+  const effectLanes: Record<Id, number[]> = {}
+  for (const lane of track.effectLanes) {
+    const seq = new Array(length).fill(0)
+    for (let row = 0; row < length; row++) {
+      const val = track.cells[row]?.effectLanes[lane.id]
+      seq[row] = val ?? 0
+    }
+    effectLanes[lane.id] = seq
+  }
 
   for (let row = 0; row < length; row++) {
     const cell = track.cells[row]
@@ -53,15 +54,6 @@ export function buildSequences(track: Track, length: number): TrackSequences {
     const noteOff = cell?.noteOff ?? false
 
     volumeSeq[row] = cell?.volume ?? 1
-    effectSeq[row] = cell?.effect ?? null
-    effectValueSeq[row] = cell?.effectValue ?? null
-
-    // Extract effect 01 / 02 operand values for synth routing.
-    if (cell?.effect != null) {
-      const eType = effectType(cell.effect)
-      if (eType === Eff.Effect01) effect1Seq[row] = effectOperand(cell.effect) / 255
-      else if (eType === Eff.Effect02) effect2Seq[row] = effectOperand(cell.effect) / 255
-    }
 
     if (note !== null) {
       // New note — retrigger gate, update frequency.
@@ -97,7 +89,7 @@ export function buildSequences(track: Track, length: number): TrackSequences {
     }
   }
 
-  return { freqSeq, gateSeq, volumeSeq, noteSeq, effectSeq, effectValueSeq, effect1Seq, effect2Seq }
+  return { freqSeq, gateSeq, volumeSeq, noteSeq, effectLanes, laneDefs: track.effectLanes }
 }
 
 /** Per-slot sequences for a drumkit track: one gate + freq per slot. */

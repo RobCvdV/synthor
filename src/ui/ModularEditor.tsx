@@ -25,7 +25,7 @@ import { makeId } from '../domain/factory'
 import type { AudioHost } from '../audio/host'
 
 /** Non-singleton module types the palette can drop into a patch. */
-const PALETTE: ModuleType[] = ['osc', 'filter', 'adsr', 'gain', 'mix', 'lfo', 'tanh', 'delay', 'echo', 'reverb', 'sample']
+const PALETTE: ModuleType[] = ['osc', 'filter', 'adsr', 'gain', 'mix', 'lfo', 'tanh', 'delay', 'echo', 'reverb', 'sample', 'eff']
 
 interface NodeData {
   instrumentId: Id
@@ -124,7 +124,7 @@ function ModuleNode({ data }: NodeProps) {
   // Live CC readout for effect modules — must be above the early return
   // because hooks must never be skipped between renders.
   const ccValues = useMidiStore((s) => s.ccValues)
-  const isEff = module?.type === 'effect1' || module?.type === 'effect2'
+  const isEff = module?.type === 'eff'
   const effCc = isEff ? (module?.params.cc ?? 0) : 0
   const effCcVal = effCc > 0 ? (ccValues[effCc] ?? 0) / 127 : 0
 
@@ -184,7 +184,7 @@ function ModuleNode({ data }: NodeProps) {
           const scaleVal = scaleKey ? (module.params[scaleKey] ?? 1) : null
 
           const displayVal = scaleVal !== null ? value * scaleVal : value
-          const isCcParam = p.key === 'cc' && (module.type === 'effect1' || module.type === 'effect2')
+          const isCcParam = p.key === 'cc' && module.type === 'eff'
 
           return (
             <label className="mod-param" key={p.key}>
@@ -340,8 +340,7 @@ function Editor({ inst, host }: { inst: ModularInstrument; host?: AudioHost }) {
   const pasteModules = useDocStore((s) => s.pasteModules)
   const ensureModularSingletons = useDocStore((s) => s.ensureModularSingletons)
 
-  // Ensure required singleton source modules exist (e.g. effect1/2 added
-  // after the patch was created). Idempotent — no-op if already present.
+  // Ensure required singleton source modules exist.
   useEffect(() => { ensureModularSingletons(inst.id) }, [inst.id, ensureModularSingletons])
 
   // Local node state for smooth dragging; positions persist to the doc on drag

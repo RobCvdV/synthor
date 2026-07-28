@@ -20,7 +20,7 @@ import type { Doc } from '../domain/types'
  * (osc-only) and new files with modular instruments both satisfy the same
  * schema. A bump is only needed for a *breaking* shape change (e.g. sections).
  */
-export const CURRENT_SCHEMA_VERSION = 5
+export const CURRENT_SCHEMA_VERSION = 6
 
 export interface SongMeta {
   name: string
@@ -88,6 +88,9 @@ export function migrate(raw: unknown): SongFile {
   // v4→v5: effect + effectValue fields added to Cell.
   if (version < 5) raw = upgradeV4toV5(raw)
 
+  // v5→v6: replace packed effect/effectValue with per-lane effectLanes system.
+  if (version < 6) raw = upgradeV5toV6(raw)
+
   // v1→v1 migration: when the stereo output was added (commit b3917fc), the
   // output module's inlet changed from 'in' to 'inL'. Old modular instruments
   // with connections targeting 'in' would silently produce silence because
@@ -98,6 +101,10 @@ export function migrate(raw: unknown): SongFile {
   // module. This runs on every load (not version-gated) because v3 files saved
   // before the volume module was added also need the fixup.
   raw = ensureVolumeModule(raw)
+
+  // Convert old effect1/effect2 modules to `eff` modules. Runs on every load
+  // (not version-gated) so patches created before the change get updated.
+  raw = convertEffectModules(raw)
 
   assertShape(raw)
   return raw
@@ -268,6 +275,113 @@ function upgradeV4toV5(raw: any): any {
     ...raw,
     schemaVersion: 5,
     doc: { ...raw.doc, entities: { ...raw.doc.entities, tracks } },
+  }
+}
+
+/** v5→v6: strip packed effect fields, add effectLanes to cells and tracks,
+ *  convert effect1/effect2 modules to `eff` modules with names. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function upgradeV5toV6(raw: any): any {
+  const entities = raw.doc?.entities
+  if (!entities || !isRecord(entities.tracks)) return raw
+
+  let changed = false
+
+  // Fix tracks: strip old effect/effectValue from cells, add effectLanes.
+  const tracks: Record<string, unknown> = {}
+  for (const [tid, track] of Object.entries(entities.tracks)) {
+    if (isRecord(track) && Array.isArray(track.cells)) {
+      tracks[tid] = {
+        ...track,
+        effectLanes: Array.isArray(track.effectLanes) ? track.effectLanes : [],
+        cells: track.cells.map((c: unknown) => {
+          if (!isRecord(c)) return { note: null, volume: null, noteOff: false, effectLanes: {} }
+          const { effect, effectValue, ...rest } = c as any
+          return { ...rest, effectLanes: isRecord(c.effectLanes) ? c.effectLanes : {} }
+        }),
+      }
+      changed = true
+    } else {
+      tracks[tid] = track
+    }
+  }
+
+  if (changed) {
+    entities.tracks = tracks
+  }
+
+  return { ...raw, schemaVersion: 6, doc: { ...raw.doc, entities } }
+}
+
+/**
+ * Convert old effect1/effect2 modules to `eff` modules on every modular
+ * instrument. Runs on every load (not version-gated).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function convertEffectModules(raw: any): any {
+  const insts = raw.doc?.entities?.instruments
+  if (!insts || !isRecord(insts)) return raw
+
+  let changed = false
+  const fixed: Record<string, unknown> = {}
+  for (const [id, inst] of Object.entries(insts)) {
+    if (!isRecord(inst) || inst.kind !== 'modular' || !isRecord(inst.modules)) {
+      fixed[id] = inst
+      continue
+    }
+    const mods = inst.modules as Record<string, unknown>
+    const conns = isRecord(inst.connections) ? inst.connections as Record<string, unknown> : {}
+    const newMods: Record<string, unknown> = {}
+    const newConns: Record<string, unknown> = {}
+    const idMap = new Map<string, string>()
+
+    for (const [mid, m] of Object.entries(mods)) {
+      if (isRecord(m) && (m.type === 'effect1' || m.type === 'effect2')) {
+        const newId = `eff_${crypto.randomUUID()}`
+        const effNum = m.type === 'effect1' ? '01' : '02'
+        idMap.set(mid, newId)
+        newMods[newId] = {
+          id: newId,
+          type: 'eff',
+          name: `Eff ${effNum}`,
+          params: { cc: typeof m.cc === 'number' ? m.cc : 0 },
+          pos: isRecord(m.pos) ? m.pos : { x: 40, y: m.type === 'effect2' ? 840 : 640 },
+        }
+        changed = true
+      } else {
+        newMods[mid] = m
+      }
+    }
+
+    // Fix connection references from old module IDs to new eff module IDs.
+    for (const [cid, c] of Object.entries(conns)) {
+      if (!isRecord(c) || !isRecord(c.from) || !isRecord(c.to)) {
+        newConns[cid] = c
+        continue
+      }
+      const fromId = idMap.get(c.from.moduleId as string)
+      const toId = idMap.get(c.to.moduleId as string)
+      if (fromId || toId) {
+        changed = true
+        newConns[cid] = {
+          ...c,
+          from: fromId ? { ...c.from, moduleId: fromId } : c.from,
+          to: toId ? { ...c.to, moduleId: toId } : c.to,
+        }
+      } else {
+        newConns[cid] = c
+      }
+    }
+
+    fixed[id] = changed
+      ? { ...inst, modules: newMods, connections: newConns }
+      : inst
+  }
+
+  if (!changed) return raw
+  return {
+    ...raw,
+    doc: { ...raw.doc, entities: { ...raw.doc.entities, instruments: fixed } },
   }
 }
 

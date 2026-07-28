@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { applyPatches, enablePatches, type Patch, produceWithPatches } from 'immer'
-import type { Cell, Connection, Doc, DrumKitSlot, Id, Instrument, Module, ModuleType, Pattern, Port, SampleEntity } from '../domain/types'
+import type { Cell, Connection, Doc, DrumKitSlot, EffectLaneDef, Id, Instrument, Module, ModuleType, Pattern, Port, SampleEntity } from '../domain/types'
 import { getSlotForNote } from '../domain/types'
 import { clearParamRefs, updateParamRef } from '../audio/paramRefs'
 import {
@@ -71,8 +71,10 @@ interface DocState {
   setCellNote: (trackId: Id, row: number, note: number | null) => void
   setCellNoteOff: (trackId: Id, row: number, noteOff: boolean) => void
   setCellVolume: (trackId: Id, row: number, volume: number | null) => void
-  setCellEffect: (trackId: Id, row: number, effect: number | null) => void
-  setCellEffectValue: (trackId: Id, row: number, effectValue: number | null) => void
+  addEffectLane: (trackId: Id, type: string) => void
+  removeEffectLane: (trackId: Id, laneId: Id) => void
+  setEffectLaneType: (trackId: Id, laneId: Id, newType: string) => void
+  setCellEffectLane: (trackId: Id, row: number, laneId: Id, value: number | null) => void
 
   // --- Pattern operations ---
   setPatternLength: (patternId: Id, length: number) => void
@@ -240,16 +242,40 @@ export const useDocStore = create<DocState>((set, get) => ({
       if (track && track.cells[row]) track.cells[row].volume = volume
     }),
 
-  setCellEffect: (trackId, row, effect) =>
+  setCellEffectLane: (trackId, row, laneId, value) =>
     get().mutate((draft) => {
       const track = draft.entities.tracks[trackId]
-      if (track && track.cells[row]) track.cells[row].effect = effect
+      if (track && track.cells[row]) track.cells[row].effectLanes[laneId] = value
     }),
 
-  setCellEffectValue: (trackId, row, effectValue) =>
+  addEffectLane: (trackId, type) =>
     get().mutate((draft) => {
       const track = draft.entities.tracks[trackId]
-      if (track && track.cells[row]) track.cells[row].effectValue = effectValue
+      if (!track) return
+      const id = makeId('lan')
+      const lane: EffectLaneDef = { id, type }
+      track.effectLanes.push(lane)
+      for (const cell of track.cells) {
+        cell.effectLanes[id] = null
+      }
+    }),
+
+  removeEffectLane: (trackId, laneId) =>
+    get().mutate((draft) => {
+      const track = draft.entities.tracks[trackId]
+      if (!track) return
+      track.effectLanes = track.effectLanes.filter((l) => l.id !== laneId)
+      for (const cell of track.cells) {
+        delete cell.effectLanes[laneId]
+      }
+    }),
+
+  setEffectLaneType: (trackId, laneId, newType) =>
+    get().mutate((draft) => {
+      const track = draft.entities.tracks[trackId]
+      if (!track) return
+      const lane = track.effectLanes.find((l) => l.id === laneId)
+      if (lane) lane.type = newType
     }),
 
   addTrack: (atIndex, instrumentId) =>
@@ -319,7 +345,8 @@ export const useDocStore = create<DocState>((set, get) => ({
       // Duplicating a track shares the same instrument (true reference reuse):
       // both lanes drive one instrument. Copy/paste is the "independent copy".
       const track = newTrack(src.instrumentId, pattern.length)
-      track.cells = src.cells.map((c) => ({ ...c }))
+      track.cells = src.cells.map((c) => ({ note: c.note, volume: c.volume, noteOff: c.noteOff, effectLanes: { ...c.effectLanes } }))
+      track.effectLanes = [...src.effectLanes]
       draft.entities.tracks[track.id] = track
       pattern.trackIds.splice(clamp(atIndex, 0, pattern.trackIds.length), 0, track.id)
     }),
@@ -352,7 +379,7 @@ export const useDocStore = create<DocState>((set, get) => ({
       const col: Cell[] = []
       for (let r = r0; r <= r1; r++) {
         const c = track?.cells[r]
-        col.push(c ? { note: c.note, volume: c.volume, noteOff: c.noteOff, effect: c.effect, effectValue: c.effectValue } : { note: null, volume: null, noteOff: false, effect: null, effectValue: null })
+        col.push(c ? { note: c.note, volume: c.volume, noteOff: c.noteOff, effectLanes: { ...c.effectLanes } } : { note: null, volume: null, noteOff: false, effectLanes: {} })
       }
       cells.push(col)
     }
@@ -372,7 +399,7 @@ export const useDocStore = create<DocState>((set, get) => ({
         if (!track) continue
         for (let r = r0; r <= r1; r++) {
           if (track.cells[r]) {
-            track.cells[r] = { note: null, volume: null, noteOff: false, effect: null, effectValue: null }
+            track.cells[r] = { note: null, volume: null, noteOff: false, effectLanes: {} }
           }
         }
       }
@@ -552,24 +579,10 @@ export const useDocStore = create<DocState>((set, get) => ({
       if (con) con.gain = gain
     }),
 
-  ensureModularSingletons: (instrumentId) => {
-    const inst = get().doc.entities.instruments[instrumentId]
-    if (inst?.kind !== 'modular') return
-    const existing = new Set(Object.values(inst.modules).map((m) => m.type))
-    // Singleton source modules that every modular patch should have.
-    const needed: ModuleType[] = []
-    if (!existing.has('effect1')) needed.push('effect1')
-    if (!existing.has('effect2')) needed.push('effect2')
-    if (needed.length === 0) return
-    get().mutate((draft) => {
-      const dInst = draft.entities.instruments[instrumentId]
-      if (dInst?.kind !== 'modular') return
-      for (const type of needed) {
-        const id = makeId('mod')
-        const pos = { x: 40, y: type === 'effect2' ? 840 : 640 }
-        dInst.modules[id] = { id, type, params: defaultParams(type), pos }
-      }
-    })
+  /** Ensure a modular instrument has its singleton source modules.
+   *  No-op since eff modules replaced effect1/effect2 and are user-added. */
+  ensureModularSingletons: (_instrumentId) => {
+    // No-op: eff modules are now user-added (replaces old effect1/effect2 singletons).
   },
 
   duplicateInstrument: (instrumentId) => {
@@ -820,7 +833,8 @@ export const useDocStore = create<DocState>((set, get) => ({
         draft.entities.tracks[newTrackId] = {
           id: newTrackId,
           instrumentId: srcTrack.instrumentId,
-          cells: srcTrack.cells.map((c) => ({ ...c })),
+          cells: srcTrack.cells.map((c) => ({ note: c.note, volume: c.volume, noteOff: c.noteOff, effectLanes: { ...c.effectLanes } })),
+          effectLanes: [...srcTrack.effectLanes],
         }
         newTrackIds.push(newTrackId)
       }

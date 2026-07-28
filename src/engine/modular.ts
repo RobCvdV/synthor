@@ -1,6 +1,5 @@
 import { createNode, el, resolve, unpack, type NodeRepr_t } from '@elemaudio/core'
 import type { Connection, Module, ModularInstrument } from '../domain/types'
-import { FILTER_MODES } from '../domain/moduleDefs'
 import { midiToFreq } from '../domain/notes'
 import type { SampleMeta } from './instruments'
 
@@ -85,10 +84,9 @@ export function compileModular(
   baseFreq: number = 0,
   /** Per-cell volume signal (0..1), available to the `volume` source module. */
   vol: Node = 1,
-  /** Per-row effect 01 signal (0..1), from tracker E xx. */
-  eff1: Node = 1,
-  /** Per-row effect 02 signal (0..1), from tracker F xx. */
-  eff2: Node = 1,
+  /** Per-effect-lane seq2 signals for named instrument inlets, keyed by
+   *  inlet name. `eff` modules look up their signal by their `name` param. */
+  inletSignals: Record<string, NodeRepr_t> = {},
   /** MIDI CC values (0-127 → raw 0-127).  Used by `midicc` source modules. */
   midiCcValues?: Record<number, number>,
   /** Param ref registry — uses createRef so values update without recompile. */
@@ -167,19 +165,14 @@ export function compileModular(
         return gate
       case 'volume':
         return vol
-      case 'effect1': {
-        const cc = Math.round(p.cc ?? 0)
+      case 'eff': {
+        const inletName = m.name ?? ''
+        const laneSig = inletName ? (inletSignals[inletName] ?? null) : null
+        const cc = Math.round(m.params.cc ?? 0)
         const ccVal = cc > 0 ? (midiCcValues?.[cc] ?? 0) / 127 : 0
         const node = kconst(key('cc'), ccVal)
         ccBindings?.register(cc, refKey(key('cc')))
-        return el.add(eff1, node)
-      }
-      case 'effect2': {
-        const cc = Math.round(p.cc ?? 0)
-        const ccVal = cc > 0 ? (midiCcValues?.[cc] ?? 0) / 127 : 0
-        const node = kconst(key('cc'), ccVal)
-        ccBindings?.register(cc, refKey(key('cc')))
-        return el.add(eff2, node)
+        return el.add(laneSig ?? el.const({ value: 0 }), node)
       }
 
       case 'midicc': {
@@ -242,22 +235,19 @@ export function compileModular(
               )
             : base
 
-        // Ref-based SVF so mode can be switched without recompiling.
-        const modeIdx = Math.round(p.mode ?? 0)
-        const initialMode = FILTER_MODES[modeIdx] ?? 'lowpass'
-        const modeKey = refKey(key('mode'))
-        if (paramRefs) {
-          return paramRefs.getOrCreateNode(
-            modeKey,
-            'svf',
-            { key: `${keyPrefix}:${m.id}`, mode: initialMode },
-            [fc, q, input],
-            (setter) => (value: number) => {
-              setter({ mode: FILTER_MODES[Math.round(value)] ?? 'lowpass' })
-            },
-          )
-        }
-        return el.svf({ key: `${keyPrefix}:${m.id}`, mode: initialMode }, fc, q, input)
+        // Three parallel SVFs (one per mode) selected by a kconst mode ref.
+        // Each SVF is scoped to keyPrefix so pattern tracks and preview voices
+        // get independent filter nodes — no shared SVF state across paths.
+        // The mode ref is instrument-scoped (kconst), so changing the mode
+        // slider affects all voices/tracks without a recompile.
+        const modeRef = kconst(key('mode'), p.mode ?? 0)
+        const lp = el.svf({ key: `${keyPrefix}:${m.id}:lp`, mode: 'lowpass' }, fc, q, input)
+        const hp = el.svf({ key: `${keyPrefix}:${m.id}:hp`, mode: 'highpass' }, fc, q, input)
+        const bp = el.svf({ key: `${keyPrefix}:${m.id}:bp`, mode: 'bandpass' }, fc, q, input)
+        return el.select(
+          el.le(modeRef, el.const({ value: 0.5 })), lp,
+          el.select(el.le(modeRef, el.const({ value: 1.5 })), hp, bp),
+        )
       }
 
       case 'adsr': {

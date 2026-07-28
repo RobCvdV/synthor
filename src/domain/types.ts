@@ -19,17 +19,18 @@ export interface Cell {
   /** When true, triggers note-off (release) on this row regardless of note. */
   noteOff: boolean
   /**
-   * Effect command: packed 12-bit value (type nibble << 8 | operand byte).
-   * Null means no effect on this row. See `src/domain/effects.ts` for the
-   * effect type registry and pack/unpack helpers.
+   * Per-effect-lane values, keyed by lane definition id.
+   * 0..1 per cell, or null when no value is set on this step.
    */
-  effect: number | null
-  /**
-   * Effect value operand (0x00–0xFF). Stored separately so the user can edit
-   * the operand without retyping the effect type. When effect is null this
-   * is meaningless.
-   */
-  effectValue: number | null
+  effectLanes: Record<Id, number | null>
+}
+
+/** A user-defined effect lane on a track.
+ *  `type` is either a built-in lane type (e.g. 'vibratoDepth', 'panning')
+ *  or the name of a named `eff` module inlet on the assigned instrument. */
+export interface EffectLaneDef {
+  id: Id
+  type: string
 }
 
 /** The original built-in instrument: a simple saw oscillator through an ADSR. */
@@ -52,8 +53,7 @@ export type ModuleType =
   | 'note' // source: the track's per-row frequency (Hz)
   | 'gate' // source: the track's per-row gate (0/1)
   | 'volume' // source: the track's per-row volume (0..1)
-  | 'effect1' // source: per-row effect 01 operand (0..1, from tracker E xx)
-  | 'effect2' // source: per-row effect 02 operand (0..1, from tracker F xx)
+  | 'eff' // source: per-row modulation value (0..1) from a named effect lane
   | 'midicc' // source: MIDI CC value (0..1), CC number set by param
   | 'osc' // oscillator (saw/square/triangle/sine)
   | 'filter' // state-variable filter (lp/hp/bp)
@@ -82,6 +82,9 @@ export interface Module {
   params: Record<string, number>
   /** React Flow canvas position; persisted so layouts survive save/load. */
   pos: { x: number; y: number }
+  /** User-assigned name for `eff` modules (the modulation inlet name).
+   *  Undefined for other module types. */
+  name?: string
 }
 
 /** A patch cord from one module's outlet to another's inlet. */
@@ -175,6 +178,8 @@ export interface Track {
   instrumentId: Id
   /** One cell per pattern row. Length is kept in sync with the owning pattern. */
   cells: Cell[]
+  /** Effect lane definitions for this track. Added/removed by the user. */
+  effectLanes: EffectLaneDef[]
 }
 
 export interface Pattern {

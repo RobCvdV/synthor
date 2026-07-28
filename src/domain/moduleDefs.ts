@@ -70,25 +70,14 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     params: [],
     singleton: true,
   },
-  effect1: {
-    type: 'effect1',
-    label: 'Eff 01',
+  eff: {
+    type: 'eff',
+    label: 'Eff In',
     inlets: [],
     outlets: ['val'],
     params: [
       { key: 'cc', label: 'CC', min: 0, max: 127, default: 0, step: 1 },
     ],
-    singleton: true,
-  },
-  effect2: {
-    type: 'effect2',
-    label: 'Eff 02',
-    inlets: [],
-    outlets: ['val'],
-    params: [
-      { key: 'cc', label: 'CC', min: 0, max: 127, default: 0, step: 1 },
-    ],
-    singleton: true,
   },
   midicc: {
     type: 'midicc',

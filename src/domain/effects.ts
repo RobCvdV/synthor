@@ -1,80 +1,61 @@
 /**
- * Effect command definitions — pure data, no dependencies.
+ * Effect lane definitions — pure data, no dependencies.
  *
- * Classic tracker effects use a 3-nibble format:
- *   effect type (0-F) + operand x (0-F) + operand y (0-F)
+ * Each track can have zero or more effect lanes. Each lane has a type
+ * (either a built-in effect or a named instrument inlet) and a per-step
+ * 2-hex-digit value (00–FF, normalized 0–1).
  *
- * The effect value is stored as a packed 12-bit number (0x000–0xFFF):
- *   effect = type * 256 + operand
- * where operand = x * 16 + y (or just an 8-bit value for non-xy effects).
+ * Built-in lane types are processed by the engine into freqMul/volMod/pan
+ * modulation signals. Named instrument inlets pass the raw per-step value
+ * directly into the modular synth graph via `eff` source modules.
  */
 
-/** Effect type nibble (0x0 – 0xF). */
-export const enum Eff {
-  Arpeggio       = 0x0,
-  PortaUp        = 0x1,
-  PortaDown      = 0x2,
-  Vibrato        = 0x4,
-  Tremolo        = 0x7,
-  SetPanning     = 0x8,
-  VolumeSlide    = 0xA,
-  PatternBreak   = 0xD,
-  /** Route effect operand (0x00–0xFF → 0..1) into synth as "Effect 01" source. */
-  Effect01       = 0xE,
-  /** Route effect operand (0x00–0xFF → 0..1) into synth as "Effect 02" source. */
-  Effect02       = 0xF,
-}
+/** Built-in lane type constants. */
+export const BUILTIN_LANE_TYPES = [
+  'vibratoRate',
+  'vibratoDepth',
+  'tremoloRate',
+  'tremoloDepth',
+  'portaUp',
+  'portaDown',
+  'volumeSlide',
+  'panning',
+] as const
 
-export interface EffectDef {
-  /** 3-character display name shown in the legend / tooltips. */
-  name: string
-  /** Short mnemonic for inline display. */
-  mnemonic: string
-  /** Human-readable description of what the effect does. */
+export type BuiltinLaneType = typeof BUILTIN_LANE_TYPES[number]
+
+export interface LaneDef {
+  type: BuiltinLaneType
+  label: string
   description: string
-  /** How the operand is formatted: 'xy' splits into two nibbles, 'xx' is a single byte. */
-  operandFormat: 'xy' | 'xx'
 }
 
-/** Registry of all supported effects. */
-export const EFFECT_DEFS: Record<number, EffectDef> = {
-  [Eff.Arpeggio]:     { name: 'Arpeggio',       mnemonic: 'Arp',  description: 'Cycle pitch: base, base+x, base+y',      operandFormat: 'xy' },
-  [Eff.PortaUp]:      { name: 'Porta Up',       mnemonic: 'PoU',  description: 'Slide pitch up by xx each row',            operandFormat: 'xx' },
-  [Eff.PortaDown]:    { name: 'Porta Down',     mnemonic: 'PoD',  description: 'Slide pitch down by xx each row',          operandFormat: 'xx' },
-  [Eff.Vibrato]:      { name: 'Vibrato',        mnemonic: 'Vib',  description: 'Oscillate pitch — speed x, depth y',      operandFormat: 'xy' },
-  [Eff.Tremolo]:      { name: 'Tremolo',        mnemonic: 'Trm',  description: 'Oscillate volume — speed x, depth y',     operandFormat: 'xy' },
-  [Eff.SetPanning]:   { name: 'Set Panning',    mnemonic: 'Pan',  description: 'Stereo position: 00=left, 80=center, FF=right', operandFormat: 'xx' },
-  [Eff.VolumeSlide]:  { name: 'Volume Slide',   mnemonic: 'VSl',  description: 'Slide volume up (x) or down (y) each row', operandFormat: 'xy' },
-  [Eff.PatternBreak]: { name: 'Pattern Break',  mnemonic: 'Brk',  description: 'Jump to row xx of next pattern',           operandFormat: 'xx' },
-  [Eff.Effect01]:    { name: 'Effect 01',      mnemonic: 'Ef1',  description: 'Route operand (0..1) into synth EF1 inlet', operandFormat: 'xx' },
-  [Eff.Effect02]:    { name: 'Effect 02',      mnemonic: 'Ef2',  description: 'Route operand (0..1) into synth EF2 inlet', operandFormat: 'xx' },
+/** Registry of built-in effect lane types. */
+export const LANE_DEFS: Record<BuiltinLaneType, LaneDef> = {
+  vibratoRate:  { type: 'vibratoRate',  label: 'Vib Rate',  description: 'Vibrato LFO speed (0.5–50 Hz)' },
+  vibratoDepth: { type: 'vibratoDepth', label: 'Vib Depth', description: 'Vibrato modulation depth' },
+  tremoloRate:  { type: 'tremoloRate',  label: 'Trm Rate',  description: 'Tremolo LFO speed (0.5–50 Hz)' },
+  tremoloDepth: { type: 'tremoloDepth', label: 'Trm Depth', description: 'Tremolo modulation depth' },
+  portaUp:      { type: 'portaUp',      label: 'Porta Up',  description: 'Pitch slide up per step' },
+  portaDown:    { type: 'portaDown',    label: 'Porta Dn',  description: 'Pitch slide down per step' },
+  volumeSlide:  { type: 'volumeSlide',  label: 'Vol Slide', description: 'Volume delta per step' },
+  panning:      { type: 'panning',      label: 'Panning',   description: 'Stereo position (00=left, FF=right)' },
 }
 
-/** Pack an effect type + operand into a single 12-bit value. */
-export function packEffect(type: number, operand: number): number {
-  return (type << 8) | (operand & 0xFF)
+/** Check whether a lane type string is a built-in type. */
+export function isBuiltinLaneType(type: string): type is BuiltinLaneType {
+  return (BUILTIN_LANE_TYPES as readonly string[]).includes(type)
 }
 
-/** Unpack an effect value into its type nibble. */
-export function effectType(value: number): number {
-  return (value >> 8) & 0xF
+/** Human-readable label for any lane type (built-in or named inlet). */
+export function readableLaneLabel(type: string): string {
+  if (isBuiltinLaneType(type)) return LANE_DEFS[type].label
+  return type // named inlet — return the name as-is
 }
 
-/** Unpack an effect value into its operand byte. */
-export function effectOperand(value: number): number {
-  return value & 0xFF
-}
-
-/** Split an operand byte into x (high nibble) and y (low nibble). */
-export function operandXY(operand: number): { x: number; y: number } {
-  return { x: (operand >> 4) & 0xF, y: operand & 0xF }
-}
-
-/** Effect value as a tracker-style 3-char display string. */
-export function effectDisplay(value: number): string {
-  const type = effectType(value)
-  const op = effectOperand(value)
-  const typeHex = type.toString(16).toUpperCase()
-  const opHex = op.toString(16).toUpperCase().padStart(2, '0')
-  return `${typeHex}${opHex}`
+/** Format a value 0..1 as a tracker-style 2-digit hex string. */
+export function valueHex(v: number | null): string {
+  if (v === null) return '··'
+  const hex = Math.round(v * 255).toString(16).toUpperCase()
+  return hex.length === 1 ? '0' + hex : hex
 }

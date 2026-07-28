@@ -1,14 +1,16 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import type { Doc, Id, Pattern } from '../domain/types'
 import { midiToName } from '../domain/notes'
-import { effectDisplay } from '../domain/effects'
+import { isBuiltinLaneType, LANE_DEFS, readableLaneLabel, valueHex } from '../domain/effects'
 import { useDocStore } from '../state/docStore'
 
 export interface Cursor {
   row: number
   track: number
-  /** 0 = note column, 1 = volume column, 2 = effect column. */
-  col: 0 | 1 | 2
+  /** 0 = note column, 1 = volume column, 2+ = effect lane columns. */
+  col: number
+  /** When col >= 2, index into the track's effectLanes array (0-based). */
+  laneIndex: number | null
 }
 
 export interface Selection {
@@ -26,16 +28,11 @@ interface Props {
   muted: Record<Id, boolean>
   soloed: Record<Id, boolean>
   selection: Selection | null
-  /** Pending high nibble (0-15) for two-digit hex volume entry, or null. */
+  /** Pending high nibble (0-15) for two-digit hex entry, or null. */
   volumeEntry: number | null
+  /** Pending high nibble (0-15) for lane value hex entry, or null. */
+  laneEntry: number | null
   onCellClick: (row: number, track: number, shiftKey: boolean) => void
-}
-
-/** Format volume 0..1 as a tracker-style hex value 00..FF. */
-function volHex(v: number | null): string {
-  if (v === null) return '··'
-  const hex = Math.round(v * 255).toString(16).toUpperCase()
-  return hex.length === 1 ? '0' + hex : hex
 }
 
 /** Read-only presentation of the current pattern. Editing happens via keys. */
@@ -50,13 +47,31 @@ function inSelection(
   return row >= r0 && row <= r1 && track >= t0 && track <= t1
 }
 
-export function TrackerGrid({ doc, pattern, cursor, playhead, muted, soloed, selection, volumeEntry, onCellClick }: Props) {
+export function TrackerGrid({ doc, pattern, cursor, playhead, muted, soloed, selection, volumeEntry, laneEntry, onCellClick }: Props) {
   const tracks = pattern.trackIds.map((id) => doc.entities.tracks[id])
   const setTrackInstrument = useDocStore((s) => s.setTrackInstrument)
+  const addEffectLane = useDocStore((s) => s.addEffectLane)
+  const removeEffectLane = useDocStore((s) => s.removeEffectLane)
   const renamePattern = useDocStore((s) => s.renamePattern)
   const setPatternLength = useDocStore((s) => s.setPatternLength)
   const instruments = Object.values(doc.entities.instruments)
   const [editingName, setEditingName] = useState(false)
+
+  /** Get named inlet options from the instrument assigned to a track. */
+  const getInletOptions = useMemo(() => {
+    const cache: Record<Id, { name: string }[]> = {}
+    for (const inst of instruments) {
+      if (inst.kind !== 'modular') { cache[inst.id] = []; continue }
+      const names: { name: string }[] = []
+      for (const m of Object.values(inst.modules)) {
+        if (m.type === 'eff' && m.name) {
+          names.push({ name: m.name })
+        }
+      }
+      cache[inst.id] = names
+    }
+    return cache
+  }, [instruments])
 
   return (
     <div className="grid">
@@ -111,6 +126,8 @@ export function TrackerGrid({ doc, pattern, cursor, playhead, muted, soloed, sel
         {tracks.map((t, ti) => {
           const isMuted = muted[t.id] === true
           const isSoloed = soloed[t.id] === true
+          const inletOptions = getInletOptions[t.instrumentId] ?? []
+
           return (
             <span key={t.id} className={'cell track-head' + (isMuted ? ' muted' : '') + (isSoloed ? ' soloed' : '')}>
               <span className="track-no">
@@ -128,6 +145,51 @@ export function TrackerGrid({ doc, pattern, cursor, playhead, muted, soloed, sel
                   <option key={inst.id} value={inst.id}>{inst.name}</option>
                 ))}
               </select>
+              {/* Effect lane management */}
+              <div className="track-lanes">
+                {t.effectLanes.map((lane, _li) => {
+                  const isAvailable = isBuiltinLaneType(lane.type) ||
+                    inletOptions.some((io) => io.name === lane.type)
+                  return (
+                    <span
+                      key={lane.id}
+                      className={'lane-pill' + (isAvailable ? '' : ' lane-unavailable')}
+                      title={isAvailable ? readableLaneLabel(lane.type) : `${lane.type} (unavailable)`}
+                    >
+                      <span className="lane-label">{readableLaneLabel(lane.type)}</span>
+                      <button
+                        className="lane-del"
+                        onClick={(e) => { e.stopPropagation(); removeEffectLane(t.id, lane.id) }}
+                        title="Remove lane"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  )
+                })}
+                <select
+                  className="track-add-lane"
+                  value=""
+                  onChange={(e) => {
+                    if (e.target.value) { addEffectLane(t.id, e.target.value); e.target.value = '' }
+                  }}
+                  title="Add effect lane"
+                >
+                  <option value="">+ lane</option>
+                  <optgroup label="Built-in">
+                    {Object.entries(LANE_DEFS).map(([type, def]) => (
+                      <option key={type} value={type}>{def.label} — {def.description}</option>
+                    ))}
+                  </optgroup>
+                  {inletOptions.length > 0 && (
+                    <optgroup label="Instrument Inlets">
+                      {inletOptions.map((io) => (
+                        <option key={io.name} value={io.name}>{io.name}</option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+              </div>
             </span>
           )
         })}
@@ -151,7 +213,6 @@ export function TrackerGrid({ doc, pattern, cursor, playhead, muted, soloed, sel
             const active = ti === cursor.track && row === cursor.row
             const noteActive = active && cursor.col === 0
             const volActive = active && cursor.col === 1
-            const effActive = active && cursor.col === 2
             const sel = inSelection(selection, row, ti)
             const mutedClass = muted[t.id] ? ' muted' : ''
 
@@ -163,11 +224,25 @@ export function TrackerGrid({ doc, pattern, cursor, playhead, muted, soloed, sel
             const isEnteringVol = active && cursor.col === 1 && volumeEntry !== null
             const volLabel = isEnteringVol
               ? volumeEntry.toString(16).toUpperCase() + '·'
-              : volHex(cell?.volume ?? null)
+              : valueHex(cell?.volume ?? null)
 
-            const effLabel = cell?.effect != null
-              ? effectDisplay(cell.effect)
-              : '···'
+            // Per-lane effect columns.
+            const laneColumns = t.effectLanes.map((lane, li) => {
+              const laneActive = active && cursor.col >= 2 && cursor.laneIndex === li
+              const isEnteringLane = laneActive && laneEntry !== null
+              const val = cell?.effectLanes[lane.id] ?? null
+              const label = isEnteringLane
+                ? laneEntry.toString(16).toUpperCase() + '·'
+                : valueHex(val)
+              return (
+                <span
+                  key={lane.id}
+                  className={'cell-eff' + (laneActive ? ' sub-active' : '')}
+                >
+                  {label}
+                </span>
+              )
+            })
 
             return (
               <span
@@ -177,7 +252,7 @@ export function TrackerGrid({ doc, pattern, cursor, playhead, muted, soloed, sel
               >
                 <span className={'cell-note' + (noteActive ? ' sub-active' : '')}>{noteLabel}</span>
                 <span className={'cell-vol' + (volActive ? ' sub-active' : '')}>{volLabel}</span>
-                <span className={'cell-eff' + (effActive ? ' sub-active' : '')}>{effLabel}</span>
+                {laneColumns}
               </span>
             )
           })}

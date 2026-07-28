@@ -401,7 +401,7 @@ body {
   flex: none;
 }
 .cell-eff {
-  width: 32px;
+  width: 20px;
   text-align: right;
   color: var(--muted);
   font-size: 11px;
@@ -565,6 +565,55 @@ body {
   margin-right: 2px;
 }
 .track-head.soloed { background: rgba(224, 185, 95, 0.12); }
+
+/* Effect lane management in track header */
+.track-lanes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  margin-top: 3px;
+}
+.lane-pill {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  background: #1a1e26;
+  border: 1px solid #2a2f38;
+  border-radius: 3px;
+  padding: 0 3px;
+  font-size: 9px;
+  line-height: 1.4;
+}
+.lane-pill.lane-unavailable {
+  border-style: dashed;
+  border-color: #e06c6c;
+  opacity: 0.7;
+}
+.lane-label {
+  color: var(--accent);
+  white-space: nowrap;
+}
+.lane-del {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 10px;
+  line-height: 1;
+  padding: 0 2px;
+}
+.lane-del:hover { color: #e07a5f; }
+.track-add-lane {
+  background: #222;
+  color: var(--muted);
+  border: 1px solid #333;
+  border-radius: 3px;
+  font-size: 9px;
+  padding: 0 2px;
+  cursor: pointer;
+  max-width: 60px;
+}
 
 /* Sample Library */
 .sample-library {

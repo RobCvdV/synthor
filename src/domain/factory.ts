@@ -27,13 +27,13 @@ export function makeId(prefix: string): string {
 }
 
 export function emptyCells(length: number): Cell[] {
-  return Array.from({ length }, () => ({ note: null, volume: null, noteOff: false, effect: null, effectValue: null }))
+  return Array.from({ length }, () => ({ note: null, volume: null, noteOff: false, effectLanes: {} }))
 }
 
 /** Fit a cell list to a target length: truncate if longer, pad empty if shorter. */
 export function fitCells(cells: Cell[], length: number): Cell[] {
-  const out = cells.slice(0, length).map((c) => ({ note: c.note, volume: c.volume, noteOff: c.noteOff, effect: c.effect, effectValue: c.effectValue }))
-  while (out.length < length) out.push({ note: null, volume: null, noteOff: false, effect: null, effectValue: null })
+  const out = cells.slice(0, length).map((c) => ({ note: c.note, volume: c.volume, noteOff: c.noteOff, effectLanes: { ...c.effectLanes } }))
+  while (out.length < length) out.push({ note: null, volume: null, noteOff: false, effectLanes: {} })
   return out
 }
 
@@ -76,8 +76,10 @@ export function newModularInstrument(name: string): ModularInstrument {
   const note = newModule('note', 40, 40)
   const gate = newModule('gate', 40, 240)
   const volume = newModule('volume', 40, 440)
-  const eff1 = newModule('effect1', 40, 640)
-  const eff2 = newModule('effect2', 40, 840)
+  const eff1 = newModule('eff', 40, 640)
+  eff1.name = 'Eff 01'
+  const eff2 = newModule('eff', 40, 840)
+  eff2.name = 'Eff 02'
   const osc = newModule('osc', 260, 40)
   const filter = newModule('filter', 480, 40)
   const adsr = newModule('adsr', 260, 240)
@@ -134,7 +136,7 @@ export function cloneInstrument(inst: Instrument, name: string): Instrument {
   const modules: Record<string, Module> = {}
   for (const m of Object.values(inst.modules)) {
     const id = idMap.get(m.id)!
-    modules[id] = { id, type: m.type, params: { ...m.params }, pos: { ...m.pos } }
+    modules[id] = { id, type: m.type, params: { ...m.params }, pos: { ...m.pos }, name: m.name }
   }
   const connections: Record<string, Connection> = {}
   for (const c of Object.values(inst.connections)) {
@@ -153,7 +155,7 @@ export function cloneInstrument(inst: Instrument, name: string): Instrument {
 
 /** A fresh empty track bound to an instrument. */
 export function newTrack(instrumentId: string, length: number): Track {
-  return { id: makeId('trk'), instrumentId, cells: emptyCells(length) }
+  return { id: makeId('trk'), instrumentId, cells: emptyCells(length), effectLanes: [] }
 }
 
 /** A fresh section with a given name and no pattern references. */
@@ -173,8 +175,8 @@ export function createDefaultDoc(): Doc {
 
   const length = 16
 
-  const trackA: Track = { id: makeId('trk'), instrumentId: instA.id, cells: emptyCells(length) }
-  const trackB: Track = { id: makeId('trk'), instrumentId: instB.id, cells: emptyCells(length) }
+  const trackA: Track = { id: makeId('trk'), instrumentId: instA.id, cells: emptyCells(length), effectLanes: [] }
+  const trackB: Track = { id: makeId('trk'), instrumentId: instB.id, cells: emptyCells(length), effectLanes: [] }
 
   // A simple arpeggio on track A (C4 E4 G4 C5 pattern every 4 rows).
   const arp = [60, 64, 67, 72]

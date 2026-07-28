@@ -34,10 +34,8 @@ export function renderInstrument(
   baseFreq: number = 0,
   /** Per-cell volume signal (0..1). Defaults to 1 (no attenuation). */
   volume: NodeRepr_t | number = 1,
-  /** Per-row effect 01 signal (0..1), from tracker E xx. */
-  effect1: NodeRepr_t | number = 1,
-  /** Per-row effect 02 signal (0..1), from tracker F xx. */
-  effect2: NodeRepr_t | number = 1,
+  /** Per-effect-lane seq2 signals for named instrument inlets, keyed by inlet name. */
+  inletSignals: Record<string, NodeRepr_t> = {},
   /** MIDI CC values (0-127 → raw 0-127).  Used by `midicc` source modules. */
   midiCcValues?: Record<number, number>,
   /** Param ref registry for zero-recompile value updates. */
@@ -47,7 +45,7 @@ export function renderInstrument(
 ): StereoOut {
   switch (inst.kind) {
     case 'osc': {
-      void voiceKey; void note; void baseFreq; void effect1; void effect2; void midiCcValues; void ccBindings
+      void voiceKey; void note; void baseFreq; void inletSignals; void midiCcValues; void ccBindings
       const env = makeAdsr(0.005, 0.12, 0.7, 0.25, gate)
       const tone = el.blepsaw(freq)
       // Use createRef when available so slider changes take effect without recompile.
@@ -59,12 +57,12 @@ export function renderInstrument(
     }
     case 'modular': {
       void note
-      return compileModular(inst, freq, gate, voiceKey, sampleMeta, baseFreq, volume, effect1, effect2, midiCcValues, paramRefs, ccBindings)
+      return compileModular(inst, freq, gate, voiceKey, sampleMeta, baseFreq, volume, inletSignals, midiCcValues, paramRefs, ccBindings)
     }
     case 'drumkit': {
       // Drumkit rendering is handled at the compile level via renderDrumKitSlot,
       // so per-slot sequencer signals (gate + freq) can be used.
-      void voiceKey; void freq; void note; void baseFreq; void sampleMeta; void sampleHashById; void volume; void gate; void ccBindings
+      void voiceKey; void freq; void note; void baseFreq; void sampleMeta; void sampleHashById; void volume; void gate; void inletSignals; void ccBindings
       return { left: el.const({ value: 0 }), right: el.const({ value: 0 }) }
     }
   }
@@ -145,8 +143,7 @@ export function renderDrumKitSlot(
         sampleHashById,
         midiToFreq(slot.note),
         1, // volume
-        1, // effect1 (drumkit slots use static 1)
-        1, // effect2
+        {}, // inletSignals — drumkit slots don't use effect lanes
         midiCcValues,
         paramRefs,
         ccBindings,

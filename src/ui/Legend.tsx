@@ -16,17 +16,11 @@ const NOTE_ENTRY: Row[] = [
 ]
 
 const EFFECT_ENTRY: Row[] = [
-  { keys: '0-9, A-F', label: 'enter effect (3 hex digits)' },
-  { keys: '← → in eff column', label: 'move note ↔ vol ↔ eff' },
-  { keys: '0xy', label: 'Arpeggio (base, +x, +y)' },
-  { keys: '1xx / 2xx', label: 'Portamento up / down' },
-  { keys: '4xy', label: 'Vibrato (speed x, depth y)' },
-  { keys: '7xy', label: 'Tremolo (speed x, depth y)' },
-  { keys: '8xx', label: 'Set panning (00–FF)' },
-  { keys: 'Axy', label: 'Volume slide (up x, down y)' },
-  { keys: 'Dxx', label: 'Pattern break to row xx' },
-  { keys: 'Exx', label: 'Effect 01 → synth EF1 inlet (0..1)' },
-  { keys: 'Fxx', label: 'Effect 02 → synth EF2 inlet (0..1)' },
+  { keys: '0-9, A-F', label: 'lane value (2 hex digits, like vol)' },
+  { keys: '← →', label: 'move note ↔ vol ↔ lanes' },
+  { keys: 'Ctrl L', label: 'add effect lane to track' },
+  { keys: 'Ctrl K', label: 'remove last effect lane' },
+  { keys: 'Track header', label: '+ lane dropdown to add lane' },
 ]
 
 const TRANSPORT: Row[] = [
