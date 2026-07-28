@@ -36,6 +36,7 @@ jobs:
         run: |
           lftp -u "${{ secrets.SYNTHOR_FTP_USER }},${{ secrets.SYNTHOR_FTP_PASSWORD }}" ftp://${{ secrets.SYNTHOR_FTP_HOST }} -e "
             set ftp:ssl-allow yes;
+            set ssl:verify-certificate no;
             set net:timeout 15;
             set net:max-retries 2;
             mirror --reverse --delete --verbose dist/ .;

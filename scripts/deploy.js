@@ -37,7 +37,7 @@ async function deploy() {
 
   try {
     console.log(`📡 Connecting to ${host}...`);
-    await client.access({ host, user, password, secure: true });
+    await client.access({ host, user, password, secure: true, secureOptions: { rejectUnauthorized: false } });
     console.log("✅ Connected!\n");
 
     console.log("📤 Uploading dist/ ...\n");
