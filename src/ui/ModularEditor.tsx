@@ -78,6 +78,8 @@ function ModuleNode({ data }: NodeProps) {
 
   const def = module ? MODULE_DEFS[module.type] : undefined
   const isOutput = module?.type === 'output'
+  const hasBypass = def?.params.some((p) => p.key === 'bypass') ?? false
+  const bypassed = hasBypass && (module?.params.bypass ?? 0) === 1
   const sampleEntities = useDocStore((s) => s.doc.entities.samples)
   const samples = useMemo(
     () => Object.values(sampleEntities).sort((a, b) => a.name.localeCompare(b.name)),
@@ -135,7 +137,7 @@ function ModuleNode({ data }: NodeProps) {
   const clip = levelRef.current > CLIP_THRESHOLD
 
   return (
-    <div className="mod-node">
+    <div className={'mod-node' + (bypassed ? ' bypassed' : '')}>
       <div className="mod-node-head">
         {isOutput && (
           <span
@@ -144,16 +146,30 @@ function ModuleNode({ data }: NodeProps) {
           />
         )}
         <span>{def.label}</span>
-        {isEff && (
-          <span className="mod-eff-val" title={`CC ${effCc}: ${effCcVal.toFixed(2)} + tracker`}>
-            {effCc > 0 ? effCcVal.toFixed(2) : '—'}
-          </span>
-        )}
-        {!def.singleton && (
-          <button className="mod-del nodrag" title="Delete module" onClick={() => removeModule(instrumentId, moduleId)}>
-            ×
+        {hasBypass && (
+          <button
+            className={'mod-bypass-btn nodrag' + (bypassed ? ' off' : '')}
+            title={bypassed ? 'Bypassed — click to engage' : 'Active — click to bypass'}
+            onClick={(e) => {
+              e.preventDefault()
+              setModuleParam(instrumentId, moduleId, 'bypass', bypassed ? 0 : 1)
+            }}
+          >
+            ⏻
           </button>
         )}
+        <span className="mod-head-right">
+          {isEff && (
+            <span className="mod-eff-val" title={`CC ${effCc}: ${effCcVal.toFixed(2)} + tracker`}>
+              {effCc > 0 ? effCcVal.toFixed(2) : '—'}
+            </span>
+          )}
+          {!def.singleton && (
+            <button className="mod-del nodrag" title="Delete module" onClick={() => removeModule(instrumentId, moduleId)}>
+              ×
+            </button>
+          )}
+        </span>
       </div>
 
       {def.inlets.map((port, i) => (
@@ -188,23 +204,15 @@ function ModuleNode({ data }: NodeProps) {
           const isCcParam = p.key === 'cc' && module.type === 'eff'
           const isBypass = p.key === 'bypass'
 
+          // Bypass is rendered as a header toggle, not a body slider.
+          if (isBypass) return null
+
           return (
-            <label className={'mod-param' + (isBypass ? ' mod-param-bypass' : '')} key={p.key}>
+            <label className="mod-param" key={p.key}>
               <span className="mod-param-label">
-                {isBypass ? '' : p.label}
+                {p.label}
                 <span className="mod-param-value">
-                  {isBypass ? (
-                    <button
-                      className={`mod-bypass-btn nodrag${value ? ' active' : ''}`}
-                      title={value ? 'Bypassed — click to engage' : 'Active — click to bypass'}
-                      onClick={(e) => {
-                        e.preventDefault()
-                        setModuleParam(instrumentId, moduleId, p.key, value ? 0 : 1)
-                      }}
-                    >
-                      {value ? '⏻' : '⊖'}
-                    </button>
-                  ) : isCcParam ? (
+                  {isCcParam ? (
                     <>
                       {value === 0 ? 'off' : `CC ${value}`}
                       {' '}
@@ -252,7 +260,7 @@ function ModuleNode({ data }: NodeProps) {
                   )}
                 </span>
               </span>
-              {!isCcParam && !isBypass && (
+              {!isCcParam && (
                 <input
                   className="nodrag"
                   type="range"
