@@ -3,131 +3,110 @@
  * modulation signals. Works with the sequences built by `buildSequences` in
  * `sequences.ts`.
  *
- * Built-in lane types (vibrato, tremolo, portamento, volumeSlide, panning)
- * produce freqMul, volMod, and pan modulation arrays. Named instrument inlets
- * pass through as raw per-row signals to the modular synth graph.
+ * Built-in lane types:
+ *   vibrato / tremolo — rate+depth arrays feed audio-rate `el.cycle` LFOs in
+ *     compile.ts for smooth continuous modulation.
+ *   portaUp / portaDown — per-row pitch multiplier.
+ *   volumeSlide — per-row volume delta.
+ *   panning — per-row stereo position (0=left, 0.5=center, 1=right).
+ *
+ * Named instrument inlets pass through as raw per-row seq2 signals.
  */
 
-import { el, type NodeRepr_t } from '@elemaudio/core'
-import type { EffectLaneDef, Id } from '../domain/types'
+import type { EffectLaneDef, EffectSettings, Id } from '../domain/types'
+import { DEFAULT_EFFECT_SETTINGS } from '../domain/types'
 import { isBuiltinLaneType } from '../domain/effects'
 
 /** Stereo pan gains for a given pan value (0=left, 0.5=center, 1=right). */
 export function panGains(pan: number): { left: number; right: number } {
-  // Constant-power panning
   const angle = pan * (Math.PI / 2)
   return { left: Math.cos(angle), right: Math.sin(angle) }
 }
 
-/**
- * Built effect sequences — parallel arrays (one entry per row) that feed into
- * `el.seq2` to modulate the instrument voice.
- */
 export interface EffectSignals {
-  /** Frequency multiplier (1.0 = no change). */
+  /** Per-row frequency multiplier from portamento (1.0 = no change). */
   freqMul: number[]
-  /** Volume modifier (1.0 = no change). */
+  /** Per-row volume modifier from volumeSlide (1.0 = no change). */
   volMod: number[]
-  /** Pan value per row, 0..1 (0=left, 0.5=center, 1=right). */
+  /** Per-row pan position, 0..1 (0=left, 0.5=center, 1=right). */
   pan: number[]
+  /** Per-row vibrato LFO rate, 0..1 → 0.5–50 Hz. */
+  vibratoRate: number[]
+  /** Per-row vibrato LFO depth, 0..1 → 0–0.5 semitones. */
+  vibratoDepth: number[]
+  /** Per-row tremolo LFO rate, 0..1 → 0.5–50 Hz. */
+  tremoloRate: number[]
+  /** Per-row tremolo LFO depth, 0..1 → 0–1 amplitude modulation. */
+  tremoloDepth: number[]
+}
+
+export function emptyEffectSignals(length: number): EffectSignals {
+  return {
+    freqMul: new Array(length).fill(1),
+    volMod: new Array(length).fill(1),
+    pan: new Array(length).fill(0.5),
+    vibratoRate: new Array(length).fill(0),
+    vibratoDepth: new Array(length).fill(0),
+    tremoloRate: new Array(length).fill(0),
+    tremoloDepth: new Array(length).fill(0),
+  }
 }
 
 /**
  * Build per-row effect modulation signals from per-lane sequences.
  *
- * Built-in lane types are processed into freqMul/volMod/pan. Named instrument
- * inlets are ignored here — they pass through as raw seq2 signals to the
- * modular graph.
+ * Vibrato/tremolo rate and depth are extracted as raw 0..1 arrays — the actual
+ * audio-rate LFO (`el.cycle`) is built in compile.ts so modulation is continuous
+ * rather than stair-stepped per row.
  */
 export function buildEffectSignals(
   effectLaneSeqs: Record<Id, number[]>,
   laneDefs: EffectLaneDef[],
   length: number,
+  settings?: EffectSettings,
 ): EffectSignals {
-  const freqMul: number[] = new Array(length).fill(1)
-  const volMod: number[] = new Array(length).fill(1)
-  const pan: number[] = new Array(length).fill(0.5)
+  const sig = emptyEffectSignals(length)
 
-  // Collect vibrato rate/depth and tremolo rate/depth pairs for combined processing.
-  // Multiple lanes composing on the same target multiply together.
   for (const lane of laneDefs) {
     const seq = effectLaneSeqs[lane.id]
     if (!seq) continue
-    if (!isBuiltinLaneType(lane.type)) continue // named inlets pass through unchanged
+    if (!isBuiltinLaneType(lane.type)) continue
 
     for (let row = 0; row < length; row++) {
       const val = seq[row]
 
       switch (lane.type) {
-        case 'vibratoDepth': {
-          // Look up the corresponding vibratoRate value for this row.
-          const rateLane = laneDefs.find((l) => l.type === 'vibratoRate')
-          const rateSeq = rateLane ? effectLaneSeqs[rateLane.id] : null
-          const rate = rateSeq ? rateSeq[row] : 0.5 // default mid-rate if no rate lane
-          const hz = 0.5 + rate * 49.5 // 0..1 → 0.5–50 Hz
-          const phase = (row * hz * length / (length * 8)) * Math.PI * 2 // crude per-row phase
-          const depth = val * 0.5 // max ~0.5 semitone
-          freqMul[row] *= Math.pow(2, Math.sin(phase) * depth / 12)
-          break
-        }
         case 'vibratoRate':
-          // Rate alone doesn't modulate — it's only used when paired with vibratoDepth.
+          sig.vibratoRate[row] = Math.max(sig.vibratoRate[row], val)
           break
-        case 'tremoloDepth': {
-          const rateLane = laneDefs.find((l) => l.type === 'tremoloRate')
-          const rateSeq = rateLane ? effectLaneSeqs[rateLane.id] : null
-          const rate = rateSeq ? rateSeq[row] : 0.5
-          const hz = 0.5 + rate * 49.5
-          const phase = (row * hz * length / (length * 8)) * Math.PI * 2
-          const depth = val
-          volMod[row] *= Math.max(0.05, 1 - depth * (1 - Math.abs(Math.sin(phase))))
+        case 'vibratoDepth':
+          sig.vibratoDepth[row] = Math.max(sig.vibratoDepth[row], val)
           break
-        }
         case 'tremoloRate':
-          // Rate alone doesn't modulate — it's only used when paired with tremoloDepth.
+          sig.tremoloRate[row] = Math.max(sig.tremoloRate[row], val)
           break
-        case 'portaUp': {
-          // Absolute per-step pitch bend up. 0-1 → 0-4 semitones.
-          const semitones = val * 4
-          freqMul[row] *= Math.pow(2, semitones / 12)
+        case 'tremoloDepth':
+          sig.tremoloDepth[row] = Math.max(sig.tremoloDepth[row], val)
           break
-        }
-        case 'portaDown': {
-          const semitones = val * 4
-          freqMul[row] *= Math.pow(2, -semitones / 12)
-          break
-        }
-        case 'volumeSlide': {
-          // Absolute per-step volume delta. 0 = -0.5, 0.5 = no change, 1 = +0.5.
-          const delta = (val - 0.5) * 1.0
-          volMod[row] *= Math.max(0, Math.min(1, 1 + delta))
+        case 'portamento': {
+          // 0.5 = center (no change), 0 = full down, 1 = full up.
+          // Unset rows default to 0.5 via the sequence builder, so no null check needed.
+          const max = settings?.portamento ?? DEFAULT_EFFECT_SETTINGS.portamento
+          const semitones = (val - 0.5) * 2 * max
+          sig.freqMul[row] *= Math.pow(2, semitones / 12)
           break
         }
-        case 'panning': {
-          // Directly set stereo position. 0=left, 0.5=center, 1=right.
-          pan[row] = val
+        case 'volumeSlide':
+          // Absolute volume target: 0..1 directly sets the per-row volume modifier.
+          // Unset rows default to 0 via the sequence builder.
+          sig.volMod[row] = val
           break
-        }
+        case 'panning':
+          sig.pan[row] = val
+          break
       }
     }
   }
 
-  return { freqMul, volMod, pan }
-}
-
-/**
- * Apply the effect modulation signals (already compiled into seq2 arrays) to
- * the instrument's frequency and volume signals. Returns modified signals
- * plus stereo pan gains.
- */
-export function applyEffectModulation(
-  freq: NodeRepr_t,
-  vol: NodeRepr_t,
-  freqMulSeq: NodeRepr_t,
-  volModSeq: NodeRepr_t,
-): { freq: NodeRepr_t; vol: NodeRepr_t } {
-  return {
-    freq: el.mul(freq, freqMulSeq),
-    vol: el.mul(vol, volModSeq),
-  }
+  return sig
 }

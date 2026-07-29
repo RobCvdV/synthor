@@ -105,6 +105,8 @@ export function migrate(raw: unknown): SongFile {
   // Convert old effect1/effect2 modules to `eff` modules. Runs on every load
   // (not version-gated) so patches created before the change get updated.
   raw = convertEffectModules(raw)
+  // Merge old portaUp / portaDown lanes into portamento.
+  raw = convertPortaLanes(raw)
 
   assertShape(raw)
   return raw
@@ -382,6 +384,71 @@ function convertEffectModules(raw: any): any {
   return {
     ...raw,
     doc: { ...raw.doc, entities: { ...raw.doc.entities, instruments: fixed } },
+  }
+}
+
+/**
+ * Convert old portaUp / portaDown effect lanes to the merged `portamento` type.
+ * portaUp values (0→1 means 0→max up) remap to portamento (0.5→1 means center→up).
+ * portaDown values (0→1 means 0→max down) remap to portamento (0.5→0 means center→down).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function convertPortaLanes(raw: any): any {
+  const tracks = raw.doc?.entities?.tracks
+  if (!tracks || !isRecord(tracks)) return raw
+
+  let changed = false
+  const fixed: Record<string, unknown> = {}
+  for (const [tid, track] of Object.entries(tracks)) {
+    if (!isRecord(track) || !Array.isArray(track.effectLanes)) {
+      fixed[tid] = track
+      continue
+    }
+    const lanes = track.effectLanes as Array<Record<string, unknown>>
+    const newLanes = lanes.map((lane) => {
+      if (lane.type === 'portaUp' || lane.type === 'portaDown') {
+        changed = true
+        const isUp = lane.type === 'portaUp'
+        return { ...lane, type: 'portamento', _wasPortaDir: isUp ? 'up' : 'down' }
+      }
+      return lane
+    })
+    if (!changed) {
+      fixed[tid] = track
+      continue
+    }
+
+    // Remap cell values: portaUp 0→0.5,1→1; portaDown 0→0.5,1→0.
+    const cells = Array.isArray(track.cells) ? track.cells as Array<Record<string, unknown>> : []
+    const newCells = cells.map((cell) => {
+      const el = (cell.effectLanes ?? {}) as Record<string, unknown>
+      if (!isRecord(el)) return cell
+      const newEl: Record<string, unknown> = {}
+      for (const [lid, val] of Object.entries(el)) {
+        const lane = newLanes.find((l) => l.id === lid)
+        if (lane && (lane._wasPortaDir || (lane as any)._wasPortaDir)) {
+          const isUp = (lane as any)._wasPortaDir === 'up'
+          if (typeof val === 'number') {
+            newEl[lid] = isUp ? 0.5 + val * 0.5 : 0.5 - val * 0.5
+          } else {
+            newEl[lid] = val
+          }
+        } else {
+          newEl[lid] = val
+        }
+      }
+      return { ...cell, effectLanes: newEl }
+    })
+
+    // Strip temporary _wasPortaDir from lane defs.
+    const cleanLanes = newLanes.map(({ _wasPortaDir: _, ...rest }) => rest)
+    fixed[tid] = { ...track, effectLanes: cleanLanes, cells: newCells }
+  }
+
+  if (!changed) return raw
+  return {
+    ...raw,
+    doc: { ...raw.doc, entities: { ...raw.doc.entities, tracks: fixed } },
   }
 }
 

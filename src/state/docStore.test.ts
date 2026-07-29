@@ -126,3 +126,42 @@ describe('docStore — effect lanes', () => {
     expect(newTrack.cells[0].effectLanes[newTrack.effectLanes[0].id]).toBe(0.75)
   })
 })
+
+describe('docStore — effect settings', () => {
+  beforeEach(() => resetStore())
+
+  const firstInstId = () => {
+    const doc = useDocStore.getState().doc
+    return Object.keys(doc.entities.instruments)[0]
+  }
+
+  it('default doc instruments have effect settings', () => {
+    const doc = useDocStore.getState().doc
+    for (const inst of Object.values(doc.entities.instruments)) {
+      if (inst.kind !== 'drumkit') {
+        expect(inst.effectSettings).toBeDefined()
+        expect(inst.effectSettings!.vibratoRate).toBe(100)
+        expect(inst.effectSettings!.vibratoDepth).toBe(0.5)
+      }
+    }
+  })
+
+  it('sets an effect setting on a modular instrument', () => {
+    const iid = firstInstId()
+    useDocStore.getState().setEffectSetting(iid, 'vibratoRate', 50)
+    const inst = useDocStore.getState().doc.entities.instruments[iid]
+    if (inst.kind !== 'drumkit') {
+      expect(inst.effectSettings!.vibratoRate).toBe(50)
+    }
+  })
+
+  it('undo reverts effect setting change', () => {
+    const iid = firstInstId()
+    useDocStore.getState().setEffectSetting(iid, 'portamento', 12)
+    useDocStore.getState().undo()
+    const inst = useDocStore.getState().doc.entities.instruments[iid]
+    if (inst.kind !== 'drumkit') {
+      expect(inst.effectSettings!.portamento).toBe(4) // default
+    }
+  })
+})

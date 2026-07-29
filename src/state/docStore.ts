@@ -97,6 +97,8 @@ interface DocState {
   addInstrument: (kind: Instrument['kind']) => Id
   removeInstrument: (instrumentId: Id) => void
   renameInstrument: (instrumentId: Id, name: string) => void
+  /** Set an effect range max value on an instrument. */
+  setEffectSetting: (instrumentId: Id, key: string, value: number) => void
   /** Set a top-level param on an osc instrument (e.g. gain). */
   setOscParam: (instrumentId: Id, key: string, value: number) => void
   setOscParamFast: (instrumentId: Id, key: string, value: number) => void
@@ -450,6 +452,15 @@ export const useDocStore = create<DocState>((set, get) => ({
     get().mutate((draft) => {
       const inst = draft.entities.instruments[instrumentId]
       if (inst) inst.name = name
+    }),
+
+  setEffectSetting: (instrumentId, key, value) =>
+    get().mutate((draft) => {
+      const inst = draft.entities.instruments[instrumentId]
+      if (inst && (inst.kind === 'modular' || inst.kind === 'osc')) {
+        if (!inst.effectSettings) inst.effectSettings = {}
+        inst.effectSettings[key] = value
+      }
     }),
 
   setOscParam: (instrumentId, key, value) => {

@@ -4,7 +4,7 @@ import { isBuiltinLaneType } from '../domain/effects'
 import { midiToFreq } from '../domain/notes'
 import { buildDrumKitSlotSequences, buildSequences } from './sequences'
 import { renderDrumKitSlot, renderInstrument } from './instruments'
-import { applyEffectModulation, buildEffectSignals } from './effects'
+import { buildEffectSignals } from './effects'
 import type { StereoOut } from './modular'
 
 /** Build the sorted sample metadata list for sampleIndex → VFS key + channels resolution.
@@ -133,7 +133,7 @@ function compilePreview(
           : el.const({ key: `${voiceKey}:vel`, value: 1 })
         const voice = renderDrumKitSlot(
           slot, doc.entities.instruments, gate, freq, voiceKey,
-          sampleMeta, sampleHashById, midiCcValues, paramRefs, ccBindings, inst.id,
+          sampleMeta, sampleHashById, midiCcValues, paramRefs, ccBindings, {}, inst.id,
         )
         slotVoices.push({ left: el.mul(voice.left, velRef), right: el.mul(voice.right, velRef) })
       }
@@ -233,16 +233,68 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
     if (inst.kind === 'drumkit') {
       // Per-slot sequencing: each slot gets its own gate + freq sequences.
       const { slotGateSeqs, slotFreqSeqs } = buildDrumKitSlotSequences(track, pattern.length, inst)
-      const { volumeSeq } = buildSequences(track, pattern.length)
-      // Build effect modulation for drumkit (volume effects apply to the mix).
-      const { volMod } = buildEffectSignals({}, [], pattern.length) // no effect lanes for drumkit
-      // Rotate sequences so playback starts at ctx.startRow.
+      const { volumeSeq, effectLanes: laneSeqs, laneDefs } = buildSequences(track, pattern.length)
+
+      // Effect lane processing (built-in effects apply at mix level).
+      const effSig = buildEffectSignals(laneSeqs, laneDefs, pattern.length)
+
+      // Rotate sequences.
       const rotatedVol = rotateSeq(volumeSeq, ctx.startRow)
-      const rotatedVolMod = rotateSeq(volMod, ctx.startRow)
+      const rotatedVolMod = rotateSeq(effSig.volMod, ctx.startRow)
+      const rotatedFreqMul = rotateSeq(effSig.freqMul, ctx.startRow)
+      const rotatedPan = rotateSeq(effSig.pan, ctx.startRow)
+
+      // Rotate per-lane sequences.
+      const rotatedLaneSeqs: Record<Id, number[]> = {}
+      for (const [laneId, seq] of Object.entries(laneSeqs)) {
+        rotatedLaneSeqs[laneId] = rotateSeq(seq, ctx.startRow)
+      }
+
+      // Per-lane seq2 nodes for named instrument inlets.
+      const laneNodes: Record<Id, NodeRepr_t> = {}
+      for (const [laneId, seq] of Object.entries(rotatedLaneSeqs)) {
+        laneNodes[laneId] = el.seq2({
+          key: `${trackId}:eff:${laneId}:${ctx.playEpoch}`,
+          seq,
+          hold: true, loop: true,
+        }, clock, reset)
+      }
+
+      // Build inlet name → seq2 node map for named inlets.
+      const inletSignals: Record<string, NodeRepr_t> = {}
+      for (const lane of laneDefs) {
+        if (!isBuiltinLaneType(lane.type)) {
+          inletSignals[lane.type] = laneNodes[lane.id]
+        }
+      }
+
+      // Volume modulation from per-cell volume × effect volume modifiers.
       const vol = el.seq2({ key: `${trackId}:vol:${ctx.playEpoch}`, seq: rotatedVol, hold: true, loop: true }, clock, reset)
-      const volModSeq = el.seq2({ key: `${trackId}:volMod:${ctx.playEpoch}`, seq: rotatedVolMod, hold: true, loop: true }, clock, reset)
-      // Combine per-cell volume with effect volume modulation.
-      const effVol = el.mul(vol, volModSeq)
+      let effVol: NodeRepr_t = el.mul(vol, el.seq2({ key: `${trackId}:volMod:${ctx.playEpoch}`, seq: rotatedVolMod, hold: true, loop: true }, clock, reset))
+
+      // --- Tremolo on drumkit mix ---
+      const hasDkTremolo = effSig.tremoloDepth.some((d) => d > 0)
+      if (hasDkTremolo) {
+        const tremRateSeq = el.seq2({
+          key: `${trackId}:tremRate:${ctx.playEpoch}`,
+          seq: rotateSeq(effSig.tremoloRate, ctx.startRow),
+          hold: true, loop: true,
+        }, clock, reset)
+        const tremDepthSeq = el.seq2({
+          key: `${trackId}:tremDepth:${ctx.playEpoch}`,
+          seq: rotateSeq(effSig.tremoloDepth, ctx.startRow),
+          hold: true, loop: true,
+        }, clock, reset)
+        const tremHz = el.mul(0.5, el.exp(el.mul(tremRateSeq, Math.log(100 / 0.5))))
+        const tremlfo = el.cycle(tremHz)
+        const tremMod = el.sub(1, el.mul(tremDepthSeq, el.sub(1, el.abs(tremlfo))))
+        effVol = el.mul(effVol, tremMod)
+      }
+
+      // Portamento on mix (applied as freqMul). Vibrato on mix is uncommon for drums,
+      // but portamento/volume slide are useful per-row pitch/volume shifts.
+      const freqMulSeq = el.seq2({ key: `${trackId}:freqMul:${ctx.playEpoch}`, seq: rotatedFreqMul, hold: true, loop: true }, clock, reset)
+
       const masterGain = el.const({ value: inst.params.gain })
 
       let mixL: NodeRepr_t = zero
@@ -250,19 +302,29 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
       for (const slot of inst.slots) {
         const rotatedGate = rotateSeq(slotGateSeqs[slot.id], ctx.startRow)
         const rotatedFreq = rotateSeq(slotFreqSeqs[slot.id], ctx.startRow)
-        // hold:false so each hit produces a clean 0→1 edge for el.sample triggers.
         const slotGate = el.seq2({ key: `${trackId}:${slot.id}:gate:${ctx.playEpoch}`, seq: rotatedGate, hold: false, loop: true }, clock, reset)
-        // hold:true so instrument release tails keep the correct frequency.
-        const slotFreq = el.seq2({ key: `${trackId}:${slot.id}:freq:${ctx.playEpoch}`, seq: rotatedFreq, hold: true, loop: true }, clock, reset)
-        const voice = renderDrumKitSlot(slot, doc.entities.instruments, slotGate, slotFreq, trackId, sampleMeta, sampleHashById, ctx.midiCcValues, ctx.paramRefs, ctx.ccBindings, inst.id)
+        // Apply portamento freqMul to each slot's frequency.
+        const slotFreq = el.mul(
+          el.seq2({ key: `${trackId}:${slot.id}:freq:${ctx.playEpoch}`, seq: rotatedFreq, hold: true, loop: true }, clock, reset),
+          freqMulSeq,
+        )
+        const voice = renderDrumKitSlot(slot, doc.entities.instruments, slotGate, slotFreq, trackId, sampleMeta, sampleHashById, ctx.midiCcValues, ctx.paramRefs, ctx.ccBindings, inletSignals, inst.id)
         mixL = el.add(mixL, voice.left)
         mixR = el.add(mixR, voice.right)
       }
 
-      voices.push(muted
-        ? { left: el.mul(mixL, 0), right: el.mul(mixR, 0) }
-        : { left: el.mul(mixL, effVol, masterGain), right: el.mul(mixR, effVol, masterGain) },
-      )
+      // Apply per-row panning if any row has a pan effect.
+      const hasDkPan = effSig.pan.some((p) => p !== 0.5)
+      if (hasDkPan && !muted) {
+        const panSeq = el.seq2({ key: `${trackId}:pan:${ctx.playEpoch}`, seq: rotatedPan, hold: true, loop: true }, clock, reset)
+        const panAngle = el.mul(panSeq, Math.PI / 2)
+        voices.push({ left: el.mul(mixL, effVol, el.cos(panAngle), masterGain), right: el.mul(mixR, effVol, el.sin(panAngle), masterGain) })
+      } else {
+        voices.push(muted
+          ? { left: el.mul(mixL, 0), right: el.mul(mixR, 0) }
+          : { left: el.mul(mixL, effVol, masterGain), right: el.mul(mixR, effVol, masterGain) },
+        )
+      }
       continue
     }
 
@@ -271,16 +333,19 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
     const firstNote = track.cells.find((c) => c.note != null)?.note
     const trackBaseFreq = firstNote != null ? midiToFreq(firstNote) : 0
 
+    // Per-instrument effect range settings.
+    const effSettings = inst.effectSettings
+
     // Build per-row effect modulation signals from built-in lane types.
-    const { freqMul, volMod, pan } = buildEffectSignals(laneSeqs, laneDefs, pattern.length)
+    const effSig = buildEffectSignals(laneSeqs, laneDefs, pattern.length, effSettings)
 
     // Rotate sequences so playback starts at ctx.startRow.
     const rotatedFreq = rotateSeq(freqSeq, ctx.startRow)
     const rotatedGate = rotateSeq(gateSeq, ctx.startRow)
     const rotatedVolume = rotateSeq(volumeSeq, ctx.startRow)
-    const rotatedFreqMul = rotateSeq(freqMul, ctx.startRow)
-    const rotatedVolMod = rotateSeq(volMod, ctx.startRow)
-    const rotatedPan = rotateSeq(pan, ctx.startRow)
+    const rotatedFreqMul = rotateSeq(effSig.freqMul, ctx.startRow)
+    const rotatedVolMod = rotateSeq(effSig.volMod, ctx.startRow)
+    const rotatedPan = rotateSeq(effSig.pan, ctx.startRow)
 
     // Rotate per-lane sequences.
     const rotatedLaneSeqs: Record<Id, number[]> = {}
@@ -291,10 +356,60 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
     const freq = el.seq2({ key: `${trackId}:freq:${ctx.playEpoch}`, seq: rotatedFreq, hold: true, loop: true }, clock, reset)
     const gate = el.seq2({ key: `${trackId}:gate:${ctx.playEpoch}`, seq: rotatedGate, hold: true, loop: true }, clock, reset)
     const vol = el.seq2({ key: `${trackId}:vol:${ctx.playEpoch}`, seq: rotatedVolume, hold: true, loop: true }, clock, reset)
-    const freqMulSeq = el.seq2({ key: `${trackId}:freqMul:${ctx.playEpoch}`, seq: rotatedFreqMul, hold: true, loop: true }, clock, reset)
-    const volModSeq = el.seq2({ key: `${trackId}:volMod:${ctx.playEpoch}`, seq: rotatedVolMod, hold: true, loop: true }, clock, reset)
 
-    // Build per-lane seq2 nodes.
+    // Portamento and volumeSlide are per-row multipliers (simple seq2).
+    let effFreq: NodeRepr_t = el.mul(freq, el.seq2({ key: `${trackId}:freqMul:${ctx.playEpoch}`, seq: rotatedFreqMul, hold: true, loop: true }, clock, reset))
+    let effVol: NodeRepr_t = el.mul(vol, el.seq2({ key: `${trackId}:volMod:${ctx.playEpoch}`, seq: rotatedVolMod, hold: true, loop: true }, clock, reset))
+
+    // --- Vibrato: audio-rate sine LFO for smooth continuous modulation ---
+    const hasVibrato = effSig.vibratoDepth.some((d) => d > 0)
+    if (hasVibrato) {
+      const vibRateSeq = el.seq2({
+        key: `${trackId}:vibRate:${ctx.playEpoch}`,
+        seq: rotateSeq(effSig.vibratoRate, ctx.startRow),
+        hold: true, loop: true,
+      }, clock, reset)
+      const vibDepthSeq = el.seq2({
+        key: `${trackId}:vibDepth:${ctx.playEpoch}`,
+        seq: rotateSeq(effSig.vibratoDepth, ctx.startRow),
+        hold: true, loop: true,
+      }, clock, reset)
+      // Exponential: 0..1 → 0.5–max Hz
+      const vibMaxHz = effSettings?.vibratoRate ?? 100
+      const vibHz = el.mul(0.5, el.exp(el.mul(vibRateSeq, Math.log(vibMaxHz / 0.5))))
+      const vibLfo = el.cycle(vibHz)
+      // Depth in semitones: ±(max/2)
+      const vibMaxDepth = effSettings?.vibratoDepth ?? 0.5
+      const vibSemi = el.mul(vibLfo, vibDepthSeq, vibMaxDepth)
+      // 2^(semitones/12) via el.exp
+      const vibMul = el.exp(el.mul(vibSemi, Math.LN2 / 12))
+      effFreq = el.mul(effFreq, vibMul)
+    }
+
+    // --- Tremolo: audio-rate sine LFO for smooth amplitude modulation ---
+    const hasTremolo = effSig.tremoloDepth.some((d) => d > 0)
+    if (hasTremolo) {
+      const tremRateSeq = el.seq2({
+        key: `${trackId}:tremRate:${ctx.playEpoch}`,
+        seq: rotateSeq(effSig.tremoloRate, ctx.startRow),
+        hold: true, loop: true,
+      }, clock, reset)
+      const tremDepthSeq = el.seq2({
+        key: `${trackId}:tremDepth:${ctx.playEpoch}`,
+        seq: rotateSeq(effSig.tremoloDepth, ctx.startRow),
+        hold: true, loop: true,
+      }, clock, reset)
+      // Exponential: 0..1 → 0.5–max Hz
+      const tremMaxHz = effSettings?.tremoloRate ?? 100
+      const tremHz = el.mul(0.5, el.exp(el.mul(tremRateSeq, Math.log(tremMaxHz / 0.5))))
+      const tremlfo = el.cycle(tremHz)
+      // AM: dips at LFO zero crossings, 1 at peaks — depth controls how deep
+      const tremMaxDepth = effSettings?.tremoloDepth ?? 1
+      const tremMod = el.sub(1, el.mul(tremDepthSeq, el.mul(el.sub(1, el.abs(tremlfo)), tremMaxDepth)))
+      effVol = el.mul(effVol, tremMod)
+    }
+
+    // Build per-lane seq2 nodes for named instrument inlets.
     const laneNodes: Record<Id, NodeRepr_t> = {}
     for (const [laneId, seq] of Object.entries(rotatedLaneSeqs)) {
       laneNodes[laneId] = el.seq2({
@@ -306,7 +421,6 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
     }
 
     // Build inlet name → seq2 node map for named instrument inlets.
-    // Named inlet lanes use the lane type as the inlet name.
     const inletSignals: Record<string, NodeRepr_t> = {}
     for (const lane of laneDefs) {
       if (!isBuiltinLaneType(lane.type)) {
@@ -314,13 +428,10 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
       }
     }
 
-    // Apply effect modulation to frequency and volume.
-    const { freq: effFreq, vol: effVol } = applyEffectModulation(freq, vol, freqMulSeq, volModSeq)
-
     const voice = renderInstrument(inst, effFreq, gate, trackId, sampleMeta, 0, sampleHashById, trackBaseFreq, effVol, inletSignals, ctx.midiCcValues, ctx.paramRefs, ctx.ccBindings)
 
     // Apply per-row panning if any row has a pan effect.
-    const hasPan = pan.some((p) => p !== 0.5)
+    const hasPan = effSig.pan.some((p) => p !== 0.5)
     if (hasPan && !muted) {
       // Convert 0..1 pan values to constant-power stereo gains.
       const panArr = rotatedPan

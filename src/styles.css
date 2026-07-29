@@ -7,8 +7,6 @@
   --beat: #1b212b;
   --cursor: #2b3a55;
   --playhead: #3a2b1b;
-  /* Width of one track column, now fitting note + volume. */
-  --track-w: 128px;
 }
 
 * { box-sizing: border-box; }
@@ -70,17 +68,53 @@ body {
 
 .inst-editor { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .inst-empty { padding: 24px; color: var(--muted); }
-.inst-editor-head {
-  display: flex; align-items: center; gap: 12px;
-  padding: 10px 16px; border-bottom: 1px solid #000; background: var(--panel);
+/* ---- Instrument Settings Pane -------------------------------------------- */
+.inst-settings {
+  width: 260px; flex: none; overflow-y: auto;
+  background: var(--panel); border-left: 1px solid #000;
+  display: flex; flex-direction: column;
 }
-.inst-editor-head .spacer { flex: 1; }
-.inst-editor-head button {
+.inst-settings-head {
+  padding: 10px 12px; border-bottom: 1px solid #000;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.inst-settings-actions {
+  display: flex; gap: 6px;
+}
+.inst-settings-actions button {
+  flex: 1;
   background: #222; color: var(--fg); border: 1px solid #333;
-  border-radius: 4px; padding: 4px 10px; font: inherit; cursor: pointer;
+  border-radius: 4px; padding: 3px 8px; font: inherit; font-size: 11px; cursor: pointer;
 }
-.inst-editor-head button:hover:not(:disabled) { border-color: #e07a5f; color: #e07a5f; }
-.inst-editor-head button:disabled { opacity: 0.4; cursor: not-allowed; }
+.inst-settings-actions button:hover:not(:disabled) { border-color: #e07a5f; color: #e07a5f; }
+.inst-settings-actions button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.inst-settings-body {
+  padding: 12px; overflow-y: auto; flex: 1;
+}
+.inst-settings-body h4 {
+  margin: 0 0 10px; color: var(--accent); font-size: 12px;
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
+.inst-setting-row {
+  display: flex; align-items: center; gap: 6px;
+  margin-bottom: 8px; font-size: 11px;
+}
+.inst-setting-label {
+  min-width: 68px; color: var(--muted); flex: none;
+}
+.inst-setting-select {
+  flex: 1; min-width: 0;
+  background: var(--bg); color: var(--fg);
+  border: 1px solid #2a3644; border-radius: 3px;
+  padding: 2px 4px; font: inherit; font-size: 11px;
+  cursor: pointer;
+}
+.inst-setting-select:hover { border-color: var(--accent); }
+.inst-setting-row input[type='range'] {
+  flex: 1; accent-color: var(--accent);
+}
+
 .inst-name-input {
   background: var(--bg); color: var(--fg); border: 1px solid #333;
   border-radius: 4px; padding: 4px 10px; font: inherit; min-width: 200px;
@@ -377,7 +411,6 @@ body {
 .grid-head { color: var(--accent); position: sticky; top: 0; background: var(--bg); }
 
 .cell {
-  width: var(--track-w);
   flex: none;
   padding: 1px 4px;
   white-space: pre;
@@ -392,7 +425,7 @@ body {
 .cell.cursor.selected { background: var(--cursor); }
 .cell.muted { opacity: 0.4; }
 
-.cell-note { flex: 1; min-width: 0; }
+.cell-note { width: 48px; flex: none; }
 .cell-vol {
   width: 24px;
   text-align: right;
@@ -591,7 +624,7 @@ body {
   opacity: 0.7;
 }
 .lane-label {
-  color: var(--accent);
+  color: var(--muted);
   white-space: nowrap;
 }
 .lane-del {

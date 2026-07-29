@@ -15,6 +15,7 @@ import type {
   Section,
   Track,
 } from './types'
+import { DEFAULT_EFFECT_SETTINGS } from './types'
 import { defaultParams } from './moduleDefs'
 
 /**
@@ -39,7 +40,7 @@ export function fitCells(cells: Cell[], length: number): Cell[] {
 
 /** A fresh saw instrument. */
 export function newOscInstrument(name: string): OscInstrument {
-  return { id: makeId('inst'), kind: 'osc', name, params: { gain: 0.8 } }
+  return { id: makeId('inst'), kind: 'osc', name, params: { gain: 0.8 }, effectSettings: { ...DEFAULT_EFFECT_SETTINGS } }
 }
 
 /** A fresh empty drum kit with a default key range of C-2 to C-4. */
@@ -103,6 +104,7 @@ export function newModularInstrument(name: string): ModularInstrument {
     modules: Object.fromEntries(modules.map((m) => [m.id, m])),
     connections: Object.fromEntries(connections.map((c) => [c.id, c])),
     outputId: output.id,
+    effectSettings: { ...DEFAULT_EFFECT_SETTINGS },
   }
 }
 
@@ -113,7 +115,7 @@ export function newModularInstrument(name: string): ModularInstrument {
  */
 export function cloneInstrument(inst: Instrument, name: string): Instrument {
   if (inst.kind === 'osc') {
-    return { id: makeId('inst'), kind: 'osc', name, params: { ...inst.params } }
+    return { id: makeId('inst'), kind: 'osc', name, params: { ...inst.params }, effectSettings: { ...inst.effectSettings } }
   }
 
   if (inst.kind === 'drumkit') {
@@ -150,6 +152,7 @@ export function cloneInstrument(inst: Instrument, name: string): Instrument {
     modules,
     connections,
     outputId: idMap.get(inst.outputId)!,
+    effectSettings: { ...inst.effectSettings },
   }
 }
 
@@ -170,8 +173,8 @@ export function newSection(name: string): Section {
  * `loadDoc` replaces this entirely.
  */
 export function createDefaultDoc(): Doc {
-  const instA: Instrument = { id: makeId('inst'), kind: 'osc', name: 'Saw Lead', params: { gain: 0.8 } }
-  const instB: Instrument = { id: makeId('inst'), kind: 'osc', name: 'Saw Bass', params: { gain: 0.8 } }
+  const instA: Instrument = { id: makeId('inst'), kind: 'osc', name: 'Saw Lead', params: { gain: 0.8 }, effectSettings: { ...DEFAULT_EFFECT_SETTINGS } }
+  const instB: Instrument = { id: makeId('inst'), kind: 'osc', name: 'Saw Bass', params: { gain: 0.8 }, effectSettings: { ...DEFAULT_EFFECT_SETTINGS } }
 
   const length = 16
 

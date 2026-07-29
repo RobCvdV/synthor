@@ -35,6 +35,22 @@ interface Props {
   onCellClick: (row: number, track: number, shiftKey: boolean) => void
 }
 
+/** Subtle dark backgrounds for lane color-coding — distinct enough to differentiate
+ *  adjacent lanes but dark enough to keep text readable. Index by lane position. */
+const LANE_COLORS = [
+  '#191f2b', '#1f1926', '#19261f', '#231e18',
+  '#172428', '#211724', '#1a2418', '#211720',
+]
+
+function laneBg(index: number): string {
+  return LANE_COLORS[index % LANE_COLORS.length]
+}
+
+/** 82px base (padding + 48px note + 24px vol + gaps) + 22px per lane. */
+function trackCellWidth(laneCount: number): number {
+  return 82 + laneCount * 22
+}
+
 /** Read-only presentation of the current pattern. Editing happens via keys. */
 function inSelection(
   sel: Selection | null, row: number, track: number,
@@ -129,7 +145,7 @@ export function TrackerGrid({ doc, pattern, cursor, playhead, muted, soloed, sel
           const inletOptions = getInletOptions[t.instrumentId] ?? []
 
           return (
-            <span key={t.id} className={'cell track-head' + (isMuted ? ' muted' : '') + (isSoloed ? ' soloed' : '')}>
+            <span key={t.id} className={'cell track-head' + (isMuted ? ' muted' : '') + (isSoloed ? ' soloed' : '')} style={{ width: trackCellWidth(t.effectLanes.length) }}>
               <span className="track-no">
                 {ti + 1}
                 {isSoloed && <span className="solo-tag">S</span>}
@@ -138,7 +154,7 @@ export function TrackerGrid({ doc, pattern, cursor, playhead, muted, soloed, sel
               <select
                 className="track-inst"
                 value={t.instrumentId}
-                onChange={(e) => setTrackInstrument(t.id, e.target.value)}
+                onChange={(e) => { setTrackInstrument(t.id, e.target.value); (e.target as HTMLSelectElement).blur() }}
                 title="Instrument for this track"
               >
                 {instruments.map((inst) => (
@@ -155,6 +171,7 @@ export function TrackerGrid({ doc, pattern, cursor, playhead, muted, soloed, sel
                       key={lane.id}
                       className={'lane-pill' + (isAvailable ? '' : ' lane-unavailable')}
                       title={isAvailable ? readableLaneLabel(lane.type) : `${lane.type} (unavailable)`}
+                      style={{ backgroundColor: laneBg(_li) }}
                     >
                       <span className="lane-label">{readableLaneLabel(lane.type)}</span>
                       <button
@@ -171,7 +188,7 @@ export function TrackerGrid({ doc, pattern, cursor, playhead, muted, soloed, sel
                   className="track-add-lane"
                   value=""
                   onChange={(e) => {
-                    if (e.target.value) { addEffectLane(t.id, e.target.value); e.target.value = '' }
+                    if (e.target.value) { addEffectLane(t.id, e.target.value); e.target.value = ''; (e.target as HTMLSelectElement).blur() }
                   }}
                   title="Add effect lane"
                 >
@@ -238,6 +255,7 @@ export function TrackerGrid({ doc, pattern, cursor, playhead, muted, soloed, sel
                 <span
                   key={lane.id}
                   className={'cell-eff' + (laneActive ? ' sub-active' : '')}
+                  style={laneActive ? undefined : { backgroundColor: laneBg(li) }}
                 >
                   {label}
                 </span>
@@ -248,6 +266,7 @@ export function TrackerGrid({ doc, pattern, cursor, playhead, muted, soloed, sel
               <span
                 key={t.id}
                 className={'cell' + (active ? ' cursor' : '') + (sel ? ' selected' : '') + mutedClass + (noteOff ? ' noteoff' : '')}
+                style={{ width: trackCellWidth(t.effectLanes.length) }}
                 onMouseDown={(e) => { e.preventDefault(); onCellClick(row, ti, e.shiftKey) }}
               >
                 <span className={'cell-note' + (noteActive ? ' sub-active' : '')}>{noteLabel}</span>

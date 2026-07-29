@@ -87,6 +87,8 @@ export function renderDrumKitSlot(
   midiCcValues?: Record<number, number>,
   paramRefs?: import('../audio/paramRefs').ParamRefRegistry,
   ccBindings?: import('../audio/ccBindings').CcBindings,
+  /** Named inlet signals from effect lanes, propagated to sub-instruments. */
+  inletSignals: Record<string, NodeRepr_t> = {},
   /** Drumkit instrument id — when provided, slot gain/pan use createRef. */
   kitInstId?: string,
 ): StereoOut {
@@ -143,7 +145,7 @@ export function renderDrumKitSlot(
         sampleHashById,
         midiToFreq(slot.note),
         1, // volume
-        {}, // inletSignals — drumkit slots don't use effect lanes
+        inletSignals,
         midiCcValues,
         paramRefs,
         ccBindings,

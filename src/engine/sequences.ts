@@ -37,13 +37,15 @@ export function buildSequences(track: Track, length: number): TrackSequences {
   let lastFreq = 0
   let holding = false
 
-  // Build per-lane sequences, default to 0 (no modulation).
+  // Build per-lane sequences. Default depends on lane type:
+  // portamento uses 0.5 (center = no change), volumeSlide uses 1 (passthrough).
   const effectLanes: Record<Id, number[]> = {}
   for (const lane of track.effectLanes) {
-    const seq = new Array(length).fill(0)
+    const fallback = lane.type === 'portamento' ? 0.5 : lane.type === 'volumeSlide' ? 1 : 0
+    const seq = new Array(length).fill(fallback)
     for (let row = 0; row < length; row++) {
       const val = track.cells[row]?.effectLanes[lane.id]
-      seq[row] = val ?? 0
+      if (val !== null && val !== undefined) seq[row] = val
     }
     effectLanes[lane.id] = seq
   }

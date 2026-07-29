@@ -318,3 +318,76 @@ describe('migration v5→v6', () => {
     expect(track.cells[0].effectLanes).toEqual({ l1: 0.5 })
   })
 })
+
+describe('migration portaUp/portaDown → portamento', () => {
+  it('converts portaUp lane type and remaps cell values', () => {
+    const v6 = {
+      schemaVersion: 6,
+      meta: META,
+      doc: {
+        patternId: 'p1',
+        sectionIds: [],
+        entities: {
+          instruments: {},
+          tracks: {
+            t1: {
+              id: 't1', instrumentId: 'i1',
+              effectLanes: [{ id: 'l1', type: 'portaUp' }],
+              cells: [
+                { note: 60, volume: null, noteOff: false, effectLanes: { l1: 0.0 } },
+                { note: 60, volume: null, noteOff: false, effectLanes: { l1: 1.0 } },
+                { note: 60, volume: null, noteOff: false, effectLanes: { l1: 0.5 } },
+                { note: 60, volume: null, noteOff: false, effectLanes: {} },
+              ],
+            },
+          },
+          patterns: { p1: { id: 'p1', name: 'p', length: 4, trackIds: ['t1'] } },
+          sections: {},
+          samples: {},
+        },
+      },
+    }
+    const result = migrate(v6)
+    const track = (result.doc.entities.tracks as any).t1
+    expect(track.effectLanes).toEqual([{ id: 'l1', type: 'portamento' }])
+    // portaUp: 0→0.5, 0.5→0.75, 1→1, unset→unset
+    expect(track.cells[0].effectLanes.l1).toBeCloseTo(0.5)  // 0 → 0.5
+    expect(track.cells[1].effectLanes.l1).toBeCloseTo(1.0)  // 1 → 1
+    expect(track.cells[2].effectLanes.l1).toBeCloseTo(0.75) // 0.5 → 0.75
+  })
+
+  it('converts portaDown lane type and remaps cell values', () => {
+    const v6 = {
+      schemaVersion: 6,
+      meta: META,
+      doc: {
+        patternId: 'p1',
+        sectionIds: [],
+        entities: {
+          instruments: {},
+          tracks: {
+            t1: {
+              id: 't1', instrumentId: 'i1',
+              effectLanes: [{ id: 'l1', type: 'portaDown' }],
+              cells: [
+                { note: 60, volume: null, noteOff: false, effectLanes: { l1: 0.0 } },
+                { note: 60, volume: null, noteOff: false, effectLanes: { l1: 1.0 } },
+                { note: 60, volume: null, noteOff: false, effectLanes: { l1: 0.5 } },
+              ],
+            },
+          },
+          patterns: { p1: { id: 'p1', name: 'p', length: 3, trackIds: ['t1'] } },
+          sections: {},
+          samples: {},
+        },
+      },
+    }
+    const result = migrate(v6)
+    const track = (result.doc.entities.tracks as any).t1
+    expect(track.effectLanes).toEqual([{ id: 'l1', type: 'portamento' }])
+    // portaDown: 0→0.5, 0.5→0.25, 1→0
+    expect(track.cells[0].effectLanes.l1).toBeCloseTo(0.5)  // 0 → 0.5
+    expect(track.cells[1].effectLanes.l1).toBeCloseTo(0.0)  // 1 → 0
+    expect(track.cells[2].effectLanes.l1).toBeCloseTo(0.25) // 0.5 → 0.25
+  })
+})

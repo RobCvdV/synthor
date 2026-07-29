@@ -33,6 +33,20 @@ export interface EffectLaneDef {
   type: string
 }
 
+/** Default max values for per-instrument effect lane ranges. */
+export const DEFAULT_EFFECT_SETTINGS = {
+  vibratoRate: 100,
+  vibratoDepth: 0.5,
+  tremoloRate: 100,
+  tremoloDepth: 1,
+  portamento: 4,
+} as const
+
+export type EffectSettingKey = keyof typeof DEFAULT_EFFECT_SETTINGS
+
+/** Per-instrument effect range overrides. Missing keys fall back to defaults. */
+export type EffectSettings = Partial<Record<string, number>>
+
 /** The original built-in instrument: a simple saw oscillator through an ADSR. */
 export interface OscInstrument {
   id: Id
@@ -42,6 +56,8 @@ export interface OscInstrument {
     /** Output gain, 0..1. */
     gain: number
   }
+  /** Per-instrument effect range overrides. Missing on older save files. */
+  effectSettings?: EffectSettings
 }
 
 /**
@@ -104,6 +120,8 @@ export interface ModularInstrument {
   connections: Record<Id, Connection>
   /** The module whose inlet feeds the voice output (always type 'output'). */
   outputId: Id
+  /** Per-instrument effect range overrides. Missing on older save files. */
+  effectSettings?: EffectSettings
 }
 
 /** A managed sample asset — metadata only. Binary PCM data lives in OPFS. */

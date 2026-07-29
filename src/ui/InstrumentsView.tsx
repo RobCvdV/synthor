@@ -4,6 +4,7 @@ import { usePreviewStore } from '../state/previewStore'
 import { codeToSemitone } from './keymap'
 import { ModularEditor } from './ModularEditor'
 import { DrumKitEditor } from './DrumKitEditor'
+import { InstrumentSettings } from './InstrumentSettings'
 import { cloneInstrument } from '../domain/factory'
 import type { AudioHost } from '../audio/host'
 import type { Id, Instrument } from '../domain/types'
@@ -31,7 +32,6 @@ export function InstrumentsView({ host }: { host: AudioHost }) {
   const addInstrument = useDocStore((s) => s.addInstrument)
   const removeInstrument = useDocStore((s) => s.removeInstrument)
   const duplicateInstrument = useDocStore((s) => s.duplicateInstrument)
-  const renameInstrument = useDocStore((s) => s.renameInstrument)
   const setOscParamSilent = useDocStore((s) => s.setOscParamSilent)
 
   const noteOn = usePreviewStore((s) => s.noteOn)
@@ -206,32 +206,6 @@ export function InstrumentsView({ host }: { host: AudioHost }) {
         {!selected && <div className="inst-empty">No instruments. Add one to start patching.</div>}
         {selected && (
           <>
-            <header className="inst-editor-head">
-              <input
-                className="inst-name-input"
-                value={selected.name}
-                onChange={(e) => renameInstrument(selected.id, e.target.value)}
-              />
-              <span className="muted">{selected.kind}</span>
-              <span className="spacer" />
-              <button
-                title="Duplicate this instrument"
-                onClick={() => setSelectedId(duplicateInstrument(selected.id))}
-              >
-                Duplicate
-              </button>
-              <button onClick={exportInstrument}>
-                Export
-              </button>
-              <button
-                disabled={usage(selected.id) > 0}
-                title={usage(selected.id) > 0 ? 'In use by a track — reassign first' : 'Delete instrument'}
-                onClick={() => removeInstrument(selected.id)}
-              >
-                Delete
-              </button>
-            </header>
-
             <div className="preview-bar">
               <span className="muted">Play keys to preview</span>
               <span className="preview-oct">
@@ -275,6 +249,17 @@ export function InstrumentsView({ host }: { host: AudioHost }) {
           </>
         )}
       </section>
+
+      {selected && (
+        <InstrumentSettings
+          inst={selected}
+          usage={usage(selected.id)}
+          onDuplicate={() => setSelectedId(duplicateInstrument(selected.id))}
+          onExport={exportInstrument}
+          onDelete={() => removeInstrument(selected.id)}
+        />
+      )}
+
       <input
         ref={fileInput}
         type="file"

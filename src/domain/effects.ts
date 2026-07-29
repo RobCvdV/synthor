@@ -16,8 +16,7 @@ export const BUILTIN_LANE_TYPES = [
   'vibratoDepth',
   'tremoloRate',
   'tremoloDepth',
-  'portaUp',
-  'portaDown',
+  'portamento',
   'volumeSlide',
   'panning',
 ] as const
@@ -36,9 +35,8 @@ export const LANE_DEFS: Record<BuiltinLaneType, LaneDef> = {
   vibratoDepth: { type: 'vibratoDepth', label: 'Vib Depth', description: 'Vibrato modulation depth' },
   tremoloRate:  { type: 'tremoloRate',  label: 'Trm Rate',  description: 'Tremolo LFO speed (0.5–50 Hz)' },
   tremoloDepth: { type: 'tremoloDepth', label: 'Trm Depth', description: 'Tremolo modulation depth' },
-  portaUp:      { type: 'portaUp',      label: 'Porta Up',  description: 'Pitch slide up per step' },
-  portaDown:    { type: 'portaDown',    label: 'Porta Dn',  description: 'Pitch slide down per step' },
-  volumeSlide:  { type: 'volumeSlide',  label: 'Vol Slide', description: 'Volume delta per step' },
+  portamento:   { type: 'portamento',   label: 'Porta',     description: 'Pitch slide (80=center, 00=down, FF=up)' },
+  volumeSlide:  { type: 'volumeSlide',  label: 'Vol Slide', description: 'Absolute volume to slide to (00–FF)' },
   panning:      { type: 'panning',      label: 'Panning',   description: 'Stereo position (00=left, FF=right)' },
 }
 
