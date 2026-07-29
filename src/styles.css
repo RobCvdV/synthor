@@ -219,6 +219,16 @@ body {
 .mod-scale-btn:hover { color: var(--fg); border-color: var(--accent); }
 .mod-scale-btn.active { color: #e0b95f; border-color: #e0b95f; background: rgba(224,185,95,0.1); }
 .mod-scale-val { font-variant-numeric: tabular-nums; min-width: 16px; text-align: center; display: inline-block; }
+
+/* Bypass toggle button in effect module nodes */
+.mod-param-bypass { margin-bottom: 4px; }
+.mod-bypass-btn {
+  background: none; border: 1px solid #2a3644; color: var(--muted);
+  border-radius: 3px; padding: 1px 6px; font-size: 12px; line-height: 16px;
+  cursor: pointer;
+}
+.mod-bypass-btn:hover { color: var(--fg); border-color: var(--accent); }
+.mod-bypass-btn.active { color: #e0b95f; border-color: #e0b95f; background: rgba(224,185,95,0.12); }
 .mod-param input[type='range'] { width: 100%; }
 
 .react-flow__handle { width: 9px; height: 9px; background: var(--accent); border: none; }

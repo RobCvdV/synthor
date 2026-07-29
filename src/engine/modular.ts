@@ -217,6 +217,7 @@ export function compileModular(
 
       case 'filter': {
         const input = inlet(m.id, 'in') ?? SILENCE
+        if (p.bypass) return input
         const cutoffMod = inlet(m.id, 'cutoffMod')
         const base = kconst(key('cutoff'), p.cutoff ?? 1200)
         const q = kconst(key('q'), p.q ?? 0.7)
@@ -263,11 +264,13 @@ export function compileModular(
 
       case 'gain': {
         const input = inlet(m.id, 'in') ?? SILENCE
+        if (p.bypass) return input
         const mod = inlet(m.id, 'mod') ?? 1
         return el.mul(input, kconst(key('level'), p.level ?? 0.8), mod)
       }
 
       case 'mix': {
+        if (p.bypass) return inlet(m.id, 'a') ?? SILENCE
         const parts = ['a', 'b', 'c', 'd']
           .map((port) => inlet(m.id, port))
           .filter((n): n is Node => n !== null)
@@ -329,6 +332,7 @@ export function compileModular(
 
       case 'tanh': {
         const input = inlet(m.id, 'in') ?? SILENCE
+        if (p.bypass) return input
         const driveMod = inlet(m.id, 'drive') ?? el.const({ value: 1 })
         const drive = el.mul(kconst(key('drive'), p.drive ?? 4), driveMod)
         return el.mul(el.tanh(el.mul(input, drive)), kconst(key('level'), p.level ?? 1))
@@ -336,6 +340,7 @@ export function compileModular(
 
       case 'clip': {
         const input = inlet(m.id, 'in') ?? SILENCE
+        if (p.bypass) return input
         const driveMod = inlet(m.id, 'drive') ?? el.const({ value: 1 })
         const drive = el.mul(kconst(key('drive'), p.drive ?? 4), driveMod)
         const threshold = kconst(key('threshold'), p.threshold ?? 0.7)
@@ -348,6 +353,7 @@ export function compileModular(
 
       case 'fold': {
         const input = inlet(m.id, 'in') ?? SILENCE
+        if (p.bypass) return input
         const driveMod = inlet(m.id, 'drive') ?? el.const({ value: 1 })
         const drive = el.mul(kconst(key('drive'), p.drive ?? 3), driveMod)
         const threshold = kconst(key('threshold'), p.threshold ?? 0.35)
@@ -368,6 +374,7 @@ export function compileModular(
 
       case 'crush': {
         const input = inlet(m.id, 'in') ?? SILENCE
+        if (p.bypass) return input
         const bitsMod = inlet(m.id, 'bits') ?? el.const({ value: 1 })
         const bits = el.mul(kconst(key('bits'), p.bits ?? 4), bitsMod)
         // Quantise to N bits:  steps = 2^(N-1),  out = round(in·steps) / steps
@@ -378,6 +385,7 @@ export function compileModular(
 
       case 'delay': {
         const input = inlet(m.id, 'in') ?? SILENCE
+        if (p.bypass) return input
         // Single-tap delay — no feedback, one repeat at the given time.
         const timeSamps = el.ms2samps(kconst(key('time'), p.time ?? 150))
         const wet = el.delay({ key: `${keyPrefix}:${m.id}`, size: DELAY_SIZE }, timeSamps, 0, input)
@@ -387,6 +395,7 @@ export function compileModular(
 
       case 'echo': {
         const input = inlet(m.id, 'in') ?? SILENCE
+        if (p.bypass) return input
         // Repeating echo — delay line with feedback for multiple repeats.
         const timeSamps = el.ms2samps(kconst(key('time'), p.time ?? 150))
         const fb = kconst(key('feedback'), p.feedback ?? 0.25)
@@ -397,6 +406,11 @@ export function compileModular(
 
       case 'reverb': {
         const input = inlet(m.id, 'in') ?? SILENCE
+        // Stereo bypass: store the same signal on both L/R channels.
+        if (p.bypass) {
+          memo.set(`${m.id}:outR`, input)
+          return input
+        }
 
         const roomSize = kconst(key('roomSize'), p.roomSize ?? 0.5)
         const feedback = kconst(key('feedback'), p.feedback ?? 0.45)

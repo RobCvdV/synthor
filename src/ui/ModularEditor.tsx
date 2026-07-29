@@ -186,13 +186,25 @@ function ModuleNode({ data }: NodeProps) {
 
           const displayVal = scaleVal !== null ? value * scaleVal : value
           const isCcParam = p.key === 'cc' && module.type === 'eff'
+          const isBypass = p.key === 'bypass'
 
           return (
-            <label className="mod-param" key={p.key}>
+            <label className={'mod-param' + (isBypass ? ' mod-param-bypass' : '')} key={p.key}>
               <span className="mod-param-label">
-                {p.label}
+                {isBypass ? '' : p.label}
                 <span className="mod-param-value">
-                  {isCcParam ? (
+                  {isBypass ? (
+                    <button
+                      className={`mod-bypass-btn nodrag${value ? ' active' : ''}`}
+                      title={value ? 'Bypassed — click to engage' : 'Active — click to bypass'}
+                      onClick={(e) => {
+                        e.preventDefault()
+                        setModuleParam(instrumentId, moduleId, p.key, value ? 0 : 1)
+                      }}
+                    >
+                      {value ? '⏻' : '⊖'}
+                    </button>
+                  ) : isCcParam ? (
                     <>
                       {value === 0 ? 'off' : `CC ${value}`}
                       {' '}
@@ -240,7 +252,7 @@ function ModuleNode({ data }: NodeProps) {
                   )}
                 </span>
               </span>
-              {!isCcParam && (
+              {!isCcParam && !isBypass && (
                 <input
                   className="nodrag"
                   type="range"

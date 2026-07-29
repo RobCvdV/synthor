@@ -105,6 +105,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     inlets: ['in', 'cutoffMod'],
     outlets: ['out'],
     params: [
+      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'] },
       { key: 'mode', label: 'Mode', min: 0, max: 2, default: 0, step: 1, enumLabels: [...FILTER_MODES] },
       { key: 'cutoff', label: 'Cutoff (Hz)', min: 20, max: 18000, default: 1200, step: 1 },
       { key: 'q', label: 'Resonance', min: 0.1, max: 12, default: 0.7, step: 0.1 },
@@ -129,14 +130,20 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     label: 'Gain',
     inlets: ['in', 'mod'],
     outlets: ['out'],
-    params: [{ key: 'level', label: 'Level', min: 0, max: 2, default: 0.8, step: 0.01 }],
+    params: [
+      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'] },
+      { key: 'level', label: 'Level', min: 0, max: 2, default: 0.8, step: 0.01 },
+    ],
   },
   mix: {
     type: 'mix',
     label: 'Mix',
     inlets: ['a', 'b', 'c', 'd'],
     outlets: ['out'],
-    params: [{ key: 'mode', label: 'Mode', min: 0, max: 1, default: 0, step: 1, enumLabels: [...MIX_MODES] }],
+    params: [
+      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'] },
+      { key: 'mode', label: 'Mode', min: 0, max: 1, default: 0, step: 1, enumLabels: [...MIX_MODES] },
+    ],
   },
   lfo: {
     type: 'lfo',
@@ -158,6 +165,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     inlets: ['in', 'drive'],
     outlets: ['out'],
     params: [
+      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'] },
       { key: 'drive', label: 'Drive', min: 0.5, max: 40, default: 4, step: 0.5 },
       { key: 'level', label: 'Level', min: 0, max: 2, default: 1, step: 0.01 },
     ],
@@ -168,6 +176,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     inlets: ['in', 'drive'],
     outlets: ['out'],
     params: [
+      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'] },
       { key: 'drive', label: 'Drive', min: 0.5, max: 40, default: 4, step: 0.5 },
       { key: 'threshold', label: 'Thresh', min: 0.05, max: 1, default: 0.7, step: 0.01 },
       { key: 'level', label: 'Level', min: 0, max: 2, default: 0.7, step: 0.01 },
@@ -179,6 +188,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     inlets: ['in', 'drive'],
     outlets: ['out'],
     params: [
+      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'] },
       { key: 'drive', label: 'Drive', min: 0.5, max: 30, default: 3, step: 0.5 },
       { key: 'threshold', label: 'Thresh', min: 0.05, max: 1, default: 0.35, step: 0.01 },
       { key: 'level', label: 'Level', min: 0, max: 2, default: 0.7, step: 0.01 },
@@ -190,6 +200,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     inlets: ['in', 'bits'],
     outlets: ['out'],
     params: [
+      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'] },
       { key: 'bits', label: 'Bits', min: 1, max: 16, default: 4, step: 1 },
       { key: 'level', label: 'Level', min: 0, max: 2, default: 1, step: 0.01 },
     ],
@@ -200,6 +211,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     inlets: ['in'],
     outlets: ['out'],
     params: [
+      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'] },
       { key: 'time', label: 'Time (ms)', min: 1, max: 2000, default: 150, step: 1 },
       { key: 'mix', label: 'Mix', min: 0, max: 1, default: 0.5, step: 0.01 },
     ],
@@ -210,6 +222,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     inlets: ['in'],
     outlets: ['out'],
     params: [
+      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'] },
       { key: 'time', label: 'Time (ms)', min: 1, max: 2000, default: 150, step: 1 },
       { key: 'feedback', label: 'Feedback', min: 0, max: 0.95, default: 0.25, step: 0.01 },
       { key: 'mix', label: 'Mix', min: 0, max: 1, default: 0.5, step: 0.01 },
@@ -221,6 +234,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     inlets: ['in'],
     outlets: ['outL', 'outR'],
     params: [
+      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'] },
       { key: 'roomSize', label: 'Room', min: 0.1, max: 1, default: 0.5, step: 0.01 },
       { key: 'feedback', label: 'Feedback', min: 0, max: 0.95, default: 0.45, step: 0.01 },
       { key: 'damping', label: 'Damping', min: 0, max: 1, default: 0.5, step: 0.01 },
