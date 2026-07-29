@@ -153,3 +153,168 @@ describe('song serialization', () => {
     expect(restoredTrack.cells[0].noteOff).toBe(false)
   })
 })
+
+describe('migration v5→v6', () => {
+  it('strips effect/effectValue from cells', () => {
+    const v5 = {
+      schemaVersion: 5,
+      meta: META,
+      doc: {
+        patternId: 'p1',
+        sectionIds: [],
+        entities: {
+          instruments: {},
+          tracks: {
+            t1: {
+              id: 't1', instrumentId: 'i1',
+              cells: [
+                { note: 60, volume: null, noteOff: false, effect: 0x108, effectValue: 0x08 },
+                { note: null, volume: null, noteOff: false, effect: null, effectValue: null },
+              ],
+            },
+          },
+          patterns: { p1: { id: 'p1', name: 'p', length: 2, trackIds: ['t1'] } },
+          sections: {},
+          samples: {},
+        },
+      },
+    }
+    const result = migrate(v5)
+    const cells = (result.doc.entities.tracks as any).t1.cells
+    expect(cells[0].effectLanes).toEqual({})
+    expect(cells[0].effect).toBeUndefined()
+    expect(cells[0].effectValue).toBeUndefined()
+    expect(cells[0].note).toBe(60)
+    expect(cells[1].effectLanes).toEqual({})
+  })
+
+  it('adds effectLanes array to tracks', () => {
+    const v5 = {
+      schemaVersion: 5,
+      meta: META,
+      doc: {
+        patternId: 'p1',
+        sectionIds: [],
+        entities: {
+          instruments: {},
+          tracks: {
+            t1: {
+              id: 't1', instrumentId: 'i1',
+              cells: [{ note: 60, volume: null, noteOff: false, effect: null, effectValue: null }],
+            },
+          },
+          patterns: { p1: { id: 'p1', name: 'p', length: 1, trackIds: ['t1'] } },
+          sections: {},
+          samples: {},
+        },
+      },
+    }
+    const result = migrate(v5)
+    expect((result.doc.entities.tracks as any).t1.effectLanes).toEqual([])
+  })
+
+  it('converts effect1/effect2 modules to eff modules with names', () => {
+    const v5 = {
+      schemaVersion: 5,
+      meta: META,
+      doc: {
+        patternId: 'p1',
+        sectionIds: [],
+        entities: {
+          instruments: {
+            i1: {
+              id: 'i1', kind: 'modular', name: 'Mod',
+              modules: {
+                m1: { id: 'm1', type: 'effect1', params: { cc: 10 }, pos: { x: 40, y: 640 } },
+                m2: { id: 'm2', type: 'effect2', params: {}, pos: { x: 40, y: 840 } },
+                m3: { id: 'm3', type: 'output', params: { gain: 1 }, pos: { x: 960, y: 160 } },
+              },
+              connections: {
+                c1: { id: 'c1', from: { moduleId: 'm1', port: 'val' }, to: { moduleId: 'm3', port: 'inL' }, gain: 1 },
+              },
+              outputId: 'm3',
+            },
+          },
+          tracks: {},
+          patterns: { p1: { id: 'p1', name: 'p', length: 1, trackIds: [] } },
+          sections: {},
+          samples: {},
+        },
+      },
+    }
+    const result = migrate(v5)
+    const mods: any[] = Object.values((result.doc.entities.instruments as any).i1.modules)
+    const effMods = mods.filter((m: any) => m.type === 'eff')
+    expect(effMods).toHaveLength(2)
+    expect(effMods[0].name).toBe('Eff 01')
+    expect(effMods[1].name).toBe('Eff 02')
+    expect(mods.find((m: any) => m.id === 'm1')).toBeUndefined()
+    expect(mods.find((m: any) => m.id === 'm2')).toBeUndefined()
+  })
+
+  it('remaps connection refs from old module ids to new eff ids', () => {
+    const v5 = {
+      schemaVersion: 5,
+      meta: META,
+      doc: {
+        patternId: 'p1',
+        sectionIds: [],
+        entities: {
+          instruments: {
+            i1: {
+              id: 'i1', kind: 'modular', name: 'Mod',
+              modules: {
+                m1: { id: 'm1', type: 'effect1', params: { cc: 0 }, pos: { x: 40, y: 640 } },
+                m3: { id: 'm3', type: 'output', params: { gain: 1 }, pos: { x: 960, y: 160 } },
+              },
+              connections: {
+                c1: { id: 'c1', from: { moduleId: 'm1', port: 'val' }, to: { moduleId: 'm3', port: 'inL' }, gain: 1 },
+              },
+              outputId: 'm3',
+            },
+          },
+          tracks: {},
+          patterns: { p1: { id: 'p1', name: 'p', length: 1, trackIds: [] } },
+          sections: {},
+          samples: {},
+        },
+      },
+    }
+    const result = migrate(v5)
+    const conns: any[] = Object.values((result.doc.entities.instruments as any).i1.connections)
+    const c1 = conns[0]
+    expect(c1.from.moduleId).not.toBe('m1')
+    // The new module id should exist.
+    const mods: any = (result.doc.entities.instruments as any).i1.modules
+    expect(mods[c1.from.moduleId]).toBeDefined()
+    expect(mods[c1.from.moduleId].type).toBe('eff')
+  })
+
+  it('preserves existing effectLanes when already present', () => {
+    const v5 = {
+      schemaVersion: 5,
+      meta: META,
+      doc: {
+        patternId: 'p1',
+        sectionIds: [],
+        entities: {
+          instruments: {},
+          tracks: {
+            t1: {
+              id: 't1', instrumentId: 'i1',
+              effectLanes: [{ id: 'l1', type: 'panning' }],
+              cells: [{ note: 60, volume: null, noteOff: false, effect: null, effectValue: null, effectLanes: { l1: 0.5 } }],
+            },
+          },
+          patterns: { p1: { id: 'p1', name: 'p', length: 1, trackIds: ['t1'] } },
+          sections: {},
+          samples: {},
+        },
+      },
+    }
+    const result = migrate(v5)
+    const track = (result.doc.entities.tracks as any).t1
+    expect(track.effectLanes).toEqual([{ id: 'l1', type: 'panning' }])
+    expect(track.cells[0].effectLanes).toEqual({ l1: 0.5 })
+  })
+})

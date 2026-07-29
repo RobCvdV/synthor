@@ -15,7 +15,9 @@
     <div id="root"></div>
     <div id="sw-update" style="display:none;position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#20242a;color:#e0e0e0;border:1px solid #3a3f47;border-radius:8px;padding:10px 18px;font:13px system-ui;z-index:9999;cursor:pointer;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,.4);user-select:none;" title="Click to reload with the latest version">🔄 Update available — click to reload</div>
     <script>
-      if ('serviceWorker' in navigator) {
+      // Only register the service worker when Vite's dev client is absent
+      // (i.e. in production builds where PWA generates /sw.js correctly).
+      if ('serviceWorker' in navigator && !document.querySelector('script[src*="@vite/client"]')) {
         navigator.serviceWorker.register('/sw.js', { scope: '/', type: 'classic' }).then(reg => {
           reg.addEventListener('updatefound', () => {
             const newWorker = reg.installing;

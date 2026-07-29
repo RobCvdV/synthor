@@ -12,6 +12,7 @@ import { InstrumentsView } from './ui/InstrumentsView'
 import { SampleLibraryView } from './ui/SampleLibraryView'
 import { loadRecent, readSong } from './persist/opfsStore'
 import { useProjectStore } from './state/projectStore'
+import { useMidiStore } from './state/midiStore'
 import { useMidi } from './midi/useMidi'
 
 /** True when a keystroke should go to a focused form field, not the tracker.
@@ -79,10 +80,39 @@ export default function App() {
   const pasteRect = useDocStore((s) => s.pasteRect)
   const mutedTracks = useDocStore((s) => s.mutedTracks)
 
+  // MIDI state
+  const midiConnected = useMidiStore((s) => s.connected)
+  const midiInputs = useMidiStore((s) => s.inputs)
+  const midiSelectedId = useMidiStore((s) => s.selectedInputId)
+  const midiActiveInst = useMidiStore((s) => s.activeInstrumentId)
+  const setMidiActiveInst = useMidiStore((s) => s.setActiveInstrument)
+
+  const projectName = useProjectStore((s) => s.name)
   const playing = useTransportStore((s) => s.playing)
   const bpm = useTransportStore((s) => s.bpm)
   const linesPerBeat = useTransportStore((s) => s.linesPerBeat)
+  const setBpm = useTransportStore((s) => s.setBpm)
   const toggle = useTransportStore((s) => s.toggle)
+
+  // Tap tempo
+  const tapTimesRef = useRef<number[]>([])
+  const [tapFlash, setTapFlash] = useState(false)
+  const onTapBpm = useCallback(() => {
+    const now = performance.now()
+    const times = tapTimesRef.current
+    if (times.length > 0 && now - times[times.length - 1] > 2000) times.length = 0
+    times.push(now)
+    if (times.length > 8) times.shift()
+    if (times.length >= 2) {
+      let totalInterval = 0
+      for (let i = 1; i < times.length; i++) totalInterval += times[i] - times[i - 1]
+      const avgInterval = totalInterval / (times.length - 1)
+      const newBpm = Math.round(60000 / avgInterval)
+      setBpm(Math.max(20, Math.min(300, newBpm)))
+    }
+    setTapFlash(true)
+    setTimeout(() => setTapFlash(false), 150)
+  }, [setBpm])
 
   const pattern = doc.entities.patterns[doc.patternId]
   const [cursor, setCursor] = useState<Cursor>({ row: 0, track: 0, col: 0, laneIndex: null })
@@ -488,6 +518,73 @@ export default function App() {
 
   return (
     <div className="app">
+      <header className="toolbar">
+        <strong>synthor</strong>
+        <span className="muted" title="Loaded song">{projectName}</span>
+        <span className={'badge' + (playing ? ' on' : '')}>{playing ? '▶ playing' : '■ stopped'}</span>
+        <span
+          className={'muted bpm-tap' + (tapFlash ? ' flash' : '')}
+          title="Click to tap tempo"
+          onClick={onTapBpm}
+        >
+          {bpm} BPM · 1/{linesPerBeat * 4}
+        </span>
+        <span className="muted">oct {octave}</span>
+        <span className="muted">{trackCount} tracks</span>
+        <button
+          className="panic-btn"
+          title="Panic — kill all hanging notes (Esc)"
+          onClick={() => host.panic()}
+        >
+          !
+        </button>
+        <span
+          className={'midi-ind' + (midiConnected ? ' on' : '')}
+          title={
+            midiConnected
+              ? `MIDI: ${midiInputs.find((p) => p.id === midiSelectedId)?.name ?? midiInputs[0]?.name ?? 'connected'}`
+              : 'MIDI: not connected'
+          }
+        >
+          {midiConnected ? 'MIDI' : 'midi'}
+        </span>
+        <select
+          className="midi-inst-select"
+          value={midiActiveInst ?? ''}
+          onChange={(e) => setMidiActiveInst(e.target.value || null)}
+          title="Instrument for MIDI input"
+        >
+          <option value="">(none)</option>
+          {Object.values(doc.entities.instruments).map((inst) => (
+            <option key={inst.id} value={inst.id}>{inst.name}</option>
+          ))}
+        </select>
+        <span className="spacer" />
+        <button
+          className={'octbtn' + (view === 'tracker' ? ' active' : '')}
+          onClick={() => setView('tracker')}
+        >
+          Tracker
+        </button>
+        <button
+          className={'octbtn' + (view === 'instruments' ? ' active' : '')}
+          onClick={() => setView('instruments')}
+        >
+          Instruments
+        </button>
+        <button
+          className={'octbtn' + (view === 'samples' ? ' active' : '')}
+          onClick={() => setView('samples')}
+        >
+          Samples
+        </button>
+        {view === 'tracker' && (
+          <>
+            <button className="octbtn" onClick={() => setOctave((o) => Math.max(0, o - 1))}>oct −</button>
+            <button className="octbtn" onClick={() => setOctave((o) => Math.min(9, o + 1))}>oct +</button>
+          </>
+        )}
+      </header>
       <ProjectBar />
       <SongBar doc={doc} />
       {view === 'tracker' ? (

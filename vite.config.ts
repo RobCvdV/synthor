@@ -9,9 +9,10 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      // Register/serve the service worker under `vite dev` too, not just builds.
+      // Only enable PWA in production builds — the service worker
+      // can't generate correctly in dev mode (no workbox manifest).
       devOptions: {
-        enabled: true,
+        enabled: false,
       },
       includeAssets: ['favicon.svg', 'apple-touch-icon-180x180.png'],
       manifest: {
