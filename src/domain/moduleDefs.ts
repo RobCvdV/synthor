@@ -154,12 +154,44 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
   },
   tanh: {
     type: 'tanh',
-    label: 'Distortion',
-    inlets: ['in'],
+    label: 'Saturator',
+    inlets: ['in', 'drive'],
     outlets: ['out'],
     params: [
-      { key: 'drive', label: 'Drive', min: 1, max: 20, default: 3, step: 0.5 },
-      { key: 'level', label: 'Level', min: 0, max: 1, default: 0.5, step: 0.01 },
+      { key: 'drive', label: 'Drive', min: 0.5, max: 40, default: 4, step: 0.5 },
+      { key: 'level', label: 'Level', min: 0, max: 2, default: 1, step: 0.01 },
+    ],
+  },
+  clip: {
+    type: 'clip',
+    label: 'Hard Clip',
+    inlets: ['in', 'drive'],
+    outlets: ['out'],
+    params: [
+      { key: 'drive', label: 'Drive', min: 0.5, max: 40, default: 4, step: 0.5 },
+      { key: 'threshold', label: 'Thresh', min: 0.05, max: 1, default: 0.7, step: 0.01 },
+      { key: 'level', label: 'Level', min: 0, max: 2, default: 0.7, step: 0.01 },
+    ],
+  },
+  fold: {
+    type: 'fold',
+    label: 'Wave Folder',
+    inlets: ['in', 'drive'],
+    outlets: ['out'],
+    params: [
+      { key: 'drive', label: 'Drive', min: 0.5, max: 30, default: 3, step: 0.5 },
+      { key: 'threshold', label: 'Thresh', min: 0.05, max: 1, default: 0.35, step: 0.01 },
+      { key: 'level', label: 'Level', min: 0, max: 2, default: 0.7, step: 0.01 },
+    ],
+  },
+  crush: {
+    type: 'crush',
+    label: 'Bit Crusher',
+    inlets: ['in', 'bits'],
+    outlets: ['out'],
+    params: [
+      { key: 'bits', label: 'Bits', min: 1, max: 16, default: 4, step: 1 },
+      { key: 'level', label: 'Level', min: 0, max: 2, default: 1, step: 0.01 },
     ],
   },
   delay: {

@@ -77,7 +77,10 @@ export type ModuleType =
   | 'gain' // multiply a signal by a level (and/or a modulation inlet)
   | 'mix' // combine several signals (add or multiply)
   | 'lfo' // low-frequency oscillator (sine/triangle) for modulation
-  | 'tanh' // soft-clipping distortion (tanh waveshaper)
+  | 'tanh' // saturation (tanh soft-clip)
+  | 'clip' // hard-clip distortion
+  | 'fold' // wave-folding distortion
+  | 'crush' // bit-crusher (bit-depth / sample-rate reduction)
   | 'delay' // single-tap delay (no feedback)
   | 'echo' // repeating echo with feedback
   | 'reverb' // multi-comb stereo reverb with damping

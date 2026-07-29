@@ -316,10 +316,64 @@ export function compileModular(
         return el.mul(shape, amount, amountScale)
       }
 
+      // ── Distortion effects ──────────────────────────────────────────
+      //
+      // tanh = hyperbolic tangent waveshaper — smooth saturation with
+      //   odd-harmonic overtones. Soft, analog-tape-like clipping.
+      // clip = hard-clip at a threshold — aggressive, brick-wall limiting
+      //   with many high harmonics. Classic digital distortion.
+      // fold = wave-folding — the waveform folds back on itself when it
+      //   exceeds the threshold, creating rich, complex harmonics.
+      // crush = bit-depth reduction — quantises the signal to N bits,
+      //   producing crunchy lo-fi digital artefacts.
+
       case 'tanh': {
         const input = inlet(m.id, 'in') ?? SILENCE
-        const drive = kconst(key('drive'), p.drive ?? 3)
-        return el.mul(el.tanh(el.mul(input, drive)), kconst(key('level'), p.level ?? 0.5))
+        const driveMod = inlet(m.id, 'drive') ?? el.const({ value: 1 })
+        const drive = el.mul(kconst(key('drive'), p.drive ?? 4), driveMod)
+        return el.mul(el.tanh(el.mul(input, drive)), kconst(key('level'), p.level ?? 1))
+      }
+
+      case 'clip': {
+        const input = inlet(m.id, 'in') ?? SILENCE
+        const driveMod = inlet(m.id, 'drive') ?? el.const({ value: 1 })
+        const drive = el.mul(kconst(key('drive'), p.drive ?? 4), driveMod)
+        const threshold = kconst(key('threshold'), p.threshold ?? 0.7)
+        const negThreshold = el.sub(el.const({ value: 0 }), threshold)
+        const driven = el.mul(input, drive)
+        // Hard-clip: clamp to [-threshold, +threshold]
+        const clipped = el.max(negThreshold, el.min(threshold, driven))
+        return el.mul(clipped, kconst(key('level'), p.level ?? 0.7))
+      }
+
+      case 'fold': {
+        const input = inlet(m.id, 'in') ?? SILENCE
+        const driveMod = inlet(m.id, 'drive') ?? el.const({ value: 1 })
+        const drive = el.mul(kconst(key('drive'), p.drive ?? 3), driveMod)
+        const threshold = kconst(key('threshold'), p.threshold ?? 0.35)
+        const negThreshold = el.sub(el.const({ value: 0 }), threshold)
+        const two = el.const({ value: 2 })
+        const driven = el.mul(input, drive)
+        // One-stage wave-folder: reflect the waveform when it exceeds the
+        // threshold.  x > +T  →  2T - x;   x < -T  →  -2T - x.
+        const overPos = el.ge(driven, threshold)
+        const overNeg = el.le(driven, negThreshold)
+        const folded = el.select(
+          overPos,
+          el.sub(el.mul(two, threshold), driven),
+          el.select(overNeg, el.sub(el.mul(two, negThreshold), driven), driven),
+        )
+        return el.mul(folded, kconst(key('level'), p.level ?? 0.7))
+      }
+
+      case 'crush': {
+        const input = inlet(m.id, 'in') ?? SILENCE
+        const bitsMod = inlet(m.id, 'bits') ?? el.const({ value: 1 })
+        const bits = el.mul(kconst(key('bits'), p.bits ?? 4), bitsMod)
+        // Quantise to N bits:  steps = 2^(N-1),  out = round(in·steps) / steps
+        const steps = el.pow(el.const({ value: 2 }), el.sub(bits, el.const({ value: 1 })))
+        const quantised = el.div(el.round(el.mul(input, steps)), steps)
+        return el.mul(quantised, kconst(key('level'), p.level ?? 1))
       }
 
       case 'delay': {

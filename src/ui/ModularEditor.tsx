@@ -9,6 +9,7 @@ import {
   applyNodeChanges,
   useNodesState,
   useOnSelectionChange,
+  useReactFlow,
   type Connection as RFConnection,
   type Edge,
   type EdgeChange,
@@ -25,7 +26,7 @@ import { makeId } from '../domain/factory'
 import type { AudioHost } from '../audio/host'
 
 /** Non-singleton module types the palette can drop into a patch. */
-const PALETTE: ModuleType[] = ['osc', 'filter', 'adsr', 'gain', 'mix', 'lfo', 'tanh', 'delay', 'echo', 'reverb', 'sample', 'eff']
+const PALETTE: ModuleType[] = ['osc', 'filter', 'adsr', 'gain', 'mix', 'lfo', 'tanh', 'clip', 'fold', 'crush', 'delay', 'echo', 'reverb', 'sample', 'eff']
 
 interface NodeData {
   instrumentId: Id
@@ -340,6 +341,8 @@ function Editor({ inst, host }: { inst: ModularInstrument; host?: AudioHost }) {
   const pasteModules = useDocStore((s) => s.pasteModules)
   const ensureModularSingletons = useDocStore((s) => s.ensureModularSingletons)
 
+  const { screenToFlowPosition } = useReactFlow()
+
   // Ensure required singleton source modules exist.
   useEffect(() => { ensureModularSingletons(inst.id) }, [inst.id, ensureModularSingletons])
 
@@ -494,12 +497,36 @@ function Editor({ inst, host }: { inst: ModularInstrument; host?: AudioHost }) {
 
   const selected = selectedEdge ? inst.connections[selectedEdge] : undefined
 
+  // Drag-from-palette: allow dropping a module type onto the canvas.
+  const onDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+  }, [])
+
+  const onDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault()
+      const type = e.dataTransfer.getData('application/module-type') as ModuleType | ''
+      if (!type || !MODULE_DEFS[type]) return
+      const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY })
+      addModule(inst.id, type, pos)
+    },
+    [addModule, inst.id, screenToFlowPosition],
+  )
+
   return (
     <div className="modular-editor">
       <div className="mod-palette">
         <span className="mod-palette-label">Add:</span>
-        {PALETTE.map((type, i) => (
-          <button key={type} onClick={() => addModule(inst.id, type, { x: 320 + (i % 3) * 40, y: 300 + i * 30 })}>
+        {PALETTE.map((type) => (
+          <button
+            key={type}
+            draggable
+            onDragStart={(e) => {
+              e.dataTransfer.setData('application/module-type', type)
+              e.dataTransfer.effectAllowed = 'move'
+            }}
+          >
             {MODULE_DEFS[type].label}
           </button>
         ))}
@@ -523,7 +550,7 @@ function Editor({ inst, host }: { inst: ModularInstrument; host?: AudioHost }) {
           </span>
         )}
       </div>
-      <div className="mod-canvas">
+      <div className="mod-canvas" onDragOver={onDragOver} onDrop={onDrop}>
         <ReactFlow
           nodes={nodes}
           edges={edges}
