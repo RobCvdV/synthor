@@ -347,12 +347,19 @@ function Editor({ inst, host }: { inst: ModularInstrument; host?: AudioHost }) {
   useEffect(() => { ensureModularSingletons(inst.id) }, [inst.id, ensureModularSingletons])
 
   // Local node state for smooth dragging; positions persist to the doc on drag
-  // stop. Rebuilt from the doc whenever the *set* of modules changes (add /
-  // remove / undo) — param edits are read live inside ModuleNode, so they don't
-  // force a rebuild.
+  // stop. Rebuilt from the doc whenever the *set* or *positions* of modules
+  // change — param edits are read live inside ModuleNode, so they don't force a
+  // rebuild.  We derive a structural + position key instead of watching `inst`
+  // directly, otherwise every param slider drag would replace all React Flow
+  // nodes and cause controlled inputs to revert.
   const [nodes, setNodes] = useNodesState<Node>(buildNodes(inst, host))
   const moduleKey = Object.keys(inst.modules).sort().join(',')
-  useEffect(() => setNodes(buildNodes(inst, host)), [moduleKey, inst.id, host, setNodes, inst])
+  const posKey = Object.values(inst.modules)
+    .map((m) => `${m.id}:${Math.round(m.pos.x)},${Math.round(m.pos.y)}`)
+    .sort()
+    .join('|')
+  const structuralKey = `${moduleKey}||${posKey}`
+  useEffect(() => setNodes(buildNodes(inst, host)), [structuralKey, inst.id, host, setNodes])
 
   // Edges are cheap and fully controlled by the doc.
   const connectionKey = Object.keys(inst.connections).sort().join(',')
