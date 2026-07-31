@@ -1386,3 +1386,21 @@ body {
   padding: 1px 5px;
   border-radius: 3px;
 }
+
+/* ── Mixer ──────────────────────────────────────────────── */
+
+.mixer-dropdown {
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid #2a3644;
+  border-radius: 3px;
+  padding: 2px 4px;
+  font: inherit;
+  font-size: 9px;
+  cursor: pointer;
+}
+.mixer-dropdown:hover { border-color: var(--accent); }
+.mixer-dropdown option {
+  background: #1a1a2e;
+  color: var(--fg);
+}
