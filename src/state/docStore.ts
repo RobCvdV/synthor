@@ -191,6 +191,11 @@ interface DocState {
   setInstrumentChannelId: (instrumentId: Id, channelId: Id) => void
   setInstrumentPan: (instrumentId: Id, pan: number) => void
   setInstrumentPanFast: (instrumentId: Id, pan: number) => void
+  setInstrumentPanSilent: (instrumentId: Id, pan: number) => void
+  setDrumKitParamSilent: (instrumentId: Id, key: string, value: number) => void
+  setChannelVolumeSilent: (channelId: Id, vol: number) => void
+  setChannelPanSilent: (channelId: Id, pan: number) => void
+  setChannelEffectParamSilent: (channelId: Id, effectId: Id, key: string, value: number) => void
 }
 
 const HISTORY_LIMIT = 200
@@ -1093,6 +1098,50 @@ export const useDocStore = create<DocState>((set, get) => ({
 
   setInstrumentPanFast: (instrumentId, pan) => {
     updateParamRef(`inst:${instrumentId}:pan`, pan)
+  },
+
+  setInstrumentPanSilent: (instrumentId, pan) => {
+    get().mutateSilent((draft) => {
+      const inst = draft.entities.instruments[instrumentId]
+      if (inst) inst.pan = pan
+    })
+    updateParamRef(`inst:${instrumentId}:pan`, pan)
+  },
+
+  setDrumKitParamSilent: (instrumentId, key, value) => {
+    get().mutateSilent((draft) => {
+      const inst = draft.entities.instruments[instrumentId]
+      if (inst?.kind === 'drumkit' && key in inst.params) {
+        ;(inst.params as Record<string, number>)[key] = value
+      }
+    })
+    updateParamRef(`${instrumentId}:${key}`, value)
+  },
+
+  setChannelVolumeSilent: (channelId, vol) => {
+    get().mutateSilent((draft) => {
+      const chan = draft.entities.mixChannels[channelId]
+      if (chan) chan.volume = vol
+    })
+    updateParamRef(`chan:${channelId}:volume`, vol)
+  },
+
+  setChannelPanSilent: (channelId, pan) => {
+    get().mutateSilent((draft) => {
+      const chan = draft.entities.mixChannels[channelId]
+      if (chan) chan.pan = pan
+    })
+    updateParamRef(`chan:${channelId}:pan`, pan)
+  },
+
+  setChannelEffectParamSilent: (channelId, effectId, key, value) => {
+    get().mutateSilent((draft) => {
+      const chan = draft.entities.mixChannels[channelId]
+      if (!chan) return
+      const fx = chan.effects.find((e) => e.id === effectId)
+      if (fx) fx.params[key] = value
+    })
+    updateParamRef(`chan:${channelId}:${effectId}:${key}`, value)
   },
 
 }))
