@@ -493,12 +493,9 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
     const mixed = applyChannelMix(processed, channel.volume, channel.pan, chanId, ctx.paramRefs)
 
     if (channel.kind === 'master') {
-      // Master channel: apply effects and volume directly (already handled above).
-      // Voices routed directly to master are summed into masterLeft/Right.
       masterLeft = el.add(masterLeft, mixed.left)
       masterRight = el.add(masterRight, mixed.right)
     } else {
-      // Sub channel: process and route to master.
       masterLeft = el.add(masterLeft, mixed.left)
       masterRight = el.add(masterRight, mixed.right)
     }
