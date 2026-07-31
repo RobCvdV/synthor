@@ -13,40 +13,8 @@ interface MixerViewProps {
 
 export function MixerView({ host: _host }: MixerViewProps) {
   const doc = useDocStore((s) => s.doc)
-  const {
-    setChannelVolume, setChannelVolumeFast, setChannelPan, setChannelMute,
-    setChannelSolo, addChannel, removeChannel, renameChannel,
-    addChannelEffect, removeChannelEffect, moveChannelEffect,
-    setChannelEffectParam, setChannelEffectParamFast,
-    hideInstrumentFromMixer, showInstrumentInMixer, reorderMixerInstrument,
-    setInstrumentChannelId, setInstrumentPan, setInstrumentPanFast,
-    setOscParam, setOscParamFast,
-    setDrumKitParam, setDrumKitParamFast,
-  } = useDocStore((s) => ({
-    setChannelVolume: s.setChannelVolume,
-    setChannelVolumeFast: s.setChannelVolumeFast,
-    setChannelPan: s.setChannelPan,
-    setChannelMute: s.setChannelMute,
-    setChannelSolo: s.setChannelSolo,
-    addChannel: s.addChannel,
-    removeChannel: s.removeChannel,
-    renameChannel: s.renameChannel,
-    addChannelEffect: s.addChannelEffect,
-    removeChannelEffect: s.removeChannelEffect,
-    moveChannelEffect: s.moveChannelEffect,
-    setChannelEffectParam: s.setChannelEffectParam,
-    setChannelEffectParamFast: s.setChannelEffectParamFast,
-    hideInstrumentFromMixer: s.hideInstrumentFromMixer,
-    showInstrumentInMixer: s.showInstrumentInMixer,
-    reorderMixerInstrument: s.reorderMixerInstrument,
-    setInstrumentChannelId: s.setInstrumentChannelId,
-    setInstrumentPan: s.setInstrumentPan,
-    setInstrumentPanFast: s.setInstrumentPanFast,
-    setOscParam: s.setOscParam,
-    setOscParamFast: s.setOscParamFast,
-    setDrumKitParam: s.setDrumKitParam,
-    setDrumKitParamFast: s.setDrumKitParamFast,
-  }))
+  // Store methods are stable refs — read via getState() in callbacks, no subscription needed.
+  const store = () => useDocStore.getState()
 
   const [selectedChannel, setSelectedChannel] = useState<Id | null>(null)
   const [selectedEffect, setSelectedEffect] = useState<Id | null>(null)
@@ -61,55 +29,56 @@ export function MixerView({ host: _host }: MixerViewProps) {
   )
 
   const handleAddChannel = useCallback(() => {
-    const id = addChannel('sub')
+    const id = store().addChannel('sub')
     setSelectedChannel(id)
-  }, [addChannel])
+  }, [])
 
   const handleVolumeDrag = useCallback(
-    (chanId: Id, vol: number) => setChannelVolumeFast(chanId, Math.max(0, Math.min(2, vol))),
-    [setChannelVolumeFast],
+    (chanId: Id, vol: number) => store().setChannelVolumeFast(chanId, Math.max(0, Math.min(2, vol))),
+    [],
   )
   const handleVolumeCommit = useCallback(
-    (chanId: Id, vol: number) => setChannelVolume(chanId, Math.max(0, Math.min(2, vol))),
-    [setChannelVolume],
+    (chanId: Id, vol: number) => store().setChannelVolume(chanId, Math.max(0, Math.min(2, vol))),
+    [],
   )
 
   const handleInstVolumeDrag = useCallback(
     (inst: Instrument, vol: number) => {
       const v = Math.max(0, Math.min(2, vol))
-      if (inst.kind === 'osc') setOscParamFast(inst.id, 'gain', v)
-      else if (inst.kind === 'drumkit') setDrumKitParamFast(inst.id, 'gain', v)
-      // modular: output gain is handled by the module param system
+      const s = store()
+      if (inst.kind === 'osc') s.setOscParamFast(inst.id, 'gain', v)
+      else if (inst.kind === 'drumkit') s.setDrumKitParamFast(inst.id, 'gain', v)
     },
-    [setOscParamFast, setDrumKitParamFast],
+    [],
   )
   const handleInstVolumeCommit = useCallback(
     (inst: Instrument, vol: number) => {
       const v = Math.max(0, Math.min(2, vol))
-      if (inst.kind === 'osc') setOscParam(inst.id, 'gain', v)
-      else if (inst.kind === 'drumkit') setDrumKitParam(inst.id, 'gain', v)
+      const s = store()
+      if (inst.kind === 'osc') s.setOscParam(inst.id, 'gain', v)
+      else if (inst.kind === 'drumkit') s.setDrumKitParam(inst.id, 'gain', v)
     },
-    [setOscParam, setDrumKitParam],
+    [],
   )
 
   const handleInstPanDrag = useCallback(
-    (instId: Id, pan: number) => setInstrumentPanFast(instId, Math.max(-1, Math.min(1, pan))),
-    [setInstrumentPanFast],
+    (instId: Id, pan: number) => store().setInstrumentPanFast(instId, Math.max(-1, Math.min(1, pan))),
+    [],
   )
   const handleInstPanCommit = useCallback(
-    (instId: Id, pan: number) => setInstrumentPan(instId, Math.max(-1, Math.min(1, pan))),
-    [setInstrumentPan],
+    (instId: Id, pan: number) => store().setInstrumentPan(instId, Math.max(-1, Math.min(1, pan))),
+    [],
   )
 
   const handleFxParamDrag = useCallback(
     (chanId: Id, fxId: Id, key: string, value: number) =>
-      setChannelEffectParamFast(chanId, fxId, key, value),
-    [setChannelEffectParamFast],
+      store().setChannelEffectParamFast(chanId, fxId, key, value),
+    [],
   )
   const handleFxParamCommit = useCallback(
     (chanId: Id, fxId: Id, key: string, value: number) =>
-      setChannelEffectParam(chanId, fxId, key, value),
-    [setChannelEffectParam],
+      store().setChannelEffectParam(chanId, fxId, key, value),
+    [],
   )
 
   const selectedSub = subChannels.find((c) => c.id === selectedChannel) ?? null
@@ -140,10 +109,10 @@ export function MixerView({ host: _host }: MixerViewProps) {
               onVolumeCommit={(v) => handleInstVolumeCommit(inst, v)}
               onPanDrag={(pan) => handleInstPanDrag(inst.id, pan)}
               onPanCommit={(pan) => handleInstPanCommit(inst.id, pan)}
-              onRoute={(cid) => setInstrumentChannelId(inst.id, cid)}
-              onHide={() => hideInstrumentFromMixer(inst.id)}
-              onMoveUp={() => reorderMixerInstrument(inst.id, idx - 1)}
-              onMoveDown={() => reorderMixerInstrument(inst.id, idx + 1)}
+              onRoute={(cid) => store().setInstrumentChannelId(inst.id, cid)}
+              onHide={() => store().hideInstrumentFromMixer(inst.id)}
+              onMoveUp={() => store().reorderMixerInstrument(inst.id, idx - 1)}
+              onMoveDown={() => store().reorderMixerInstrument(inst.id, idx + 1)}
             />
           )
         })}
@@ -157,13 +126,13 @@ export function MixerView({ host: _host }: MixerViewProps) {
             onSelect={() => { setSelectedChannel(chan.id); setSelectedEffect(null) }}
             onVolumeDrag={(v) => handleVolumeDrag(chan.id, v)}
             onVolumeCommit={(v) => handleVolumeCommit(chan.id, v)}
-            onPanDrag={(pan) => setChannelPan(chan.id, Math.max(-1, Math.min(1, pan)))}
-            onPanCommit={(pan) => setChannelPan(chan.id, Math.max(-1, Math.min(1, pan)))}
-            onToggleMute={() => setChannelMute(chan.id, !chan.mute)}
-            onToggleSolo={() => setChannelSolo(chan.id, !chan.solo)}
-            onRename={(name) => renameChannel(chan.id, name)}
-            onDelete={() => { if (selectedChannel === chan.id) { setSelectedChannel(null); setSelectedEffect(null) }; removeChannel(chan.id) }}
-            onAddFx={(type) => { const fxId = addChannelEffect(chan.id, type); setSelectedChannel(chan.id); setSelectedEffect(fxId) }}
+            onPanDrag={(pan) => store().setChannelPan(chan.id, Math.max(-1, Math.min(1, pan)))}
+            onPanCommit={(pan) => store().setChannelPan(chan.id, Math.max(-1, Math.min(1, pan)))}
+            onToggleMute={() => store().setChannelMute(chan.id, !chan.mute)}
+            onToggleSolo={() => store().setChannelSolo(chan.id, !chan.solo)}
+            onRename={(name) => store().renameChannel(chan.id, name)}
+            onDelete={() => { if (selectedChannel === chan.id) { setSelectedChannel(null); setSelectedEffect(null) }; store().removeChannel(chan.id) }}
+            onAddFx={(type) => { const fxId = store().addChannelEffect(chan.id, type); setSelectedChannel(chan.id); setSelectedEffect(fxId) }}
             onSelectFx={(fxId) => { setSelectedChannel(chan.id); setSelectedEffect(fxId) }}
             selectedFx={selectedChannel === chan.id ? selectedEffect : null}
           />
@@ -183,12 +152,12 @@ export function MixerView({ host: _host }: MixerViewProps) {
             onSelect={() => { setSelectedChannel(MASTER_CHANNEL_ID); setSelectedEffect(null) }}
             onVolumeDrag={(v) => handleVolumeDrag(MASTER_CHANNEL_ID, v)}
             onVolumeCommit={(v) => handleVolumeCommit(MASTER_CHANNEL_ID, v)}
-            onPanDrag={(pan) => setChannelPan(MASTER_CHANNEL_ID, Math.max(-1, Math.min(1, pan)))}
-            onPanCommit={(pan) => setChannelPan(MASTER_CHANNEL_ID, Math.max(-1, Math.min(1, pan)))}
-            onToggleMute={() => setChannelMute(MASTER_CHANNEL_ID, !selectedMaster.mute)}
-            onToggleSolo={() => setChannelSolo(MASTER_CHANNEL_ID, !selectedMaster.solo)}
+            onPanDrag={(pan) => store().setChannelPan(MASTER_CHANNEL_ID, Math.max(-1, Math.min(1, pan)))}
+            onPanCommit={(pan) => store().setChannelPan(MASTER_CHANNEL_ID, Math.max(-1, Math.min(1, pan)))}
+            onToggleMute={() => store().setChannelMute(MASTER_CHANNEL_ID, !selectedMaster.mute)}
+            onToggleSolo={() => store().setChannelSolo(MASTER_CHANNEL_ID, !selectedMaster.solo)}
             onRename={() => {}}
-            onAddFx={(type) => { const fxId = addChannelEffect(MASTER_CHANNEL_ID, type); setSelectedChannel(MASTER_CHANNEL_ID); setSelectedEffect(fxId) }}
+            onAddFx={(type) => { const fxId = store().addChannelEffect(MASTER_CHANNEL_ID, type); setSelectedChannel(MASTER_CHANNEL_ID); setSelectedEffect(fxId) }}
             onSelectFx={(fxId) => { setSelectedChannel(MASTER_CHANNEL_ID); setSelectedEffect(fxId) }}
             selectedFx={selectedChannel === MASTER_CHANNEL_ID ? selectedEffect : null}
           />
@@ -200,7 +169,7 @@ export function MixerView({ host: _host }: MixerViewProps) {
             <select
               value=""
               onChange={(e) => {
-                if (e.target.value) showInstrumentInMixer(e.target.value)
+                if (e.target.value) store().showInstrumentInMixer(e.target.value)
               }}
               style={{ fontSize: '11px' }}
             >
@@ -220,10 +189,10 @@ export function MixerView({ host: _host }: MixerViewProps) {
           channelId={selectedChannel ?? ''}
           onParamDrag={(key, value) => handleFxParamDrag(selectedChannel!, selectedEffect!, key, value)}
           onParamCommit={(key, value) => handleFxParamCommit(selectedChannel!, selectedEffect!, key, value)}
-          onRemove={() => { removeChannelEffect(selectedChannel!, selectedEffect!); setSelectedEffect(null) }}
+          onRemove={() => { store().removeChannelEffect(selectedChannel!, selectedEffect!); setSelectedEffect(null) }}
           selectedEffects={selectedEffects}
           selectedEffectId={selectedEffect!}
-          onReorder={(fxId, newIdx) => moveChannelEffect(selectedChannel!, fxId, newIdx)}
+          onReorder={(fxId, newIdx) => store().moveChannelEffect(selectedChannel!, fxId, newIdx)}
         />
       )}
     </div>
