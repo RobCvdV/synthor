@@ -208,13 +208,15 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
   // const whose key includes playEpoch. This gives the rate input a unique hash
   // per epoch, which propagates to the train node — guaranteeing phase 0 at
   // render time and eliminating the per-pause/resume clock-phase drift.
-  const epochZero = el.const({ key: `train:epoch:${ctx.playEpoch}`, value: 0 })
+  // Include patternId in clock/reset keys so switching patterns mid-playback
+  // creates fresh clock nodes (phase 0) for the new pattern, avoiding skipped rows.
+  const epochZero = el.const({ key: `train:${ctx.playEpoch}:${doc.patternId}`, value: 0 })
   const clockRate = el.add(el.const({ value: ctx.rowHz }), epochZero)
   const rawClock = el.train(clockRate)
   const clock = el.mul(rawClock, ctx.playing)
 
   const loopHz = ctx.rowHz / pattern.length
-  const loopEpochZero = el.const({ key: `reset:epoch:${ctx.playEpoch}`, value: 0 })
+  const loopEpochZero = el.const({ key: `reset:${ctx.playEpoch}:${doc.patternId}`, value: 0 })
   const resetRate = el.add(el.const({ value: loopHz }), loopEpochZero)
   const rawReset = el.train(resetRate)
   const reset = el.mul(rawReset, ctx.playing)

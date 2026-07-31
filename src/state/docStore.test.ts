@@ -165,3 +165,196 @@ describe('docStore — effect settings', () => {
     }
   })
 })
+
+/* ------------------------------------------------------------------ */
+/*  pattern / section operations — underpin the Arrange tab drag-drop  */
+/* ------------------------------------------------------------------ */
+
+describe('docStore — pattern & section ops', () => {
+  beforeEach(() => resetStore())
+
+  const firstSectionId = () => useDocStore.getState().doc.sectionIds[0]
+  const firstPatternId = () => useDocStore.getState().doc.patternId
+
+  /* ---- sections ---- */
+
+  it('creates a section with a default name', () => {
+    const id = useDocStore.getState().addSection()
+    expect(id).toMatch(/^sec_/)
+    const doc = useDocStore.getState().doc
+    expect(doc.sectionIds).toContain(id)
+    expect(doc.entities.sections[id].name).toMatch(/^Section \d+$/)
+  })
+
+  it('removes a section', () => {
+    const store = useDocStore.getState()
+    const id = store.addSection()
+    store.removeSection(id)
+    expect(useDocStore.getState().doc.sectionIds).not.toContain(id)
+  })
+
+  it('reorders sections', () => {
+    const store = useDocStore.getState()
+    const a = store.addSection()
+    const b = store.addSection()
+    // Current order: [first, a, b]
+    const doc = useDocStore.getState().doc
+    const idxA = doc.sectionIds.indexOf(a)
+    const idxB = doc.sectionIds.indexOf(b)
+    // Move 'b' before 'a'
+    store.reorderSections(idxB, idxA)
+    const reordered = useDocStore.getState().doc.sectionIds
+    expect(reordered.indexOf(b)).toBeLessThan(reordered.indexOf(a))
+  })
+
+  it('renames a section', () => {
+    const id = firstSectionId()
+    useDocStore.getState().renameSection(id, 'Intro')
+    expect(useDocStore.getState().doc.entities.sections[id].name).toBe('Intro')
+  })
+
+  /* ---- patterns ---- */
+
+  it('creates a pattern with a default name and length', () => {
+    const store = useDocStore.getState()
+    const id = store.addPattern()
+    expect(id).toMatch(/^pat_/)
+    const pat = useDocStore.getState().doc.entities.patterns[id]
+    expect(pat.name).toMatch(/^Pattern \d+$/)
+    expect(pat.length).toBe(64)
+    // New patterns start with no tracks — tracks are added on first note entry
+    expect(Array.isArray(pat.trackIds)).toBe(true)
+  })
+
+  it('duplicates a pattern', () => {
+    const store = useDocStore.getState()
+    const pid = firstPatternId()
+    const dupId = store.duplicatePattern(pid)
+    expect(dupId).not.toBe('')
+    expect(dupId).not.toBe(pid)
+    const dup = useDocStore.getState().doc.entities.patterns[dupId]
+    expect(dup.name).toContain('(copy)')
+    // Duplicated pattern should appear in the first section
+    const firstSec = useDocStore.getState().doc.entities.sections[firstSectionId()]
+    expect(firstSec.patternIds).toContain(dupId)
+  })
+
+  it('removes a pattern and cleans up sections', () => {
+    const store = useDocStore.getState()
+    const pid = store.addPattern()
+    const sid = firstSectionId()
+    store.addPatternToSection(sid, pid)
+    store.removePattern(pid)
+    const doc = useDocStore.getState().doc
+    expect(doc.entities.patterns[pid]).toBeUndefined()
+    expect(doc.entities.sections[sid].patternIds).not.toContain(pid)
+  })
+
+  it('refuses to remove the last pattern', () => {
+    const pid = firstPatternId()
+    const before = Object.keys(useDocStore.getState().doc.entities.patterns).length
+    useDocStore.getState().removePattern(pid)
+    const after = Object.keys(useDocStore.getState().doc.entities.patterns).length
+    expect(after).toBe(before)
+  })
+
+  it('renames a pattern', () => {
+    const pid = firstPatternId()
+    useDocStore.getState().renamePattern(pid, 'Renamed')
+    expect(useDocStore.getState().doc.entities.patterns[pid].name).toBe('Renamed')
+  })
+
+  /* ---- pattern ↔ section ---- */
+
+  it('adds a pattern to a section', () => {
+    const store = useDocStore.getState()
+    const pid = store.addPattern()
+    const sid = firstSectionId()
+    store.addPatternToSection(sid, pid)
+    expect(useDocStore.getState().doc.entities.sections[sid].patternIds).toContain(pid)
+  })
+
+  it('allows adding the same pattern to a section multiple times', () => {
+    const store = useDocStore.getState()
+    const pid = store.addPattern()
+    const sid = firstSectionId()
+    // Remove all existing patterns from the section so we start clean
+    while (useDocStore.getState().doc.entities.sections[sid].patternIds.length > 0) {
+      store.removePatternFromSection(sid, 0)
+    }
+    // Add the same pattern twice
+    store.addPatternToSection(sid, pid)
+    store.addPatternToSection(sid, pid)
+    const pids = useDocStore.getState().doc.entities.sections[sid].patternIds
+    expect(pids.filter((id) => id === pid)).toHaveLength(2)
+  })
+
+  it('inserts a pattern at a specific index', () => {
+    const store = useDocStore.getState()
+    const pa = store.addPattern()
+    const pb = store.addPattern()
+    const sid = firstSectionId()
+    store.addPatternToSection(sid, pa, 0) // first
+    store.addPatternToSection(sid, pb, 0) // before pa
+    const pids = useDocStore.getState().doc.entities.sections[sid].patternIds
+    expect(pids[0]).toBe(pb)
+    expect(pids[1]).toBe(pa)
+  })
+
+  it('removes a pattern from a section by index', () => {
+    const store = useDocStore.getState()
+    const pid = store.addPattern()
+    const sid = firstSectionId()
+    store.addPatternToSection(sid, pid, 0)
+    expect(useDocStore.getState().doc.entities.sections[sid].patternIds).toContain(pid)
+    store.removePatternFromSection(sid, 0)
+    expect(useDocStore.getState().doc.entities.sections[sid].patternIds).not.toContain(pid)
+  })
+
+  it('reorders patterns within a section', () => {
+    const store = useDocStore.getState()
+    const pa = store.addPattern()
+    const pb = store.addPattern()
+    const sid = firstSectionId()
+    store.addPatternToSection(sid, pa, 0)
+    store.addPatternToSection(sid, pb, 1)
+    // Initially: [pa, pb, ...others]
+    const pids = useDocStore.getState().doc.entities.sections[sid].patternIds
+    const idxA = pids.indexOf(pa)
+    const idxB = pids.indexOf(pb)
+    store.reorderPatternsInSection(sid, idxA, idxB + 1) // move pa after pb
+    const moved = useDocStore.getState().doc.entities.sections[sid].patternIds
+    expect(moved.indexOf(pa)).toBeGreaterThan(moved.indexOf(pb))
+  })
+
+  it('changing current pattern does not mutate sections', () => {
+    const store = useDocStore.getState()
+    const pid = store.addPattern()
+    const sid = firstSectionId()
+    store.addPatternToSection(sid, pid)
+    store.setCurrentPattern(pid)
+    expect(useDocStore.getState().doc.patternId).toBe(pid)
+  })
+
+  it('loadDoc preserves duplicate pattern IDs in sections', () => {
+    const doc = useDocStore.getState().doc
+    const sid = doc.sectionIds[0]
+    const pid = firstPatternId()
+    const withDupes = {
+      ...doc,
+      entities: {
+        ...doc.entities,
+        sections: {
+          ...doc.entities.sections,
+          [sid]: {
+            ...doc.entities.sections[sid],
+            patternIds: [pid, pid, pid],
+          },
+        },
+      },
+    }
+    useDocStore.getState().loadDoc(withDupes)
+    const loaded = useDocStore.getState().doc.entities.sections[sid].patternIds
+    expect(loaded.filter((id) => id === pid)).toHaveLength(3)
+  })
+})

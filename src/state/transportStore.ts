@@ -1,11 +1,16 @@
 import { create } from 'zustand'
 
+export type PlayMode = 'song' | 'section' | 'pattern'
+export const PLAY_MODES: PlayMode[] = ['song', 'section', 'pattern']
+
 /**
  * Transport / playhead state. Deliberately separate from the document store:
  * moving the playhead or toggling play must never touch undo history.
  */
 interface TransportState {
   playing: boolean
+  /** Play mode: loop the current pattern, current section, or full song. */
+  playMode: PlayMode
   bpm: number
   /** Rows per beat (4 = sixteenth-note grid). */
   linesPerBeat: number
@@ -20,10 +25,13 @@ interface TransportState {
   stop: () => void
   toggle: (atTime: number, startRow?: number) => void
   setBpm: (bpm: number) => void
+  setPlayMode: (mode: PlayMode) => void
+  cyclePlayMode: () => void
 }
 
 export const useTransportStore = create<TransportState>((set) => ({
   playing: false,
+  playMode: 'pattern',
   bpm: 120,
   linesPerBeat: 4,
   startTime: 0,
@@ -44,6 +52,11 @@ export const useTransportStore = create<TransportState>((set) => ({
     playEpoch: s.playing ? s.playEpoch : s.playEpoch + 1,
   })),
   setBpm: (bpm) => set({ bpm }),
+  setPlayMode: (playMode) => set({ playMode }),
+  cyclePlayMode: () => set((s) => {
+    const idx = PLAY_MODES.indexOf(s.playMode)
+    return { playMode: PLAY_MODES[(idx + 1) % PLAY_MODES.length] }
+  }),
 }))
 
 /** Rows advanced per second, derived from tempo. */

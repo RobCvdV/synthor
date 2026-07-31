@@ -1,18 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useDocStore } from './state/docStore'
-import { rowHz, useTransportStore } from './state/transportStore'
+import { rowHz, useTransportStore, PLAY_MODES } from './state/transportStore'
 import { useEngine } from './ui/useEngine'
 import { useAutosave } from './ui/useAutosave'
 import { codeToSemitone } from './ui/keymap'
 import { TrackerGrid, type Cursor, type Selection } from './ui/TrackerGrid'
-import { SongBar } from './ui/SongBar'
-import { ProjectBar } from './ui/ProjectBar'
-import { Legend } from './ui/Legend'
+import { TrackerRightPane } from './ui/TrackerRightPane'
 import { InstrumentsView } from './ui/InstrumentsView'
 import { SampleLibraryView } from './ui/SampleLibraryView'
 import { loadRecent, readSong } from './persist/opfsStore'
 import { useProjectStore } from './state/projectStore'
-import { useMidiStore } from './state/midiStore'
+import { createDefaultDoc } from './domain/factory'
+import { midiToName } from './domain/notes'
 import { useMidi } from './midi/useMidi'
 
 /** True when a keystroke should go to a focused form field, not the tracker.
@@ -80,19 +79,29 @@ export default function App() {
   const pasteRect = useDocStore((s) => s.pasteRect)
   const mutedTracks = useDocStore((s) => s.mutedTracks)
 
-  // MIDI state
-  const midiConnected = useMidiStore((s) => s.connected)
-  const midiInputs = useMidiStore((s) => s.inputs)
-  const midiSelectedId = useMidiStore((s) => s.selectedInputId)
-  const midiActiveInst = useMidiStore((s) => s.activeInstrumentId)
-  const setMidiActiveInst = useMidiStore((s) => s.setActiveInstrument)
-
   const projectName = useProjectStore((s) => s.name)
+  const slug = useProjectStore((s) => s.slug)
+  const setProjectName = useProjectStore((s) => s.setName)
+  const resetProject = useProjectStore((s) => s.reset)
   const playing = useTransportStore((s) => s.playing)
   const bpm = useTransportStore((s) => s.bpm)
   const linesPerBeat = useTransportStore((s) => s.linesPerBeat)
   const setBpm = useTransportStore((s) => s.setBpm)
   const toggle = useTransportStore((s) => s.toggle)
+  const playMode = useTransportStore((s) => s.playMode)
+  const setPlayMode = useTransportStore((s) => s.setPlayMode)
+  const cyclePlayMode = useTransportStore((s) => s.cyclePlayMode)
+
+  // Song title editing
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [titleDraft, setTitleDraft] = useState('')
+  const [renameDialog, setRenameDialog] = useState(false)
+  const titleInputRef = useRef<HTMLInputElement>(null)
+
+  // Tempo editing
+  const [editingTempo, setEditingTempo] = useState(false)
+  const [tempoDraft, setTempoDraft] = useState('')
+  const tempoInputRef = useRef<HTMLInputElement>(null)
 
   // Tap tempo
   const tapTimesRef = useRef<number[]>([])
@@ -114,14 +123,101 @@ export default function App() {
     setTimeout(() => setTapFlash(false), 150)
   }, [setBpm])
 
+  // Song title editing
+  const beginEditTitle = useCallback(() => {
+    setTitleDraft(projectName)
+    setEditingTitle(true)
+    setTimeout(() => titleInputRef.current?.select(), 0)
+  }, [projectName])
+
+  const commitTitle = useCallback(() => {
+    setEditingTitle(false)
+    if (titleDraft && titleDraft !== projectName) {
+      setRenameDialog(true)
+    }
+  }, [titleDraft, projectName])
+
+  const doRenameSong = useCallback(() => {
+    setProjectName(titleDraft)
+    setRenameDialog(false)
+  }, [titleDraft, setProjectName])
+
+  const doNewSong = useCallback(() => {
+    if (useProjectStore.getState().status === 'dirty' && !confirm('Discard unsaved changes and create a new song?')) return
+    const newDoc = createDefaultDoc()
+    useDocStore.getState().loadDoc(newDoc)
+    resetProject(titleDraft, new Date().toISOString())
+    setRenameDialog(false)
+  }, [titleDraft, resetProject])
+
+  const cancelRename = useCallback(() => {
+    setRenameDialog(false)
+  }, [])
+
+  // Tempo editing
+  const beginEditTempo = useCallback(() => {
+    setTempoDraft(String(bpm))
+    setEditingTempo(true)
+    setTimeout(() => tempoInputRef.current?.select(), 0)
+  }, [bpm])
+
+  const commitTempo = useCallback(() => {
+    setEditingTempo(false)
+    const n = Number(tempoDraft)
+    if (!isNaN(n) && n >= 20 && n <= 300) setBpm(n)
+  }, [tempoDraft, setBpm])
+
   const pattern = doc.entities.patterns[doc.patternId]
   const [cursor, setCursor] = useState<Cursor>({ row: 0, track: 0, col: 0, laneIndex: null })
 
   const [selection, setSelection] = useState<Selection | null>(null)
   const [octave, setOctave] = useState(5)
   const [playhead, setPlayhead] = useState<number | null>(null)
+
+  // Compute keyboard note range for the octave display
+  const noteRange = `${midiToName(octave * 12)} … ${midiToName(octave * 12 + 30)}`
+
+  // Compute the flattened arrangement for the current play mode.
+  // For section/song mode, returns an ordered list of patterns to play through.
+  const arrangement = useMemo(() => {
+    if (playMode === 'pattern') {
+      return [{ patternId: doc.patternId, startRow: 0 }]
+    }
+    if (playMode === 'section') {
+      const secId = doc.sectionIds.find((sid) => {
+        const sec = doc.entities.sections[sid]
+        return sec?.patternIds.includes(doc.patternId)
+      })
+      const section = secId ? doc.entities.sections[secId] : null
+      const patIds = section?.patternIds ?? [doc.patternId]
+      let offset = 0
+      return patIds.map((pid) => {
+        const p = doc.entities.patterns[pid]
+        const row = offset
+        offset += p?.length ?? 64
+        return { patternId: pid, startRow: row }
+      })
+    }
+    const items: { patternId: string; startRow: number }[] = []
+    let offset = 0
+    for (const sid of doc.sectionIds) {
+      const sec = doc.entities.sections[sid]
+      if (!sec) continue
+      for (const pid of sec.patternIds) {
+        const p = doc.entities.patterns[pid]
+        items.push({ patternId: pid, startRow: offset })
+        offset += p?.length ?? 64
+      }
+    }
+    return items.length > 0 ? items : [{ patternId: doc.patternId, startRow: 0 }]
+  }, [playMode, doc.patternId, doc.sectionIds, doc.entities.sections, doc.entities.patterns])
+
+  const totalArrangementRows = useMemo(() => {
+    if (playMode === 'pattern') return pattern.length
+    return arrangement.reduce((sum: number, a) =>
+      sum + (doc.entities.patterns[a.patternId]?.length ?? 64), 0)
+  }, [playMode, pattern.length, arrangement, doc.entities.patterns])
   const [view, setView] = useState<'tracker' | 'instruments' | 'samples'>('tracker')
-  void setView // referenced by ProjectBar via view state
 
   const cursorRef = useRef(cursor)
   cursorRef.current = cursor
@@ -151,21 +247,50 @@ export default function App() {
     setCursor((c) => (c.track >= trackCount ? { ...c, track: Math.max(0, trackCount - 1), laneIndex: null } : c))
   }, [trackCount])
 
-  // Visual playhead
+  // Visual playhead with pattern transition support for section/song modes.
   useEffect(() => {
     if (!playing) {
       setPlayhead(null)
       return
     }
     let raf = 0
+    let lastPatternId = doc.patternId
     const tick = () => {
       const elapsed = host.currentTime - host.playStartTime
-      setPlayhead((host.playStartRow + Math.floor(elapsed * rowHz(bpm, linesPerBeat))) % pattern.length)
+      const rowsPerSec = rowHz(bpm, linesPerBeat)
+      const globalRow = host.playStartRow + Math.floor(elapsed * rowsPerSec)
+
+      if (playMode === 'pattern') {
+        setPlayhead(globalRow % pattern.length)
+      } else {
+        // Section / song mode: map global row to arrangement position.
+        const totalRows = Math.max(1, totalArrangementRows)
+        const wrapped = ((globalRow % totalRows) + totalRows) % totalRows
+        // Find which pattern in the arrangement this row falls in.
+        const item = arrangement.find(
+          (a) => wrapped >= a.startRow && wrapped < a.startRow + (doc.entities.patterns[a.patternId]?.length ?? 64),
+        )
+        if (item) {
+          const localRow = wrapped - item.startRow
+          setPlayhead(localRow)
+          // Auto-switch the compiled pattern when crossing boundaries.
+          if (item.patternId !== lastPatternId) {
+            lastPatternId = item.patternId
+            // Update doc's current pattern without creating an undo entry
+            // by using the store setter directly.
+            useDocStore.setState((s) => ({
+              doc: { ...s.doc, patternId: item.patternId },
+            }))
+          }
+        } else {
+          setPlayhead(wrapped)
+        }
+      }
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [playing, bpm, linesPerBeat, pattern.length, host])
+  }, [playing, bpm, linesPerBeat, pattern.length, host, playMode, totalArrangementRows, arrangement, doc.entities.patterns, doc.patternId])
 
   const liveTrackCount = () => useDocStore.getState().doc.entities.patterns[doc.patternId].trackIds.length
 
@@ -246,6 +371,20 @@ export default function App() {
       }
 
       if (isEditableTarget(e.target)) return
+
+      // --- Tab: cycle play mode ---
+      if (e.code === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault()
+        cyclePlayMode()
+        return
+      }
+
+      // --- Mod+T/I/S: switch views ---
+      if ((e.metaKey || e.ctrlKey) && !e.altKey) {
+        if (e.code === 'KeyT') { e.preventDefault(); setView('tracker'); return }
+        if (e.code === 'KeyI') { e.preventDefault(); setView('instruments'); return }
+        if (e.code === 'KeyS') { e.preventDefault(); setView('samples'); return }
+      }
 
       const cur = cursorRef.current
       const ids = pattern.trackIds
@@ -508,7 +647,7 @@ export default function App() {
         }
       }
     },
-    [view, pattern, host, toggle, undo, redo, setCellNote, setCellNoteOff, setCellVolume, setCellEffectLane, addEffectLane, removeEffectLane, addTrack, removeTrack, moveTrack, copyTrack, pasteTrack, duplicateTrack, shiftTrack, toggleMute, copyRect, cutRect, pasteRect, clearEntry, laneCountForTrack],
+    [view, pattern, host, toggle, undo, redo, setCellNote, setCellNoteOff, setCellVolume, setCellEffectLane, addEffectLane, removeEffectLane, addTrack, removeTrack, moveTrack, copyTrack, pasteTrack, duplicateTrack, shiftTrack, toggleMute, copyRect, cutRect, pasteRect, clearEntry, laneCountForTrack, cyclePlayMode],
   )
 
   useEffect(() => {
@@ -519,74 +658,137 @@ export default function App() {
   return (
     <div className="app">
       <header className="toolbar">
-        <strong>synthor</strong>
-        <span className="muted" title="Loaded song">{projectName}</span>
-        <span className={'badge' + (playing ? ' on' : '')}>{playing ? '▶ playing' : '■ stopped'}</span>
-        <span
-          className={'muted bpm-tap' + (tapFlash ? ' flash' : '')}
-          title="Click to tap tempo"
-          onClick={onTapBpm}
-        >
-          {bpm} BPM · 1/{linesPerBeat * 4}
-        </span>
-        <span className="muted">oct {octave}</span>
-        <span className="muted">{trackCount} tracks</span>
+        {/* Left: transport controls */}
         <button
-          className="panic-btn"
-          title="Panic — kill all hanging notes (Esc)"
-          onClick={() => host.panic()}
+          className={'toolbar-play' + (playing ? ' playing' : '')}
+          title={playing ? 'Stop (Space)' : 'Play (Space)'}
+          onClick={() => {
+            void host.start().then(() => {
+              host.playStartTime = host.currentTime
+              host.playStartRow = cursorRef.current.row
+              toggle(host.currentTime, cursorRef.current.row)
+            })
+          }}
         >
-          !
+          {playing ? '■' : '▶'}
         </button>
-        <span
-          className={'midi-ind' + (midiConnected ? ' on' : '')}
-          title={
-            midiConnected
-              ? `MIDI: ${midiInputs.find((p) => p.id === midiSelectedId)?.name ?? midiInputs[0]?.name ?? 'connected'}`
-              : 'MIDI: not connected'
-          }
-        >
-          {midiConnected ? 'MIDI' : 'midi'}
-        </span>
-        <select
-          className="midi-inst-select"
-          value={midiActiveInst ?? ''}
-          onChange={(e) => setMidiActiveInst(e.target.value || null)}
-          title="Instrument for MIDI input"
-        >
-          <option value="">(none)</option>
-          {Object.values(doc.entities.instruments).map((inst) => (
-            <option key={inst.id} value={inst.id}>{inst.name}</option>
+        <span className="toolbar-mode-group" title="Play mode — Tab to cycle">
+          {PLAY_MODES.map((mode) => (
+            <button
+              key={mode}
+              className={'toolbar-mode-btn' + (playMode === mode ? ' active' : '')}
+              onClick={() => setPlayMode(mode)}
+            >
+              {mode === 'song' ? 'Song' : mode === 'section' ? 'Section' : 'Pattern'}
+            </button>
           ))}
-        </select>
+        </span>
+
+        {/* Song title */}
+        {editingTitle ? (
+          <input
+            ref={titleInputRef}
+            className="toolbar-title-input"
+            value={titleDraft}
+            onChange={(e) => setTitleDraft(e.target.value)}
+            onBlur={commitTitle}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitTitle()
+              if (e.key === 'Escape') { setEditingTitle(false); setTitleDraft(projectName) }
+            }}
+          />
+        ) : (
+          <span
+            className="toolbar-title"
+            title="Double-click to rename"
+            onDoubleClick={beginEditTitle}
+          >
+            {projectName}
+          </span>
+        )}
+
+        {/* Tempo */}
+        <span className="toolbar-tempo-group">
+          {editingTempo ? (
+            <input
+              ref={tempoInputRef}
+              className="toolbar-tempo-input"
+              value={tempoDraft}
+              onChange={(e) => setTempoDraft(e.target.value)}
+              onBlur={commitTempo}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') commitTempo()
+                if (e.key === 'Escape') setEditingTempo(false)
+              }}
+            />
+          ) : (
+            <span
+              className="toolbar-tempo"
+              title="Double-click to edit tempo"
+              onDoubleClick={beginEditTempo}
+            >
+              {bpm}
+            </span>
+          )}
+          <span className="muted">BPM</span>
+          <button
+            className={'toolbar-tap-btn' + (tapFlash ? ' flash' : '')}
+            title="Tap tempo"
+            onClick={onTapBpm}
+          >
+            TAP
+          </button>
+        </span>
+
         <span className="spacer" />
+
+        {/* Octave group */}
+        <span className="toolbar-octave-group" title="Keyboard playable note range">
+          <span className="muted toolbar-octave-range">{noteRange}</span>
+          <button className="octbtn" onClick={() => setOctave((o) => Math.max(0, o - 1))}>oct −</button>
+          <button className="octbtn" onClick={() => setOctave((o) => Math.min(9, o + 1))}>oct +</button>
+        </span>
+
+        {/* Page switch buttons */}
         <button
           className={'octbtn' + (view === 'tracker' ? ' active' : '')}
           onClick={() => setView('tracker')}
+          title="Tracker (⌘T)"
         >
           Tracker
         </button>
         <button
           className={'octbtn' + (view === 'instruments' ? ' active' : '')}
           onClick={() => setView('instruments')}
+          title="Instruments (⌘I)"
         >
           Instruments
         </button>
         <button
           className={'octbtn' + (view === 'samples' ? ' active' : '')}
           onClick={() => setView('samples')}
+          title="Samples (⌘S)"
         >
           Samples
         </button>
-        {view === 'tracker' && (
-          <>
-            <button className="octbtn" onClick={() => setOctave((o) => Math.max(0, o - 1))}>oct −</button>
-            <button className="octbtn" onClick={() => setOctave((o) => Math.min(9, o + 1))}>oct +</button>
-          </>
-        )}
       </header>
-      <ProjectBar />
-      <SongBar doc={doc} />
+
+      {/* Rename dialog */}
+      {renameDialog && (
+        <div className="dialog-overlay" onClick={cancelRename}>
+          <div className="dialog-box" onClick={(e) => e.stopPropagation()}>
+            <p>
+              "<strong>{titleDraft}</strong>" is not the current song name.
+            </p>
+            <div className="dialog-actions">
+              <button className="octbtn" onClick={doNewSong}>Create New Song</button>
+              <button className="octbtn" onClick={doRenameSong}>Rename Current</button>
+              <button className="octbtn" onClick={cancelRename}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {view === 'tracker' ? (
         <div className="layout">
           <main className="main">
@@ -603,7 +805,7 @@ export default function App() {
               onCellClick={onCellClick}
             />
           </main>
-          <Legend />
+          <TrackerRightPane doc={doc} slug={slug} />
         </div>
       ) : view === 'instruments' ? (
         <div className="layout">

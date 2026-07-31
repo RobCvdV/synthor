@@ -200,7 +200,8 @@ export const useDocStore = create<DocState>((set, get) => ({
     set({ doc: next, past: [...trimmed, { patches, inverse }], future: [] })
   },
 
-  loadDoc: (doc) => set({ doc, past: [], future: [], trackClipboard: null, rectClipboard: null, mutedTracks: {}, soloedTracks: {}, vfsLoadedHashes: null }),
+  loadDoc: (doc) =>
+    set({ doc, past: [], future: [], trackClipboard: null, rectClipboard: null, mutedTracks: {}, soloedTracks: {}, vfsLoadedHashes: null }),
 
   undo: () => {
     const { doc, past, future } = get()
