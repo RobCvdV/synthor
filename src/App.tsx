@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useDocStore } from './state/docStore'
-import { rowHz, useTransportStore, PLAY_MODES } from './state/transportStore'
+import { rowHz, useTransportStore } from './state/transportStore'
+import { PLAY_MODES, useAppStore, clampCursor, type TrackerCursor } from './state/appStore'
 import { useEngine } from './ui/useEngine'
 import { useAutosave } from './ui/useAutosave'
 import { codeToSemitone } from './ui/keymap'
-import { TrackerGrid, type Cursor, type Selection } from './ui/TrackerGrid'
+import { TrackerGrid, type Selection } from './ui/TrackerGrid'
 import { TrackerRightPane } from './ui/TrackerRightPane'
 import { InstrumentsView } from './ui/InstrumentsView'
 import { SampleLibraryView } from './ui/SampleLibraryView'
@@ -30,8 +31,10 @@ export default function App() {
   useAutosave()
   useMidi(host) // connect to Web MIDI API
 
-  // On first mount, try to restore the last-opened song so the user picks up
-  // where they left off instead of landing on the default test pattern.
+  // Don't render the default placeholder doc — wait until either a persisted
+  // song is loaded or a fresh default is created, then apply the rest of the
+  // persisted app state (cursor, instrument, view) against the real document.
+  const [ready, setReady] = useState(false)
   const loadedRef = useRef(false)
   useEffect(() => {
     if (loadedRef.current) return
@@ -39,18 +42,38 @@ export default function App() {
     void (async () => {
       try {
         const slug = await loadRecent()
-        if (!slug) return
-        const file = await readSong(slug)
-        if (!file) return
-        let doc = file.doc
-        if (!doc.entities.patterns[doc.patternId]) {
-          const firstPat = Object.keys(doc.entities.patterns)[0]
-          if (firstPat) doc = { ...doc, patternId: firstPat }
+        if (slug) {
+          const file = await readSong(slug)
+          if (file) {
+            let doc = file.doc
+            if (!doc.entities.patterns[doc.patternId]) {
+              const firstPat = Object.keys(doc.entities.patterns)[0]
+              if (firstPat) doc = { ...doc, patternId: firstPat }
+            }
+            useProjectStore.getState().reset(file.meta.name, file.meta.createdAt, slug)
+            useDocStore.getState().loadDoc(doc)
+          }
         }
-        useProjectStore.getState().reset(file.meta.name, file.meta.createdAt, slug)
-        useDocStore.getState().loadDoc(doc)
+        // If no persisted song was found, the store's built-in default doc is
+        // already in place; reset project identity so it starts clean but
+        // named "Untitled".
+        if (!slug) {
+          useProjectStore.getState().reset('Untitled', new Date().toISOString())
+        }
       } catch (err) {
         console.error('Failed to load recent song:', err)
+      } finally {
+        // Validate persisted app state against the now-loaded document.
+        const state = useAppStore.getState()
+        const doc = useDocStore.getState().doc
+        const pat = doc.entities.patterns[doc.patternId]
+        if (pat) {
+          state.setTrackerCursor(clampCursor(state.trackerCursor, pat, doc))
+        }
+        if (!state.selectedInstrumentId || !doc.entities.instruments[state.selectedInstrumentId]) {
+          state.setSelectedInstrumentId(Object.keys(doc.entities.instruments)[0] ?? null)
+        }
+        setReady(true)
       }
     })()
   }, [])
@@ -88,9 +111,12 @@ export default function App() {
   const linesPerBeat = useTransportStore((s) => s.linesPerBeat)
   const setBpm = useTransportStore((s) => s.setBpm)
   const toggle = useTransportStore((s) => s.toggle)
-  const playMode = useTransportStore((s) => s.playMode)
-  const setPlayMode = useTransportStore((s) => s.setPlayMode)
-  const cyclePlayMode = useTransportStore((s) => s.cyclePlayMode)
+  const playMode = useAppStore((s) => s.playMode)
+  const setPlayMode = useAppStore((s) => s.setPlayMode)
+  const cyclePlayMode = useAppStore((s) => s.cyclePlayMode)
+  const view = useAppStore((s) => s.view)
+  const setView = useAppStore((s) => s.setView)
+  const trackerCursor = useAppStore((s) => s.trackerCursor)
 
   // Song title editing
   const [editingTitle, setEditingTitle] = useState(false)
@@ -168,7 +194,13 @@ export default function App() {
   }, [tempoDraft, setBpm])
 
   const pattern = doc.entities.patterns[doc.patternId]
-  const [cursor, setCursor] = useState<Cursor>({ row: 0, track: 0, col: 0, laneIndex: null })
+  // Thin wrapper so existing setCursor(fn) call sites keep working with appStore.
+  const setCursor = (fn: TrackerCursor | ((c: TrackerCursor) => TrackerCursor)) => {
+    useAppStore.setState((s) => ({
+      trackerCursor: typeof fn === 'function' ? fn(s.trackerCursor) : fn,
+    }))
+  }
+  const cursor = trackerCursor
 
   const [selection, setSelection] = useState<Selection | null>(null)
   const [octave, setOctave] = useState(5)
@@ -217,10 +249,9 @@ export default function App() {
     return arrangement.reduce((sum: number, a) =>
       sum + (doc.entities.patterns[a.patternId]?.length ?? 64), 0)
   }, [playMode, pattern.length, arrangement, doc.entities.patterns])
-  const [view, setView] = useState<'tracker' | 'instruments' | 'samples'>('tracker')
 
-  const cursorRef = useRef(cursor)
-  cursorRef.current = cursor
+  const cursorRef = useRef(trackerCursor)
+  cursorRef.current = trackerCursor
   const selectionRef = useRef(selection)
   selectionRef.current = selection
   const octaveRef = useRef(octave)
@@ -243,9 +274,17 @@ export default function App() {
   }, [setVolumeEntry, setLaneEntry])
 
   const trackCount = pattern.trackIds.length
+  // When the pattern changes (song load, pattern switch), clamp the cursor
+  // so it never points past the end of a track or effect lane. Gated on
+  // `ready` so validation never runs against the store's factory default.
   useEffect(() => {
-    setCursor((c) => (c.track >= trackCount ? { ...c, track: Math.max(0, trackCount - 1), laneIndex: null } : c))
-  }, [trackCount])
+    if (!ready) return
+    setCursor((c) => {
+      const state = useDocStore.getState()
+      const pat = state.doc.entities.patterns[state.doc.patternId]
+      return clampCursor(c, pat, state.doc)
+    })
+  }, [trackCount, ready])
 
   // Visual playhead with pattern transition support for section/song modes.
   useEffect(() => {
@@ -389,7 +428,7 @@ export default function App() {
       const cur = cursorRef.current
       const ids = pattern.trackIds
       const trackId = ids[cur.track]
-      const stepRows = (n: number) => (c: Cursor) => {
+      const stepRows = (n: number) => (c: TrackerCursor) => {
         const next = { ...c, row: ((c.row + n) % pattern.length + pattern.length) % pattern.length }
         if (e.shiftKey) {
           const sel = selectionRef.current
@@ -400,7 +439,7 @@ export default function App() {
         return next
       }
 
-      const snapStep = (step: number, dir: 1 | -1) => (c: Cursor) => {
+      const snapStep = (step: number, dir: 1 | -1) => (c: TrackerCursor) => {
         const len = pattern.length
         const grids: number[] = []
         for (let i = 0; i < len; i += step) grids.push(i)
@@ -507,7 +546,7 @@ export default function App() {
         e.preventDefault(); clearEntry()
         if (!ids.length) return
         setCursor((c) => {
-          let next: Cursor
+          let next: TrackerCursor
           const lc = laneCountForTrack(c.track)
           if (c.col === 0) next = { ...c, col: 1, laneIndex: null }
           else if (c.col === 1) next = lc > 0 ? { ...c, col: 2, laneIndex: 0 } : { ...c, col: 0, laneIndex: null, track: (c.track + 1) % ids.length }
@@ -522,7 +561,7 @@ export default function App() {
         e.preventDefault(); clearEntry()
         if (!ids.length) return
         setCursor((c) => {
-          let next: Cursor
+          let next: TrackerCursor
           if (c.col >= 2 && c.laneIndex !== null && c.laneIndex > 0) next = { ...c, col: c.col - 1, laneIndex: c.laneIndex - 1 }
           else if (c.col >= 2) next = { ...c, col: 1, laneIndex: null }
           else if (c.col === 1) next = { ...c, col: 0, laneIndex: null }
@@ -789,7 +828,7 @@ export default function App() {
         </div>
       )}
 
-      {view === 'tracker' ? (
+      {ready && (view === 'tracker' ? (
         <div className="layout">
           <main className="main">
             <TrackerGrid
@@ -815,7 +854,7 @@ export default function App() {
         <div className="layout">
           <SampleLibraryView host={host} />
         </div>
-      )}
+      ))}
     </div>
   )
 }

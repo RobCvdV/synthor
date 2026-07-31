@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { useTransportStore, PLAY_MODES } from './transportStore'
+import { useTransportStore } from './transportStore'
 
 /** Call before each test to reset the store to defaults. */
 function resetStore() {
   useTransportStore.setState({
     playing: false,
-    playMode: 'pattern',
     bpm: 120,
     linesPerBeat: 4,
     startTime: 0,
@@ -63,35 +62,6 @@ describe('transportStore', () => {
   it('setBpm() updates the tempo', () => {
     useTransportStore.getState().setBpm(140)
     expect(useTransportStore.getState().bpm).toBe(140)
-  })
-
-  /* ---- play mode ---- */
-
-  it('defaults to pattern mode', () => {
-    expect(useTransportStore.getState().playMode).toBe('pattern')
-  })
-
-  it('setPlayMode() switches to a different mode', () => {
-    useTransportStore.getState().setPlayMode('song')
-    expect(useTransportStore.getState().playMode).toBe('song')
-    useTransportStore.getState().setPlayMode('section')
-    expect(useTransportStore.getState().playMode).toBe('section')
-  })
-
-  it('cyclePlayMode() cycles through all three modes', () => {
-    const store = useTransportStore.getState()
-    expect(store.playMode).toBe('pattern')
-    store.cyclePlayMode()
-    expect(useTransportStore.getState().playMode).toBe('song')
-    useTransportStore.getState().cyclePlayMode()
-    expect(useTransportStore.getState().playMode).toBe('section')
-    useTransportStore.getState().cyclePlayMode()
-    expect(useTransportStore.getState().playMode).toBe('pattern') // wraps around
-  })
-
-  it('PLAY_MODES contains all three modes in order', () => {
-    expect(PLAY_MODES).toEqual(['song', 'section', 'pattern'])
-    expect(new Set(PLAY_MODES).size).toBe(3)
   })
 
   /* ---- playEpoch isolation ---- */

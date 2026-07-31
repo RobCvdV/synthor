@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useDocStore } from '../state/docStore'
 import { usePreviewStore } from '../state/previewStore'
+import { useAppStore } from '../state/appStore'
 import { codeToSemitone } from './keymap'
 import { ModularEditor } from './ModularEditor'
 import { DrumKitEditor } from './DrumKitEditor'
@@ -40,7 +41,8 @@ export function InstrumentsView({ host }: { host: AudioHost }) {
   const activeVoices = usePreviewStore((s) => Object.keys(s.voices).length)
 
   const instruments = Object.values(doc.entities.instruments)
-  const [selectedId, setSelectedId] = useState<Id | null>(instruments[0]?.id ?? null)
+  const selectedId = useAppStore((s) => s.selectedInstrumentId)
+  const setSelectedId = useAppStore((s) => s.setSelectedInstrumentId)
   const [octave, setOctave] = useState(5)
   // Track whether the user has manually adjusted the octave since the last
   // instrument switch, so we don't fight their preference.
