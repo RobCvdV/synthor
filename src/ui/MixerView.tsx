@@ -85,7 +85,7 @@ export function MixerView({ host: _host }: MixerViewProps) {
         <button className="octbtn" onClick={() => { const id = store().addChannel('sub'); setSelectedChannel(id) }}
           title="Add sub channel" style={{ alignSelf: 'flex-start', height: 'fit-content', flexShrink: 0 }}>+ Sub</button>
         {master && (
-          <ChannelStrip channel={master} isSelected={selectedChannel === MASTER_CHANNEL_ID} isMaster
+          <ChannelStrip channel={master} isSelected={selectedChannel === MASTER_CHANNEL_ID} isMaster showMeter
             onSelect={() => setSelectedChannel(MASTER_CHANNEL_ID)}
             onVolumeSilent={(v) => store().setChannelVolumeSilent(MASTER_CHANNEL_ID, Math.max(0, Math.min(2, v)))}
             onVolumeCommit={(v) => store().setChannelVolume(MASTER_CHANNEL_ID, Math.max(0, Math.min(2, v)))}
@@ -150,8 +150,7 @@ function InstrumentStrip({
       </div>
       <div style={{ fontSize: 8, color: '#888' }}>{kindLabel}</div>
       <div style={{ flex: 1, minHeight: 4 }} />
-      {/* Level meter */}
-      <MeterCanvas width={54} height={64} />
+      {/* Per-instrument metering deferred — needs Elementary snapshot support */}
       <div style={{ display: 'flex', gap: 4, marginTop: 2 }}>
         <button className="octbtn" style={{ fontSize: 9, padding: '1px 5px' }}>M</button>
         <button className="octbtn" style={{ fontSize: 9, padding: '1px 5px' }}>S</button>
@@ -175,11 +174,11 @@ function InstrumentStrip({
 // ── Channel Strip ───────────────────────────────────────────
 
 function ChannelStrip({
-  channel, isSelected, isMaster, onSelect,
+  channel, isSelected, isMaster, showMeter, onSelect,
   onVolumeSilent, onVolumeCommit, onPanSilent, onPanCommit,
   onToggleMute, onToggleSolo, onRename, onDelete, onAddFx,
 }: {
-  channel: MixChannel; isSelected?: boolean; isMaster?: boolean
+  channel: MixChannel; isSelected?: boolean; isMaster?: boolean; showMeter?: boolean
   onSelect: () => void; onVolumeSilent: (v: number) => void
   onVolumeCommit: (v: number) => void; onPanSilent: (pan: number) => void
   onPanCommit: (pan: number) => void; onToggleMute: () => void
@@ -233,8 +232,8 @@ function ChannelStrip({
       </div>
       <AddEffectDropdown existingTypes={channel.effects.map((e) => e.type)} onAdd={onAddFx} />
 
-      {/* Level meter */}
-      <MeterCanvas width={56} height={64} />
+      {/* Level meter — only on master (per-channel metering deferred) */}
+      {showMeter && <MeterCanvas width={56} height={64} />}
 
       <div style={{ display: 'flex', gap: 4, marginTop: 2 }}>
         <button className="octbtn" onClick={(e) => { e.stopPropagation(); onToggleMute() }}
