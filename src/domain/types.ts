@@ -58,6 +58,10 @@ export interface OscInstrument {
   }
   /** Per-instrument effect range overrides. Missing on older save files. */
   effectSettings?: EffectSettings
+  /** Which mix channel this instrument routes to. Default "master". */
+  channelId: Id
+  /** Stereo pan/balance, -1 (left) .. +1 (right), 0 = center. */
+  pan: number
 }
 
 /**
@@ -125,6 +129,10 @@ export interface ModularInstrument {
   outputId: Id
   /** Per-instrument effect range overrides. Missing on older save files. */
   effectSettings?: EffectSettings
+  /** Which mix channel this instrument routes to. Default "master". */
+  channelId: Id
+  /** Stereo pan/balance, -1 (left) .. +1 (right), 0 = center. */
+  pan: number
 }
 
 /** A managed sample asset — metadata only. Binary PCM data lives in OPFS. */
@@ -179,6 +187,10 @@ export interface DrumKitInstrument {
     /** Master output gain, 0..1. */
     gain: number
   }
+  /** Which mix channel this instrument routes to. Default "master". */
+  channelId: Id
+  /** Stereo pan/balance, -1 (left) .. +1 (right), 0 = center. */
+  pan: number
 }
 
 /** Find the slot that covers a given MIDI note (highest slot.note <= note).
@@ -218,12 +230,44 @@ export interface Section {
   patternIds: Id[]
 }
 
+/** Effect instance on a mix channel — reuses Module types from the modular system. */
+export interface ChannelEffect {
+  id: Id
+  type: ModuleType
+  params: Record<string, number>
+}
+
+/** A mix channel (sub or master). Always stereo. */
+export interface MixChannel {
+  id: Id
+  name: string
+  kind: 'sub' | 'master'
+  /** Volume fader, 0..2 (1.0 = unity). */
+  volume: number
+  /** Stereo balance, -1 (full left) .. +1 (full right), 0 = center. */
+  pan: number
+  /** Mute this channel's output. */
+  mute: boolean
+  /** Solo this channel. */
+  solo: boolean
+  /** Ordered insert effects, applied left-to-right on the stereo signal. */
+  effects: ChannelEffect[]
+}
+
+/** The master channel id — always present, never deletable. */
+export const MASTER_CHANNEL_ID = 'master'
+
 export interface Entities {
   instruments: Record<Id, Instrument>
   tracks: Record<Id, Track>
   patterns: Record<Id, Pattern>
   sections: Record<Id, Section>
   samples: Record<Id, SampleEntity>
+  mixChannels: Record<Id, MixChannel>
+  /** Instruments visible in the mixer, in left-to-right strip order.
+   *  Instruments that exist but aren't in this array are hidden from the
+   *  mixer (e.g. sub-synths used inside drumkits). */
+  mixerInstrumentOrder: Id[]
 }
 
 /** The full editable document. Serializable as-is to JSON. */

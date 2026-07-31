@@ -9,6 +9,7 @@ import { TrackerGrid, type Selection } from './ui/TrackerGrid'
 import { TrackerRightPane } from './ui/TrackerRightPane'
 import { InstrumentsView } from './ui/InstrumentsView'
 import { SampleLibraryView } from './ui/SampleLibraryView'
+import { MixerView } from './ui/MixerView'
 import { loadRecent, readSong } from './persist/opfsStore'
 import { useProjectStore } from './state/projectStore'
 import { createDefaultDoc } from './domain/factory'
@@ -423,6 +424,7 @@ export default function App() {
         if (e.code === 'KeyT') { e.preventDefault(); setView('tracker'); return }
         if (e.code === 'KeyI') { e.preventDefault(); setView('instruments'); return }
         if (e.code === 'KeyS') { e.preventDefault(); setView('samples'); return }
+        if (e.code === 'KeyM') { e.preventDefault(); setView('mixer'); return }
       }
 
       const cur = cursorRef.current
@@ -810,6 +812,13 @@ export default function App() {
         >
           Samples
         </button>
+        <button
+          className={'octbtn' + (view === 'mixer' ? ' active' : '')}
+          onClick={() => setView('mixer')}
+          title="Mixer (⌘M)"
+        >
+          Mixer
+        </button>
       </header>
 
       {/* Rename dialog */}
@@ -849,6 +858,10 @@ export default function App() {
       ) : view === 'instruments' ? (
         <div className="layout">
           <InstrumentsView host={host} />
+        </div>
+      ) : view === 'mixer' ? (
+        <div className="layout">
+          <MixerView host={host} />
         </div>
       ) : (
         <div className="layout">

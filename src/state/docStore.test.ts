@@ -358,3 +358,150 @@ describe('docStore — pattern & section ops', () => {
     expect(loaded.filter((id) => id === pid)).toHaveLength(3)
   })
 })
+
+describe('docStore — mixer', () => {
+  beforeEach(() => resetStore())
+
+  const firstInstId = () => {
+    const doc = useDocStore.getState().doc
+    return Object.keys(doc.entities.instruments)[0]
+  }
+
+  it('has a master channel by default', () => {
+    const doc = useDocStore.getState().doc
+    expect(doc.entities.mixChannels.master).toBeDefined()
+    expect(doc.entities.mixChannels.master.kind).toBe('master')
+    expect(doc.entities.mixerInstrumentOrder.length).toBeGreaterThan(0)
+  })
+
+  it('adds a sub channel', () => {
+    const id = useDocStore.getState().addChannel('sub')
+    expect(id).toMatch(/^chan_/)
+    const chan = useDocStore.getState().doc.entities.mixChannels[id]
+    expect(chan.kind).toBe('sub')
+  })
+
+  it('removes a sub channel and re-routes instruments', () => {
+    const store = useDocStore.getState()
+    const chanId = store.addChannel('sub')
+    const instId = firstInstId()
+    store.setInstrumentChannelId(instId, chanId)
+
+    store.removeChannel(chanId)
+    // Instrument should be re-routed to master.
+    const inst = useDocStore.getState().doc.entities.instruments[instId]
+    expect(inst.channelId).toBe('master')
+    // Channel should be gone.
+    expect(useDocStore.getState().doc.entities.mixChannels[chanId]).toBeUndefined()
+  })
+
+  it('cannot remove master channel', () => {
+    const store = useDocStore.getState()
+    store.removeChannel('master')
+    expect(useDocStore.getState().doc.entities.mixChannels.master).toBeDefined()
+  })
+
+  it('sets channel volume and pan', () => {
+    const store = useDocStore.getState()
+    store.setChannelVolume('master', 0.5)
+    store.setChannelPan('master', 0.3)
+    const m = useDocStore.getState().doc.entities.mixChannels.master
+    expect(m.volume).toBe(0.5)
+    expect(m.pan).toBe(0.3)
+  })
+
+  it('toggles channel mute and solo', () => {
+    const store = useDocStore.getState()
+    store.setChannelMute('master', true)
+    store.setChannelSolo('master', true)
+    const m = useDocStore.getState().doc.entities.mixChannels.master
+    expect(m.mute).toBe(true)
+    expect(m.solo).toBe(true)
+  })
+
+  it('adds and removes channel effects', () => {
+    const store = useDocStore.getState()
+    const chanId = store.addChannel('sub')
+    const fxId = store.addChannelEffect(chanId, 'reverb')
+    expect(fxId).toMatch(/^chef_/)
+
+    let chan = useDocStore.getState().doc.entities.mixChannels[chanId]
+    expect(chan.effects).toHaveLength(1)
+    expect(chan.effects[0].type).toBe('reverb')
+
+    store.removeChannelEffect(chanId, fxId)
+    chan = useDocStore.getState().doc.entities.mixChannels[chanId]
+    expect(chan.effects).toHaveLength(0)
+  })
+
+  it('reorders channel effects', () => {
+    const store = useDocStore.getState()
+    const chanId = store.addChannel('sub')
+    const fx1 = store.addChannelEffect(chanId, 'filter')
+    const fx2 = store.addChannelEffect(chanId, 'delay')
+
+    store.moveChannelEffect(chanId, fx1, 1)
+    const chan = useDocStore.getState().doc.entities.mixChannels[chanId]
+    expect(chan.effects[0].id).toBe(fx2)
+    expect(chan.effects[1].id).toBe(fx1)
+  })
+
+  it('sets channel effect params', () => {
+    const store = useDocStore.getState()
+    const fxId = store.addChannelEffect('master', 'filter')
+    store.setChannelEffectParam('master', fxId, 'cutoff', 500)
+
+    const m = useDocStore.getState().doc.entities.mixChannels.master
+    expect(m.effects[0].params.cutoff).toBe(500)
+  })
+
+  it('hides and shows instruments in mixer', () => {
+    const store = useDocStore.getState()
+    const instId = firstInstId()
+
+    store.hideInstrumentFromMixer(instId)
+    expect(useDocStore.getState().doc.entities.mixerInstrumentOrder).not.toContain(instId)
+
+    store.showInstrumentInMixer(instId)
+    expect(useDocStore.getState().doc.entities.mixerInstrumentOrder).toContain(instId)
+  })
+
+  it('reorders mixer instruments', () => {
+    const store = useDocStore.getState()
+    const order = useDocStore.getState().doc.entities.mixerInstrumentOrder
+    const first = order[0]
+    const second = order[1]
+    if (!first || !second) return
+
+    store.reorderMixerInstrument(first, 1)
+    const newOrder = useDocStore.getState().doc.entities.mixerInstrumentOrder
+    expect(newOrder[1]).toBe(first)
+  })
+
+  it('sets instrument routing and pan', () => {
+    const store = useDocStore.getState()
+    const chanId = store.addChannel('sub')
+    const instId = firstInstId()
+
+    store.setInstrumentChannelId(instId, chanId)
+    store.setInstrumentPan(instId, 0.5)
+
+    const inst = useDocStore.getState().doc.entities.instruments[instId]
+    expect(inst.channelId).toBe(chanId)
+    expect(inst.pan).toBe(0.5)
+  })
+
+  it('new instruments are added to mixer order', () => {
+    const before = useDocStore.getState().doc.entities.mixerInstrumentOrder.length
+    useDocStore.getState().addInstrument('osc')
+    const after = useDocStore.getState().doc.entities.mixerInstrumentOrder.length
+    expect(after).toBe(before + 1)
+  })
+
+  it('removing instrument also removes from mixer order', () => {
+    const id = useDocStore.getState().addInstrument('osc')
+    expect(useDocStore.getState().doc.entities.mixerInstrumentOrder).toContain(id)
+    useDocStore.getState().removeInstrument(id)
+    expect(useDocStore.getState().doc.entities.mixerInstrumentOrder).not.toContain(id)
+  })
+})

@@ -270,6 +270,24 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
   },
 }
 
+/** Module types that are valid as channel effects (signal processors, not sources/sinks). */
+export const EFFECT_MODULE_TYPES: ModuleType[] = [
+  'filter',
+  'delay',
+  'echo',
+  'reverb',
+  'tanh',
+  'clip',
+  'fold',
+  'crush',
+  'gain',
+]
+
+/** Check whether a module type can be used as a channel effect. */
+export function isEffectModule(type: ModuleType): boolean {
+  return (EFFECT_MODULE_TYPES as readonly string[]).includes(type)
+}
+
 /** Default param map for a freshly created module of the given type. */
 export function defaultParams(type: ModuleType): Record<string, number> {
   const params: Record<string, number> = {}

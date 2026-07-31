@@ -20,7 +20,7 @@ import type { Doc } from '../domain/types'
  * (osc-only) and new files with modular instruments both satisfy the same
  * schema. A bump is only needed for a *breaking* shape change (e.g. sections).
  */
-export const CURRENT_SCHEMA_VERSION = 6
+export const CURRENT_SCHEMA_VERSION = 7
 
 export interface SongMeta {
   name: string
@@ -91,6 +91,9 @@ export function migrate(raw: unknown): SongFile {
   // v5→v6: replace packed effect/effectValue with per-lane effectLanes system.
   if (version < 6) raw = upgradeV5toV6(raw)
 
+  // v6→v7: add mixer channels, instrument routing (channelId, pan), and mixerInstrumentOrder.
+  if (version < 7) raw = upgradeV6toV7(raw)
+
   // v1→v1 migration: when the stereo output was added (commit b3917fc), the
   // output module's inlet changed from 'in' to 'inL'. Old modular instruments
   // with connections targeting 'in' would silently produce silence because
@@ -129,6 +132,12 @@ function assertShape(raw: unknown): asserts raw is SongFile {
   }
   if (!Array.isArray(raw.doc.sectionIds)) {
     throw new Error('Not a valid song file: missing doc.sectionIds')
+  }
+  if (!isRecord(raw.doc.entities.mixChannels)) {
+    throw new Error('Not a valid song file: missing doc.entities.mixChannels')
+  }
+  if (!Array.isArray(raw.doc.entities.mixerInstrumentOrder)) {
+    throw new Error('Not a valid song file: missing doc.entities.mixerInstrumentOrder')
   }
 }
 
@@ -313,6 +322,48 @@ function upgradeV5toV6(raw: any): any {
   }
 
   return { ...raw, schemaVersion: 6, doc: { ...raw.doc, entities } }
+}
+
+/** v6→v7: add mixChannels, mixerInstrumentOrder, channelId + pan on instruments. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function upgradeV6toV7(raw: any): any {
+  const entities = raw.doc?.entities
+  if (!entities || !isRecord(entities)) return raw
+
+  const ee = { ...entities }
+
+  // Add master channel if missing.
+  if (!ee.mixChannels || !isRecord(ee.mixChannels)) {
+    ee.mixChannels = {
+      master: { id: 'master', name: 'Master', kind: 'master', volume: 1, pan: 0, mute: false, solo: false, effects: [] },
+    }
+  }
+
+  // Add mixerInstrumentOrder if missing — all existing instruments in creation order.
+  if (!Array.isArray(ee.mixerInstrumentOrder)) {
+    const insts = isRecord(ee.instruments) ? ee.instruments as Record<string, unknown> : {}
+    ee.mixerInstrumentOrder = Object.keys(insts)
+  }
+
+  // Add channelId + pan to all instruments.
+  if (isRecord(ee.instruments)) {
+    const insts = ee.instruments as Record<string, unknown>
+    const fixed: Record<string, unknown> = {}
+    for (const [id, inst] of Object.entries(insts)) {
+      if (isRecord(inst) && (inst.kind === 'osc' || inst.kind === 'modular' || inst.kind === 'drumkit')) {
+        fixed[id] = {
+          ...inst,
+          channelId: typeof inst.channelId === 'string' ? inst.channelId : 'master',
+          pan: typeof inst.pan === 'number' ? inst.pan : 0,
+        }
+      } else {
+        fixed[id] = inst
+      }
+    }
+    ee.instruments = fixed
+  }
+
+  return { ...raw, schemaVersion: 7, doc: { ...raw.doc, entities: ee } }
 }
 
 /**

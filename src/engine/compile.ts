@@ -1,11 +1,13 @@
 import { el, type NodeRepr_t } from '@elemaudio/core'
 import type { Doc, Id, SampleEntity } from '../domain/types'
+import { MASTER_CHANNEL_ID } from '../domain/types'
 import { isBuiltinLaneType } from '../domain/effects'
 import { midiToFreq } from '../domain/notes'
 import { buildDrumKitSlotSequences, buildSequences } from './sequences'
 import { renderDrumKitSlot, renderInstrument } from './instruments'
 import { buildEffectSignals } from './effects'
 import type { StereoOut } from './modular'
+import { applyPan, applyChannelMix, compileChannelEffects } from './mixer'
 
 /** Build the sorted sample metadata list for sampleIndex → VFS key + channels resolution.
  *  Only includes samples whose data is actually loaded in Elementary's VFS. */
@@ -225,7 +227,13 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
   const sampleHashById = buildSampleHashById(doc.entities.samples)
 
   const zero = el.const({ value: 0 })
-  const voices: StereoOut[] = []
+  /** Voice pairs grouped by the instrument's mix channel. */
+  const channelVoices = new Map<Id, StereoOut[]>()
+  const getChannel = (id: Id): StereoOut[] => {
+    let arr = channelVoices.get(id)
+    if (!arr) { arr = []; channelVoices.set(id, arr) }
+    return arr
+  }
 
   for (const trackId of pattern.trackIds) {
     const track = doc.entities.tracks[trackId]
@@ -317,16 +325,21 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
 
       // Apply per-row panning if any row has a pan effect.
       const hasDkPan = effSig.pan.some((p) => p !== 0.5)
+      let dkVoice: StereoOut
       if (hasDkPan && !muted) {
         const panSeq = el.seq2({ key: `${trackId}:pan:${ctx.playEpoch}`, seq: rotatedPan, hold: true, loop: true }, clock, reset)
         const panAngle = el.mul(panSeq, Math.PI / 2)
-        voices.push({ left: el.mul(mixL, effVol, el.cos(panAngle), masterGain), right: el.mul(mixR, effVol, el.sin(panAngle), masterGain) })
+        dkVoice = { left: el.mul(mixL, effVol, el.cos(panAngle), masterGain), right: el.mul(mixR, effVol, el.sin(panAngle), masterGain) }
       } else {
-        voices.push(muted
+        dkVoice = muted
           ? { left: el.mul(mixL, 0), right: el.mul(mixR, 0) }
-          : { left: el.mul(mixL, effVol, masterGain), right: el.mul(mixR, effVol, masterGain) },
-        )
+          : { left: el.mul(mixL, effVol, masterGain), right: el.mul(mixR, effVol, masterGain) }
       }
+      // Apply instrument-level pan from the mixer (ref-based, no recompile on pan change).
+      const dkPanRef = ctx.paramRefs
+        ? ctx.paramRefs.getOrCreate(`inst:${inst.id}:pan`, inst.pan ?? 0)
+        : el.const({ value: inst.pan ?? 0 })
+      getChannel(inst.channelId ?? MASTER_CHANNEL_ID).push(applyPan(dkVoice, dkPanRef))
       continue
     }
 
@@ -434,27 +447,75 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
 
     // Apply per-row panning if any row has a pan effect.
     const hasPan = effSig.pan.some((p) => p !== 0.5)
+    let trackVoice: StereoOut
     if (hasPan && !muted) {
       // Convert 0..1 pan values to constant-power stereo gains.
       const panArr = rotatedPan
       const panSeq = el.seq2({ key: `${trackId}:pan:${ctx.playEpoch}`, seq: panArr, hold: true, loop: true }, clock, reset)
       const panAngle = el.mul(panSeq, Math.PI / 2)
-      voices.push({ left: el.mul(voice.left, el.cos(panAngle)), right: el.mul(voice.right, el.sin(panAngle)) })
+      trackVoice = { left: el.mul(voice.left, el.cos(panAngle)), right: el.mul(voice.right, el.sin(panAngle)) }
     } else {
-      voices.push(muted
+      trackVoice = muted
         ? { left: el.mul(voice.left, 0), right: el.mul(voice.right, 0) }
-        : voice,
-      )
+        : voice
+    }
+    // Apply instrument-level pan from the mixer (ref-based, no recompile on pan change).
+    const instPanRef = ctx.paramRefs
+      ? ctx.paramRefs.getOrCreate(`inst:${inst.id}:pan`, inst.pan ?? 0)
+      : el.const({ value: inst.pan ?? 0 })
+    getChannel(inst.channelId ?? MASTER_CHANNEL_ID).push(applyPan(trackVoice, instPanRef))
+  }
+
+  // ── Channel routing: sum per-channel → effects → vol/pan → master ──
+  let masterLeft: NodeRepr_t = zero
+  let masterRight: NodeRepr_t = zero
+
+  for (const [chanId, voices] of channelVoices) {
+    // Sum all voices routed to this channel.
+    const chanSum: StereoOut = {
+      left: voices.reduce((acc, v) => el.add(acc, v.left), zero),
+      right: voices.reduce((acc, v) => el.add(acc, v.right), zero),
+    }
+
+    const channel = doc.entities.mixChannels[chanId]
+    if (!channel) {
+      // Unknown channel — route directly to master.
+      masterLeft = el.add(masterLeft, chanSum.left)
+      masterRight = el.add(masterRight, chanSum.right)
+      continue
+    }
+
+    // Apply channel insert effects, then volume + pan.
+    const processed = channel.kind === 'sub' || channel.kind === 'master'
+      ? compileChannelEffects(channel.effects, chanSum, chanId, ctx.paramRefs)
+      : chanSum
+
+    const mixed = applyChannelMix(processed, channel.volume, channel.pan, chanId, ctx.paramRefs)
+
+    if (channel.kind === 'master') {
+      // Master channel: apply effects and volume directly (already handled above).
+      // Voices routed directly to master are summed into masterLeft/Right.
+      masterLeft = el.add(masterLeft, mixed.left)
+      masterRight = el.add(masterRight, mixed.right)
+    } else {
+      // Sub channel: process and route to master.
+      masterLeft = el.add(masterLeft, mixed.left)
+      masterRight = el.add(masterRight, mixed.right)
     }
   }
 
-  const mixL = voices.reduce((acc, v) => el.add(acc, v.left), zero)
-  const mixR = voices.reduce((acc, v) => el.add(acc, v.right), zero)
+  // Apply master channel effects and volume. The master channel is always present.
+  const masterChannel = doc.entities.mixChannels[MASTER_CHANNEL_ID]
+  let masterOut: StereoOut = { left: masterLeft, right: masterRight }
+  if (masterChannel) {
+    masterOut = compileChannelEffects(masterChannel.effects, masterOut, MASTER_CHANNEL_ID, ctx.paramRefs)
+    masterOut = applyChannelMix(masterOut, masterChannel.volume, masterChannel.pan, MASTER_CHANNEL_ID, ctx.paramRefs)
+  }
 
-  // Master gain, gated by play state. Preview sits outside the gate.
+  // Master output, gated by play state. Preview sits outside the gate.
   const patternOut: StereoOut = {
-    left: el.mul(mixL, ctx.playing, 0.3),
-    right: el.mul(mixR, ctx.playing, 0.3),
+    left: el.mul(masterOut.left, ctx.playing),
+    right: el.mul(masterOut.right, ctx.playing),
   }
 
   return preview

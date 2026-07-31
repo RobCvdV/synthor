@@ -31,6 +31,8 @@ function makeFixture(args: {
       patterns: { [pid]: pattern },
       sections: {},
       samples: {},
+      mixChannels: {},
+      mixerInstrumentOrder: [],
     },
   }
   return { doc, pattern }

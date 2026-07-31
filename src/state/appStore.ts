@@ -5,7 +5,7 @@ import type { Doc, Id, Pattern } from '../domain/types'
 export type PlayMode = 'song' | 'section' | 'pattern'
 export const PLAY_MODES: PlayMode[] = ['song', 'section', 'pattern']
 
-export type View = 'tracker' | 'instruments' | 'samples'
+export type View = 'tracker' | 'instruments' | 'samples' | 'mixer'
 
 export interface TrackerCursor {
   row: number

@@ -1,10 +1,12 @@
 import type {
   Cell,
+  ChannelEffect,
   Connection,
   Doc,
   DrumKitInstrument,
   DrumKitSlot,
   Instrument,
+  MixChannel,
   Module,
   ModularInstrument,
   ModuleType,
@@ -15,7 +17,7 @@ import type {
   Section,
   Track,
 } from './types'
-import { DEFAULT_EFFECT_SETTINGS } from './types'
+import { DEFAULT_EFFECT_SETTINGS, MASTER_CHANNEL_ID } from './types'
 import { defaultParams } from './moduleDefs'
 
 /**
@@ -38,14 +40,29 @@ export function fitCells(cells: Cell[], length: number): Cell[] {
   return out
 }
 
+/** A fresh master channel. */
+export function createMasterChannel(): MixChannel {
+  return { id: MASTER_CHANNEL_ID, name: 'Master', kind: 'master', volume: 1, pan: 0, mute: false, solo: false, effects: [] }
+}
+
+/** A new sub-channel. */
+export function createMixChannel(name: string): MixChannel {
+  return { id: makeId('chan'), name, kind: 'sub', volume: 1, pan: 0, mute: false, solo: false, effects: [] }
+}
+
+/** A new channel effect instance. */
+export function createChannelEffect(type: ModuleType): ChannelEffect {
+  return { id: makeId('chef'), type, params: { ...defaultParams(type) } }
+}
+
 /** A fresh saw instrument. */
 export function newOscInstrument(name: string): OscInstrument {
-  return { id: makeId('inst'), kind: 'osc', name, params: { gain: 0.8 }, effectSettings: { ...DEFAULT_EFFECT_SETTINGS } }
+  return { id: makeId('inst'), kind: 'osc', name, params: { gain: 0.8 }, effectSettings: { ...DEFAULT_EFFECT_SETTINGS }, channelId: MASTER_CHANNEL_ID, pan: 0 }
 }
 
 /** A fresh empty drum kit with a default key range of C-2 to C-4. */
 export function newDrumKitInstrument(name: string): DrumKitInstrument {
-  return { id: makeId('inst'), kind: 'drumkit', name, slots: [], keyLo: 36, keyHi: 60, params: { gain: 1 } }
+  return { id: makeId('inst'), kind: 'drumkit', name, slots: [], keyLo: 36, keyHi: 60, params: { gain: 1 }, channelId: MASTER_CHANNEL_ID, pan: 0 }
 }
 
 /** A new sample entity (metadata only — binary data is stored in OPFS). */
@@ -105,6 +122,8 @@ export function newModularInstrument(name: string): ModularInstrument {
     connections: Object.fromEntries(connections.map((c) => [c.id, c])),
     outputId: output.id,
     effectSettings: { ...DEFAULT_EFFECT_SETTINGS },
+    channelId: MASTER_CHANNEL_ID,
+    pan: 0,
   }
 }
 
@@ -115,7 +134,7 @@ export function newModularInstrument(name: string): ModularInstrument {
  */
 export function cloneInstrument(inst: Instrument, name: string): Instrument {
   if (inst.kind === 'osc') {
-    return { id: makeId('inst'), kind: 'osc', name, params: { ...inst.params }, effectSettings: { ...inst.effectSettings } }
+    return { id: makeId('inst'), kind: 'osc', name, params: { ...inst.params }, effectSettings: { ...inst.effectSettings }, channelId: inst.channelId ?? MASTER_CHANNEL_ID, pan: inst.pan ?? 0 }
   }
 
   if (inst.kind === 'drumkit') {
@@ -128,7 +147,7 @@ export function cloneInstrument(inst: Instrument, name: string): Instrument {
       gain: s.gain,
       pan: s.pan,
     }))
-    return { id: makeId('inst'), kind: 'drumkit', name, slots, keyLo: inst.keyLo ?? 36, keyHi: inst.keyHi ?? 60, params: { ...inst.params } }
+    return { id: makeId('inst'), kind: 'drumkit', name, slots, keyLo: inst.keyLo ?? 36, keyHi: inst.keyHi ?? 60, params: { ...inst.params }, channelId: inst.channelId ?? MASTER_CHANNEL_ID, pan: inst.pan ?? 0 }
   }
 
   const idMap = new Map<string, string>()
@@ -153,6 +172,8 @@ export function cloneInstrument(inst: Instrument, name: string): Instrument {
     connections,
     outputId: idMap.get(inst.outputId)!,
     effectSettings: { ...inst.effectSettings },
+    channelId: inst.channelId ?? MASTER_CHANNEL_ID,
+    pan: inst.pan ?? 0,
   }
 }
 
@@ -173,8 +194,9 @@ export function newSection(name: string): Section {
  * `loadDoc` replaces this entirely.
  */
 export function createDefaultDoc(): Doc {
-  const instA: Instrument = { id: makeId('inst'), kind: 'osc', name: 'Saw Lead', params: { gain: 0.8 }, effectSettings: { ...DEFAULT_EFFECT_SETTINGS } }
-  const instB: Instrument = { id: makeId('inst'), kind: 'osc', name: 'Saw Bass', params: { gain: 0.8 }, effectSettings: { ...DEFAULT_EFFECT_SETTINGS } }
+  const master = createMasterChannel()
+  const instA: Instrument = { id: makeId('inst'), kind: 'osc', name: 'Saw Lead', params: { gain: 0.8 }, effectSettings: { ...DEFAULT_EFFECT_SETTINGS }, channelId: MASTER_CHANNEL_ID, pan: 0 }
+  const instB: Instrument = { id: makeId('inst'), kind: 'osc', name: 'Saw Bass', params: { gain: 0.8 }, effectSettings: { ...DEFAULT_EFFECT_SETTINGS }, channelId: MASTER_CHANNEL_ID, pan: 0 }
 
   const length = 16
 
@@ -207,6 +229,8 @@ export function createDefaultDoc(): Doc {
       patterns: { [pattern.id]: pattern },
       sections: { [section.id]: section },
       samples: {},
+      mixChannels: { [MASTER_CHANNEL_ID]: master },
+      mixerInstrumentOrder: [instA.id, instB.id],
     },
     patternId: pattern.id,
     sectionIds: [section.id],
