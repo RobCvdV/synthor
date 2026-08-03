@@ -227,7 +227,8 @@ function ChannelStrip({
         {channel.effects.map((fx) => {
           const def = MODULE_DEFS[fx.type]
           const bypassed = (fx.params.bypass ?? 0) === 1
-          return <div key={fx.id} style={{ fontSize: 8, padding: '1px 3px', borderRadius: 2, background: bypassed ? 'rgba(255,255,255,0.05)' : 'rgba(72,136,170,0.25)', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: bypassed ? 0.4 : 1 }}>{def?.label ?? fx.type}</div>
+          const label = (def?.label ?? fx.type) + (fx.side ? ` ${fx.side}` : '')
+          return <div key={fx.id} style={{ fontSize: 8, padding: '1px 3px', borderRadius: 2, background: bypassed ? 'rgba(255,255,255,0.05)' : 'rgba(72,136,170,0.25)', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: bypassed ? 0.4 : 1 }}>{label}</div>
         })}
       </div>
       <AddEffectDropdown existingTypes={channel.effects.map((e) => e.type)} onAdd={onAddFx} />
@@ -276,7 +277,7 @@ function EffectCard({
         <button className={'mod-bypass-btn' + (bypassed ? ' off' : '')} style={{ position: 'static', transform: 'none' }}
           title={bypassed ? 'Bypassed — click to engage' : 'Active — click to bypass'}
           onClick={(e) => { e.preventDefault(); onToggleBypass(!bypassed) }}>⏻</button>
-        <span style={{ fontSize: 11, fontWeight: 'bold', flex: 1 }}>{def.label}</span>
+        <span style={{ fontSize: 11, fontWeight: 'bold', flex: 1 }}>{def.label}{effect.side ? ` ${effect.side}` : ''}</span>
         {onMoveUp && <button className="octbtn" onClick={onMoveUp} style={{ fontSize: 9, padding: '0 4px' }}>↑</button>}
         {onMoveDown && <button className="octbtn" onClick={onMoveDown} style={{ fontSize: 9, padding: '0 4px' }}>↓</button>}
         <button className="octbtn" onClick={onRemove} style={{ fontSize: 9, padding: '0 4px' }}>×</button>

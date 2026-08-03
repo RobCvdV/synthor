@@ -405,11 +405,12 @@ export function compileModular(
       }
 
       case 'reverb': {
-        const input = inlet(m.id, 'in') ?? SILENCE
-        // Stereo bypass: store the same signal on both L/R channels.
+        const inputL = inlet(m.id, 'in') ?? SILENCE
+        const inputR = inlet(m.id, 'inR') // optional stereo right input
+        const hasStereoIn = inputR !== null
         if (p.bypass) {
-          memo.set(`${m.id}:outR`, input)
-          return input
+          memo.set(`${m.id}:outR`, hasStereoIn ? inputR : inputL)
+          return inputL
         }
 
         const roomSize = kconst(key('roomSize'), p.roomSize ?? 0.5)
@@ -423,7 +424,7 @@ export function compileModular(
         const stereoOff = [1.3, 2.1, 0.9, 1.7]
 
         // Build one stereo channel: 4 filtered-feedback combs → sum → tone lowpass.
-        function buildChannel(side: 'L' | 'R'): Node {
+        function buildChannel(side: 'L' | 'R', sig: Node): Node {
           const offsetMul = side === 'R' ? stereoWidth : el.const({ value: 0 })
 
           const combs = baseTimes.map((base, i) => {
@@ -442,7 +443,7 @@ export function compileModular(
               { key: `${keyPrefix}:${m.id}:damp${side}${i}`, mode: 'lowpass' },
               dampFreq,
               el.const({ value: 0.5 }),
-              input,
+              sig,
             )
 
             return el.delay(
@@ -471,13 +472,13 @@ export function compileModular(
           )
         }
 
-        const wetL = buildChannel('L')
-        const wetR = buildChannel('R')
+        const wetL = buildChannel('L', inputL)
+        const wetR = buildChannel('R', hasStereoIn ? inputR : inputL)
 
-        // Dry/wet mix.
+        // Dry/wet mix — separate dry paths for true stereo when inR is connected.
         const dryGain = el.sub(el.const({ value: 1 }), wetMix)
-        const outL = el.add(el.mul(input, dryGain), el.mul(wetL, wetMix))
-        const outR = el.add(el.mul(input, dryGain), el.mul(wetR, wetMix))
+        const outL = el.add(el.mul(inputL, dryGain), el.mul(wetL, wetMix))
+        const outR = el.add(el.mul(hasStereoIn ? inputR : inputL, dryGain), el.mul(wetR, wetMix))
 
         // Store the right channel so connections from outR can pick it up later.
         memo.set(`${m.id}:outR`, outR)

@@ -231,7 +231,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
   reverb: {
     type: 'reverb',
     label: 'Reverb',
-    inlets: ['in'],
+    inlets: ['in', 'inR'],
     outlets: ['outL', 'outR'],
     params: [
       { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'] },
@@ -286,6 +286,13 @@ export const EFFECT_MODULE_TYPES: ModuleType[] = [
 /** Check whether a module type can be used as a channel effect. */
 export function isEffectModule(type: ModuleType): boolean {
   return (EFFECT_MODULE_TYPES as readonly string[]).includes(type)
+}
+
+/** Mono effects process one channel at a time — they get instantiated twice (L+R) on stereo channels. */
+const STEREO_EFFECT_TYPES: ModuleType[] = ['reverb', 'delay', 'echo']
+
+export function isStereoEffect(type: ModuleType): boolean {
+  return (STEREO_EFFECT_TYPES as readonly string[]).includes(type)
 }
 
 /** Default param map for a freshly created module of the given type. */

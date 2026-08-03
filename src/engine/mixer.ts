@@ -46,7 +46,8 @@ export function compileChannelEffects(
   return out
 }
 
-/** Compile a single channel effect, stereo in → stereo out. */
+/** Compile a single channel effect, stereo in → stereo out.
+ *  If fx.side is set, only that channel is processed; the other passes through. */
 function compileOneEffect(
   fx: ChannelEffect,
   input: StereoOut,
@@ -57,6 +58,26 @@ function compileOneEffect(
   const key = (name: string) => chanRefKey(channelId, fx.id, name)
   const k = (name: string, value: number) => kconst(key(name), value, paramRefs)
 
+  // Stereo effects (or unsided) process both channels.
+  // Mono effects with a side only process that channel.
+  const isStereo = fx.type === 'reverb' || fx.type === 'delay' || fx.type === 'echo'
+  const side = fx.side
+
+  /** Wrap a per-channel processor — only applies to fx.side if set. */
+  function sided(
+    input: StereoOut,
+    fn: (sig: NodeRepr_t) => NodeRepr_t,
+  ): StereoOut {
+    if (isStereo || !side) {
+      return { left: fn(input.left), right: fn(input.right) }
+    }
+    if (side === 'L') {
+      return { left: fn(input.left), right: input.right }
+    }
+    // side === 'R'
+    return { left: input.left, right: fn(input.right) }
+  }
+
   switch (fx.type) {
     // ── Filter ──────────────────────────────────────────────
     case 'filter': {
@@ -64,9 +85,8 @@ function compileOneEffect(
       const cutoff = k('cutoff', p.cutoff ?? 1200)
       const q = k('q', p.q ?? 0.7)
       const mode = k('mode', p.mode ?? 0)
-      // Three parallel SVFs per channel, selected by mode ref.
-      const chan = (side: 'L' | 'R', sig: NodeRepr_t): NodeRepr_t => {
-        const svfKey = `${channelId}:${fx.id}:${side}`
+      return sided(input, (sig) => {
+        const svfKey = `${channelId}:${fx.id}:${side ?? 'LR'}`
         const lp = el.svf({ key: `${svfKey}:lp`, mode: 'lowpass' }, cutoff, q, sig)
         const hp = el.svf({ key: `${svfKey}:hp`, mode: 'highpass' }, cutoff, q, sig)
         const bp = el.svf({ key: `${svfKey}:bp`, mode: 'bandpass' }, cutoff, q, sig)
@@ -74,15 +94,14 @@ function compileOneEffect(
           el.le(mode, el.const({ value: 0.5 })), lp,
           el.select(el.le(mode, el.const({ value: 1.5 })), hp, bp),
         )
-      }
-      return { left: chan('L', input.left), right: chan('R', input.right) }
+      })
     }
 
     // ── Gain ────────────────────────────────────────────────
     case 'gain': {
       if (p.bypass) return input
       const level = k('level', p.level ?? 0.8)
-      return { left: el.mul(input.left, level), right: el.mul(input.right, level) }
+      return sided(input, (sig) => el.mul(sig, level))
     }
 
     // ── Saturator (tanh) ────────────────────────────────────
@@ -90,10 +109,7 @@ function compileOneEffect(
       if (p.bypass) return input
       const drive = k('drive', p.drive ?? 4)
       const level = k('level', p.level ?? 1)
-      return {
-        left: el.mul(el.tanh(el.mul(input.left, drive)), level),
-        right: el.mul(el.tanh(el.mul(input.right, drive)), level),
-      }
+      return sided(input, (sig) => el.mul(el.tanh(el.mul(sig, drive)), level))
     }
 
     // ── Hard Clip ───────────────────────────────────────────
@@ -103,11 +119,10 @@ function compileOneEffect(
       const threshold = k('threshold', p.threshold ?? 0.7)
       const level = k('level', p.level ?? 0.7)
       const neg = el.sub(el.const({ value: 0 }), threshold)
-      const clipChan = (sig: NodeRepr_t): NodeRepr_t => {
+      return sided(input, (sig) => {
         const driven = el.mul(sig, drive)
         return el.mul(el.max(neg, el.min(threshold, driven)), level)
-      }
-      return { left: clipChan(input.left), right: clipChan(input.right) }
+      })
     }
 
     // ── Wave Folder ─────────────────────────────────────────
@@ -118,7 +133,7 @@ function compileOneEffect(
       const level = k('level', p.level ?? 0.7)
       const neg = el.sub(el.const({ value: 0 }), threshold)
       const two = el.const({ value: 2 })
-      const foldChan = (sig: NodeRepr_t): NodeRepr_t => {
+      return sided(input, (sig) => {
         const driven = el.mul(sig, drive)
         const overPos = el.ge(driven, threshold)
         const overNeg = el.le(driven, neg)
@@ -128,8 +143,7 @@ function compileOneEffect(
           el.select(overNeg, el.sub(el.mul(two, neg), driven), driven),
         )
         return el.mul(folded, level)
-      }
-      return { left: foldChan(input.left), right: foldChan(input.right) }
+      })
     }
 
     // ── Bit Crusher ─────────────────────────────────────────
@@ -138,11 +152,10 @@ function compileOneEffect(
       const bits = k('bits', p.bits ?? 4)
       const level = k('level', p.level ?? 1)
       const steps = el.pow(el.const({ value: 2 }), el.sub(bits, el.const({ value: 1 })))
-      const crushChan = (sig: NodeRepr_t): NodeRepr_t => {
+      return sided(input, (sig) => {
         const q = el.div(el.round(el.mul(sig, steps)), steps)
         return el.mul(q, level)
-      }
-      return { left: crushChan(input.left), right: crushChan(input.right) }
+      })
     }
 
     // ── Single-tap Delay ────────────────────────────────────

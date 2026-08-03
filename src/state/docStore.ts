@@ -16,7 +16,7 @@ import {
   newSection,
   newTrack,
 } from '../domain/factory'
-import { defaultParams, MODULE_DEFS } from '../domain/moduleDefs'
+import { defaultParams, isStereoEffect, MODULE_DEFS } from '../domain/moduleDefs'
 
 enablePatches()
 
@@ -1024,12 +1024,22 @@ export const useDocStore = create<DocState>((set, get) => ({
     }),
 
   addChannelEffect: (channelId, type) => {
-    const effect = createChannelEffect(type)
+    if (isStereoEffect(type)) {
+      const effect = createChannelEffect(type)
+      get().mutate((draft) => {
+        const chan = draft.entities.mixChannels[channelId]
+        if (chan) chan.effects.push(effect)
+      })
+      return effect.id
+    }
+    // Mono effects → create L + R instances.
+    const efL = createChannelEffect(type, 'L')
+    const efR = createChannelEffect(type, 'R')
     get().mutate((draft) => {
       const chan = draft.entities.mixChannels[channelId]
-      if (chan) chan.effects.push(effect)
+      if (chan) { chan.effects.push(efL); chan.effects.push(efR) }
     })
-    return effect.id
+    return efL.id
   },
 
   removeChannelEffect: (channelId, effectId) =>

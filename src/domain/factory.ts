@@ -50,9 +50,9 @@ export function createMixChannel(name: string): MixChannel {
   return { id: makeId('chan'), name, kind: 'sub', volume: 1, pan: 0, mute: false, solo: false, effects: [] }
 }
 
-/** A new channel effect instance. */
-export function createChannelEffect(type: ModuleType): ChannelEffect {
-  return { id: makeId('chef'), type, params: { ...defaultParams(type) } }
+/** A new channel effect instance. Mono effects should be created per-side (L+R). */
+export function createChannelEffect(type: ModuleType, side?: 'L' | 'R'): ChannelEffect {
+  return { id: makeId('chef'), type, params: { ...defaultParams(type) }, ...(side ? { side } : {}) }
 }
 
 /** A fresh saw instrument. */

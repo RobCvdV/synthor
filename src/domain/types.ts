@@ -235,6 +235,10 @@ export interface ChannelEffect {
   id: Id
   type: ModuleType
   params: Record<string, number>
+  /** When set, this effect only processes one stereo side; the other passes through.
+   *  Used for mono effects (filter, gain, etc.) so L and R can be tuned independently.
+   *  Stereo effects (reverb, delay, echo) and unset = process both channels. */
+  side?: 'L' | 'R'
 }
 
 /** A mix channel (sub or master). Always stereo. */
