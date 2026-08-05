@@ -61,6 +61,14 @@ export class VoicePool {
     return new Map(this.noteMap)
   }
 
+  /** Number of currently active (gated) voices. */
+  get activeCount(): number {
+    return this.noteMap.size
+  }
+
+  /** Called when a voice is stolen (pool exhausted). */
+  onVoiceSteal: ((instId: string, note: number) => void) | null = null
+
   // ── public API ──────────────────────────────────────────────────────
 
   /** Start a note. Returns the slot index used. */
@@ -164,6 +172,7 @@ export class VoicePool {
     const stolen = this.stealSlot()
     this.clearReleaseTimer(stolen)
     this.noteMap.set(note, stolen)
+    this.onVoiceSteal?.(this.instId, note)
     return stolen
   }
 

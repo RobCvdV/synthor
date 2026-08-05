@@ -248,6 +248,14 @@ export function useEngine(): AudioHost {
 
     host.onReady = schedule
     host.onVoicePoolCreated = schedule
+
+    // Wire scheduler row events → transportStore for UI playhead.
+    if (host.schedulerNode) {
+      host.schedulerNode.onRow = (row) => {
+        useTransportStore.getState().setCurrentRow(row)
+      }
+    }
+
     schedule() // catch any state that changed before the host was ready
 
     return () => {
