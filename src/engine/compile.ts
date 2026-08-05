@@ -3,7 +3,7 @@ import type { Doc, Id, SampleEntity } from '../domain/types'
 import { MASTER_CHANNEL_ID } from '../domain/types'
 import { isBuiltinLaneType } from '../domain/effects'
 import { midiToFreq } from '../domain/notes'
-import { buildDrumKitSlotSequences, buildSequences } from './sequences'
+import { buildSequences } from './sequences'
 import { renderDrumKitSlot, renderInstrument } from './instruments'
 import { buildEffectSignals } from './effects'
 import type { StereoOut } from './modular'
@@ -72,6 +72,10 @@ export interface RenderContext {
    *  patterns in the arrangement instead of compiling just doc.patternId.
    *  Pattern switches within the arrangement require zero recompile. */
   arrangement?: ArrangementItem[]
+  /** Populated during compilation: track → scheduler input channel mapping.
+   *  Mutated in-place — useEngine reads it after compileGraph returns to
+   *  align buildPlaybackData channel offsets with the compiled graph. */
+  trackChannels?: Map<Id, { offset: number; count: number; instId: Id }>
 }
 
 /**
@@ -235,6 +239,30 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
   const rawReset = el.train(resetRate)
   const reset = el.mul(rawReset, ctx.playing)
 
+  // Pre-pass: assign scheduler input channel offsets per unique track.
+  // Regular tracks get 2 channels (gate, freq); drumkit tracks get
+  // 1 channel per slot (gate only — freq is per-slot constant).
+  // This MUST match the iteration order in buildPlaybackData.
+  if (ctx.trackChannels) ctx.trackChannels.clear()
+  let chOffset = 0
+  if (ctx.trackChannels) {
+    const seen = new Set<Id>()
+    for (const item of arrangement) {
+      const pat = doc.entities.patterns[item.patternId]
+      if (!pat) continue
+      for (const tid of pat.trackIds) {
+        if (seen.has(tid)) continue
+        seen.add(tid)
+        const t = doc.entities.tracks[tid]
+        const i = t && doc.entities.instruments[t.instrumentId]
+        if (!i) continue
+        const count = i.kind === 'drumkit' ? i.slots.length : 2
+        ctx.trackChannels.set(tid, { offset: chOffset, count, instId: i.id })
+        chOffset += count
+      }
+    }
+  }
+
   const zero = el.const({ value: 0 })
   /** Voice pairs grouped by the instrument's mix channel. */
   const channelVoices = new Map<Id, StereoOut[]>()
@@ -244,8 +272,9 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
     return arr
   }
 
-  // Iterate every pattern in the arrangement.  In flat mode each pattern's
-  // sequences are padded to totalRows so they only occupy their time window.
+  // Iterate every pattern in the arrangement.  Note data (gate/freq) comes
+  // from the scheduler AudioWorklet via el.in; effect modulation (vol/pan/
+  // LFO/lane) still uses seq2 driven by the graph clock.
   for (const item of arrangement) {
   const pattern = doc.entities.patterns[item.patternId]
   if (!pattern) continue
@@ -253,10 +282,9 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
     const track = doc.entities.tracks[trackId]
     const inst = doc.entities.instruments[track.instrumentId]
     const muted = ctx.mutedTracks?.[trackId] === true
+    const chInfo = ctx.trackChannels?.get(trackId)
 
     if (inst.kind === 'drumkit') {
-      // Per-slot sequencing: each slot gets its own gate + freq sequences.
-      const { slotGateSeqs, slotFreqSeqs } = buildDrumKitSlotSequences(track, pattern.length, inst)
       const { volumeSeq, effectLanes: laneSeqs, laneDefs } = buildSequences(track, pattern.length)
 
       // Effect lane processing (built-in effects apply at mix level).
@@ -312,13 +340,14 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
 
       let mixL: NodeRepr_t = zero
       let mixR: NodeRepr_t = zero
-      for (const slot of inst.slots) {
-        const dkSlotGate = prepSeq(slotGateSeqs[slot.id], ctx.startRow, item.startRow, totalRows, isFlat)
-        const dkSlotFreq = prepSeq(slotFreqSeqs[slot.id], ctx.startRow, item.startRow, totalRows, isFlat)
-        const slotGate = mkSeq2(`${trackId}:${slot.id}:gate:${ctx.playEpoch}`, dkSlotGate, clock, reset, false, isFlat, ctx.startRow, item.startRow)
-        // Apply portamento freqMul to each slot's frequency.
+      for (let si = 0; si < inst.slots.length; si++) {
+        const slot = inst.slots[si]
+        // Gate from scheduler (el.in); freq from slot's base note × portamento.
+        const slotGate = chInfo
+          ? el.in({ channel: chInfo.offset + si })
+          : el.const({ value: 0 })
         const slotFreq = el.mul(
-          mkSeq2(`${trackId}:${slot.id}:freq:${ctx.playEpoch}`, dkSlotFreq, clock, reset, true, isFlat, ctx.startRow, item.startRow),
+          el.const({ value: midiToFreq(slot.note + slot.pitchOffset) }),
           freqMulSeq,
         )
         const voice = renderDrumKitSlot(slot, doc.entities.instruments, slotGate, slotFreq, trackId, sampleMeta, sampleHashById, ctx.midiCcValues, ctx.paramRefs, ctx.ccBindings, inletSignals, inst.id)
@@ -346,8 +375,9 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
       continue
     }
 
-    // Osc / modular: single instrument per track.
-    const { freqSeq, gateSeq, volumeSeq, effectLanes: laneSeqs, laneDefs } = buildSequences(track, pattern.length)
+    // Osc / modular: gate + freq from scheduler AudioWorklet via el.in,
+    // vol/effect lanes/LFO from seq2.
+    const { volumeSeq, effectLanes: laneSeqs, laneDefs } = buildSequences(track, pattern.length)
     const firstNote = track.cells.find((c) => c.note != null)?.note
     const trackBaseFreq = firstNote != null ? midiToFreq(firstNote) : 0
 
@@ -357,9 +387,7 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
     // Build per-row effect modulation signals from built-in lane types.
     const effSig = buildEffectSignals(laneSeqs, laneDefs, pattern.length, effSettings)
 
-    // Prepare sequences (rotate or pad depending on mode).
-    const prepFreq = prepSeq(freqSeq, ctx.startRow, item.startRow, totalRows, isFlat)
-    const prepGate = prepSeq(gateSeq, ctx.startRow, item.startRow, totalRows, isFlat)
+    // Prepare effect sequences (rotate or pad depending on mode).
     const prepVolume = prepSeq(volumeSeq, ctx.startRow, item.startRow, totalRows, isFlat)
     const prepFreqMul = prepSeq(effSig.freqMul, ctx.startRow, item.startRow, totalRows, isFlat)
     const prepVolMod = prepSeq(effSig.volMod, ctx.startRow, item.startRow, totalRows, isFlat)
@@ -371,12 +399,17 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
       prepLaneSeqs[laneId] = prepSeq(seq, ctx.startRow, item.startRow, totalRows, isFlat)
     }
 
-    const freq = mkSeq2(`${trackId}:freq:${ctx.playEpoch}`, prepFreq, clock, reset, true, isFlat, ctx.startRow, item.startRow)
-    const gate = mkSeq2(`${trackId}:gate:${ctx.playEpoch}`, prepGate, clock, reset, true, isFlat, ctx.startRow, item.startRow)
-    const vol = mkSeq2(`${trackId}:vol:${ctx.playEpoch}`, prepVolume, clock, reset, true, isFlat, ctx.startRow, item.startRow)
+    // Gate + freq from the scheduler AudioWorklet via el.in.
+    const gate = chInfo
+      ? el.in({ channel: chInfo.offset })
+      : el.const({ value: 0 })
+    const effFreqBase = chInfo
+      ? el.in({ channel: chInfo.offset + 1 })
+      : el.const({ value: trackBaseFreq || midiToFreq(69) })
+    const freqMulSeq = mkSeq2(`${trackId}:freqMul:${ctx.playEpoch}`, prepFreqMul, clock, reset, true, isFlat, ctx.startRow, item.startRow)
+    let effFreq: NodeRepr_t = el.mul(effFreqBase, freqMulSeq)
 
-    // Portamento and volumeSlide are per-row multipliers (simple seq2).
-    let effFreq: NodeRepr_t = el.mul(freq, mkSeq2(`${trackId}:freqMul:${ctx.playEpoch}`, prepFreqMul, clock, reset, true, isFlat, ctx.startRow, item.startRow))
+    const vol = mkSeq2(`${trackId}:vol:${ctx.playEpoch}`, prepVolume, clock, reset, true, isFlat, ctx.startRow, item.startRow)
     let effVol: NodeRepr_t = el.mul(vol, mkSeq2(`${trackId}:volMod:${ctx.playEpoch}`, prepVolMod, clock, reset, true, isFlat, ctx.startRow, item.startRow))
 
     // --- Vibrato: audio-rate sine LFO for smooth continuous modulation ---
@@ -495,10 +528,14 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
     masterOut = applyChannelMix(masterOut, masterChannel.volume, masterChannel.pan, MASTER_CHANNEL_ID, ctx.paramRefs)
   }
 
-  // Master output, gated by play state. Live voices sit outside the gate.
+  // Master output, gated by the transport:playing ref so play/stop is a
+  // ref write instead of a recompile. Live voices sit outside the gate.
+  const playingGate = ctx.paramRefs
+    ? ctx.paramRefs.getOrCreate('transport:playing', 0)
+    : el.const({ value: ctx.playing })
   const patternOut: StereoOut = {
-    left: el.mul(masterOut.left, ctx.playing),
-    right: el.mul(masterOut.right, ctx.playing),
+    left: el.mul(masterOut.left, playingGate),
+    right: el.mul(masterOut.right, playingGate),
   }
 
   return liveOut

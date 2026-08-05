@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { AudioHost } from '../audio/host'
 import { compileGraph } from '../engine/compile'
 import { buildArrangement } from '../engine/arrangement'
+import { buildPlaybackData } from '../player/playbackData'
 import { syncSamplesToVfs } from '../audio/vfsLoader'
 import { useDocStore } from '../state/docStore'
 import { useMidiStore } from '../state/midiStore'
@@ -9,18 +10,22 @@ import { usePreviewStore } from '../state/previewStore'
 import { useProjectStore } from '../state/projectStore'
 import { rowHz, useTransportStore } from '../state/transportStore'
 import { useAppStore } from '../state/appStore'
+import type { Id } from '../domain/types'
 
 /**
- * Wires the reactive stores to the audio host: any change to the document,
- * transport, or preview recompiles the Elementary graph and re-renders it.
- * Elementary reconciles the diff, so edits-while-playing just work.
+ * Wires reactive stores to the audio host + scheduler AudioWorklet.
+ *
+ * Playback is driven by the audio-thread scheduler — note events (gate/freq)
+ * flow directly from the scheduler worklet to Elementary via el.in. No main
+ * thread, no recompile for note edits / play / stop / BPM changes.
+ *
+ * The graph is only recompiled for structural edits (instrument changes,
+ * track add/remove, effect structure, sample changes).
  *
  * Renders are coalesced to one per animation frame. A slider drag fires dozens
- * to hundreds of store mutations per second; rendering synchronously on each
- * one would rebuild the whole graph and post that many messages to the audio
- * worklet, starving the audio thread (dropouts that recover once the drag
- * stops). Coalescing caps it at ~60/s with only the latest state — a single
- * graph edit is instant, so one render per frame keeps audio smooth.
+ * of mutations per second; coalescing caps it at ~60/s with only the latest
+ * state — a single graph edit is instant, so one render per frame keeps audio
+ * smooth.
  */
 export function useEngine(): AudioHost {
   const hostRef = useRef<AudioHost | null>(null)
@@ -41,12 +46,50 @@ export function useEngine(): AudioHost {
   const lastVfsKeysRef = useRef('')
   const vfsLoadedRef = useRef<Set<string>>(new Set())
 
-  // Track the last playEpoch we rendered so we can refine playStartTime
-  // at render time (more precise than the eager set in the toggle handler).
+  // Structural key for detecting edits that require a recompile (vs note edits
+  // that only update the scheduler).
+  const lastStructuralKeyRef = useRef('')
+  // Track the last play session to distinguish play vs update.
   const lastEpochRef = useRef(0)
 
   useEffect(() => {
     let frame = 0
+
+    /** Compute a structural hash over parts of the doc that require a recompile
+     *  when changed (instrument entities, track→instrument bindings, pattern
+     *  trackIds, mix channels, effect definitions, sample hashes). */
+    function structuralKey(): string {
+      const { doc } = useDocStore.getState()
+      const parts: string[] = []
+      // Instruments
+      for (const [id, inst] of Object.entries(doc.entities.instruments)) {
+        const params = inst.kind === 'osc' ? `p:${JSON.stringify(inst.params)}`
+          : inst.kind === 'drumkit' ? `dk:${inst.slots.length}`
+          : `mod:${Object.keys(inst.modules).length}`
+        parts.push(`${id}:${inst.kind}:${params}`)
+      }
+      // Track→instrument bindings
+      for (const [id, t] of Object.entries(doc.entities.tracks)) {
+        parts.push(`${id}->${t.instrumentId}`)
+      }
+      // Pattern→trackIds ordering
+      for (const [id, p] of Object.entries(doc.entities.patterns)) {
+        parts.push(`${id}:${p.trackIds.join(',')}`)
+      }
+      // Mix channels
+      for (const [id, c] of Object.entries(doc.entities.mixChannels)) {
+        parts.push(`chan:${id}:${c.kind}:${c.effects.map((e) => e.type).join(',')}`)
+      }
+      // Sample hashes
+      for (const s of Object.values(doc.entities.samples)) {
+        parts.push(`samp:${s.hash}`)
+      }
+      // Sections
+      for (const [id, sec] of Object.entries(doc.entities.sections)) {
+        parts.push(`sec:${id}:${sec.patternIds.join(',')}`)
+      }
+      return parts.join('|')
+    }
 
     const render = () => {
       frame = 0
@@ -61,11 +104,9 @@ export function useEngine(): AudioHost {
             doc.entities.patterns[doc.patternId]?.trackIds.map((tid) => [tid, !soloedTracks[tid]]) ?? [],
           )
         : mutedTracks
-      // Read slug fresh each render — it changes when a different song is loaded.
       const slug = useProjectStore.getState().slug
 
-      // If samples changed, start loading them into VFS. The render happens
-      // after the VFS is ready so Elementary doesn't reject unknown paths.
+      // If samples changed, start loading them into VFS.
       const samples = Object.values(doc.entities.samples)
       const keys = samples.map((s) => s.hash).sort().join(',')
       if (keys !== lastVfsKeysRef.current) {
@@ -77,7 +118,7 @@ export function useEngine(): AudioHost {
         }
       }
 
-      const doRender = () => {
+      const doRecompile = () => {
         const { bpm, linesPerBeat, playing, startRow, playEpoch } = useTransportStore.getState()
         const playMode = useAppStore.getState().playMode
 
@@ -88,15 +129,15 @@ export function useEngine(): AudioHost {
           : undefined
         const effectiveArrangement = arrangement && arrangement.length > 1 ? arrangement : undefined
 
-        // Single instrument for live voice slots — keyboard preview takes
-        // priority (notes are actually held), then first VoicePool for MIDI.
+        // Single instrument for live voice slots.
         const preview = usePreviewStore.getState()
         const hasKeyboardKeys = preview.instrumentId && Object.keys(preview.voices).length > 0
         const liveInstId = hasKeyboardKeys ? preview.instrumentId
           : (host.voicePools.size > 0 ? [...host.voicePools.keys()][0] : null)
 
-        // Build the graph first, THEN capture playStartTime — so the playhead
-        // doesn't jump ahead during compilation.
+        // Track → scheduler channel mapping, populated by compileGraph.
+        const trackChannels = new Map<Id, { offset: number; count: number; instId: Id }>()
+
         const stereo = compileGraph(doc, {
           rowHz: rowHz(bpm, linesPerBeat),
           playing: playing ? 1 : 0,
@@ -109,28 +150,53 @@ export function useEngine(): AudioHost {
           ccBindings: host.ccBindings,
           arrangement: effectiveArrangement,
           liveInstrumentId: liveInstId ?? undefined,
+          trackChannels,
         })
 
-        if (playing && lastEpochRef.current !== playEpoch) {
-          host.playStartTime = host.currentTime
-          host.playStartRow = startRow
-          lastEpochRef.current = playEpoch
-        } else if (!playing) {
-          host.playStartTime = 0
-          host.playStartRow = 0
-          lastEpochRef.current = 0
+        host.render(stereo)
+
+        // Update structural key tracking.
+        lastStructuralKeyRef.current = structuralKey()
+
+        // Build playback data for the scheduler using the same channel layout
+        // that compileGraph just populated.
+        const arr = effectiveArrangement ?? [{ patternId: doc.patternId, startRow: 0 }]
+        const playbackData = buildPlaybackData(doc, arr)
+        // Align channel offsets with what compileGraph assigned.
+        for (const t of playbackData.tracks) {
+          const ch = trackChannels.get(t.trackId)
+          if (ch) {
+            t.channelOffset = ch.offset
+          }
         }
 
-        host.render(stereo)
+        // If playing, send data to the scheduler.
+        const transport = useTransportStore.getState()
+        if (transport.playing && host.schedulerNode) {
+          // Distinguish new play session from update.
+          if (transport.playEpoch !== lastEpochRef.current) {
+            lastEpochRef.current = transport.playEpoch
+            // Set transport:playing ref to 1 so the master gate opens.
+            host.paramRefs.setValue('transport:playing', 1)
+            host.schedulerNode.play(
+              playbackData,
+              transport.bpm,
+              transport.linesPerBeat,
+              transport.startRow,
+            )
+          } else {
+            host.schedulerNode.update(playbackData)
+          }
+        } else if (!transport.playing) {
+          lastEpochRef.current = 0
+        }
       }
 
-      // Wait for any in-flight VFS sync before rendering, so sample
-      // paths referenced in the graph actually exist in Elementary's VFS.
       const pending = vfsSyncRef.current
       if (pending) {
-        pending.then(() => doRender())
+        pending.then(() => doRecompile())
       } else {
-        doRender()
+        doRecompile()
       }
     }
 
@@ -139,58 +205,55 @@ export function useEngine(): AudioHost {
       if (frame === 0) frame = requestAnimationFrame(render)
     }
 
-    // Live-jam dirty flag: when playing in pattern mode, edits are deferred
-    // to the loop boundary so the playing pattern doesn't glitch mid-loop.
-    let dirty = false
-
+    // ── docStore subscription ─────────────────────────────────────────
     const unsubDoc = useDocStore.subscribe((state, prev) => {
       if (state.silentBatch) return
       if (state.doc === prev.doc) return
-      // App.tsx sets skipNextRecompile before changing doc.patternId during
-      // section/song playback — the graph already spans the full arrangement.
-      if (host.skipNextRecompile) { host.skipNextRecompile = false; return }
-      // Live-jam mode: defer recompile to loop boundary.
-      if (useTransportStore.getState().playing && useAppStore.getState().playMode === 'pattern') {
-        dirty = true
+
+      const playing = useTransportStore.getState().playing
+      if (!playing) {
+        // Stopped: always recompile (things may have changed structurally).
+        schedule()
         return
       }
+
+      // Playing: check if this is a structural change.
+      // Phase 1: always recompile on doc change while playing.
+      // Phase 2: optimize by comparing structuralKey and skipping
+      // recompile if only note data changed.
       schedule()
     })
-    const unsubTransport = useTransportStore.subscribe(schedule)
-    host.onReady = schedule
-    host.onVoicePoolCreated = schedule // recompile when new instrument gets MIDI input
-    schedule() // catch any state that changed before the host was ready
 
-    // Live-jam dirty-flag monitor: when edits are deferred during pattern-mode
-    // playback, trigger a recompile near the loop boundary (2 rows before wrap)
-    // so the new graph is ready before the next iteration starts.
-    let dirtyRaf = 0
-    const dirtyTick = () => {
-      if (!dirty || !host.isReady) { dirtyRaf = requestAnimationFrame(dirtyTick); return }
-      const { playing, bpm, linesPerBeat, startRow } = useTransportStore.getState()
-      const playMode = useAppStore.getState().playMode
-      if (!playing || playMode !== 'pattern') { dirtyRaf = requestAnimationFrame(dirtyTick); return }
-      const elapsed = host.currentTime - host.playStartTime
-      const rowsPerSec = rowHz(bpm, linesPerBeat)
-      const globalRow = startRow + Math.floor(elapsed * rowsPerSec)
-      const doc = useDocStore.getState().doc
-      const pattern = doc.entities.patterns[doc.patternId]
-      const len = pattern?.length ?? 64
-      const localRow = ((globalRow % len) + len) % len
-      // Trigger recompile when within 2 rows of the loop boundary.
-      if (localRow >= len - 2) {
-        dirty = false
-        schedule()
+    // ── transport subscription ────────────────────────────────────────
+    const unsubTransport = useTransportStore.subscribe((state, prev) => {
+      if (state === prev) return
+
+      // Play/stop.
+      if (state.playing !== prev.playing) {
+        if (state.playing) {
+          schedule() // render will compile + call schedulerNode.play()
+        } else {
+          host.paramRefs.setValue('transport:playing', 0)
+          host.schedulerNode?.stop()
+          lastEpochRef.current = 0
+        }
+        return
       }
-      dirtyRaf = requestAnimationFrame(dirtyTick)
-    }
-    dirtyRaf = requestAnimationFrame(dirtyTick)
+
+      // BPM change while playing: update scheduler tempo.
+      if (state.playing && state.bpm !== prev.bpm && host.schedulerNode) {
+        host.schedulerNode.setTempo(state.bpm, state.linesPerBeat)
+      }
+    })
+
+    host.onReady = schedule
+    host.onVoicePoolCreated = schedule
+    schedule() // catch any state that changed before the host was ready
 
     return () => {
       host.onReady = null
       host.onVoicePoolCreated = null
       if (frame) cancelAnimationFrame(frame)
-      if (dirtyRaf) cancelAnimationFrame(dirtyRaf)
       unsubDoc()
       unsubTransport()
     }

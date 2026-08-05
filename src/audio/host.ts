@@ -5,6 +5,7 @@ import { ParamRefRegistry, setActiveParamRefs } from './paramRefs'
 import { CcBindings } from './ccBindings'
 import { VoicePool, LIVE_VOICE_COUNT } from '../engine/voicePool'
 import type { DrumKitInstrument } from '../domain/types'
+import { SchedulerNode } from '../player/SchedulerNode'
 
 /**
  * Owns the AudioContext + Elementary WebRenderer and pushes compiled graphs to
@@ -19,6 +20,9 @@ export class AudioHost {
   private starting: Promise<void> | null = null
   private renderBusy = false
   private pendingGraph: StereoOut | null = null
+
+  /** The audio-thread scheduler node. Created on first start(). */
+  schedulerNode: SchedulerNode | null = null
 
   /** Registry of createRef-backed param nodes for zero-recompile value updates. */
   readonly paramRefs = new ParamRefRegistry()
@@ -66,6 +70,7 @@ export class AudioHost {
   panic(): void {
     for (const pool of this.voicePools.values()) pool.panic()
     this.paramRefs.panic()
+    this.schedulerNode?.panic()
   }
 
   /** Precise AudioContext time captured at the moment the graph was rendered
@@ -115,11 +120,21 @@ export class AudioHost {
       this.paramRefs.attach(this.core)
       setActiveParamRefs(this.paramRefs)
       this.ccBindings.attach(this.paramRefs)
+      // Initialize Elementary with 1 input port (32 channels) for the
+      // scheduler worklet's control signals (gate/freq per track).
       const node = await this.core.initialize(this.ctx, {
-        numberOfInputs: 0,
+        numberOfInputs: 1,
+        channelCount: 32,
+        channelCountMode: 'explicit' as const,
         numberOfOutputs: 1,
         outputChannelCount: [2],
       })
+
+      // Create and connect the scheduler AudioWorklet.
+      const sch = await SchedulerNode.create(this.ctx)
+      sch.connect(node) // scheduler output → Elementary input
+      this.schedulerNode = sch
+
       this.analyser = this.ctx.createAnalyser()
       node.connect(this.analyser)
       this.analyser.connect(this.ctx.destination)
