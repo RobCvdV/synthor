@@ -62,6 +62,9 @@ export interface OscInstrument {
   channelId: Id
   /** Stereo pan/balance, -1 (left) .. +1 (right), 0 = center. */
   pan: number
+  /** MIDI channel (1-16) for external MIDI routing.  undefined = follow
+   *  cursor-track instrument.  Drumkits default to channel 10. */
+  midiChannel?: number
 }
 
 /**
@@ -133,6 +136,8 @@ export interface ModularInstrument {
   channelId: Id
   /** Stereo pan/balance, -1 (left) .. +1 (right), 0 = center. */
   pan: number
+  /** MIDI channel (1-16) for external MIDI routing.  undefined = follow cursor. */
+  midiChannel?: number
 }
 
 /** A managed sample asset — metadata only. Binary PCM data lives in OPFS. */
@@ -191,6 +196,8 @@ export interface DrumKitInstrument {
   channelId: Id
   /** Stereo pan/balance, -1 (left) .. +1 (right), 0 = center. */
   pan: number
+  /** MIDI channel (1-16) for external MIDI routing.  Defaults to 10 (drum channel). */
+  midiChannel?: number
 }
 
 /** Find the slot that covers a given MIDI note (highest slot.note <= note).

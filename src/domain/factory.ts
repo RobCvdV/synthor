@@ -62,7 +62,7 @@ export function newOscInstrument(name: string): OscInstrument {
 
 /** A fresh empty drum kit with a default key range of C-2 to C-4. */
 export function newDrumKitInstrument(name: string): DrumKitInstrument {
-  return { id: makeId('inst'), kind: 'drumkit', name, slots: [], keyLo: 36, keyHi: 60, params: { gain: 1 }, channelId: MASTER_CHANNEL_ID, pan: 0 }
+  return { id: makeId('inst'), kind: 'drumkit', name, slots: [], keyLo: 36, keyHi: 60, params: { gain: 1 }, channelId: MASTER_CHANNEL_ID, pan: 0, midiChannel: 10 }
 }
 
 /** A new sample entity (metadata only — binary data is stored in OPFS). */

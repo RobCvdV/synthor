@@ -14,14 +14,44 @@ function getKit(instId: string): DrumKitInstrument | undefined {
 }
 
 /**
- * Which instrument MIDI note events should play.  Keyboard preview
- * (Instruments view) takes priority; falls back to the tracker cursor
- * instrument otherwise.
+ * Build a MIDI channel (1-16) → instrument id map from the current doc.
+ * Instruments with an explicit `midiChannel` get that channel; the first
+ * instrument without a channel gets the "cursor-tracking" role (used when
+ * no channel match is found).
  */
-function getMidiInstId(): string | null {
+function buildChannelMap(): { byChannel: Map<number, string>; fallback: string | null } {
+  const doc = useDocStore.getState().doc
+  const byChannel = new Map<number, string>()
+  let fallback: string | null = null
+
+  for (const inst of Object.values(doc.entities.instruments)) {
+    if (inst.midiChannel != null && inst.midiChannel >= 1 && inst.midiChannel <= 16) {
+      byChannel.set(inst.midiChannel, inst.id)
+    } else if (!fallback) {
+      fallback = inst.id
+    }
+  }
+  return { byChannel, fallback }
+}
+
+/**
+ * Which instrument receives MIDI messages on the given channel.
+ * Keyboard preview instrument takes priority (Instruments view);
+ * then the channel-mapped instrument; falls back to the cursor-track
+ * instrument (midiStore.activeInstrumentId).
+ */
+function getInstForChannel(channel: number): string | null {
+  // Keyboard preview always wins (user is actively holding keys).
   const keyboardInstId = usePreviewStore.getState().instrumentId
   if (keyboardInstId) return keyboardInstId
-  return useMidiStore.getState().activeInstrumentId
+
+  const { byChannel, fallback } = buildChannelMap()
+  // Preview store instrument overrides the channel map (it's the user
+  // explicitly selecting an instrument to play).
+  const mapped = byChannel.get(channel + 1) // MIDI channel is 0-based in the message but 1-based in UI
+  if (mapped) return mapped
+
+  return fallback ?? useMidiStore.getState().activeInstrumentId
 }
 
 /**
@@ -75,14 +105,13 @@ export function useMidi(host: AudioHost) {
           if (!(msg instanceof Uint8Array) || msg.length < 2) return
 
           const status = msg[0] & 0xf0
-          const chan = msg[0] & 0x0f
-          void chan // reserved for per-channel routing later
+          const chan = msg[0] & 0x0f // 0-based MIDI channel
 
           switch (status) {
             case 0x90: { // Note On
               const note = msg[1]
               const vel = msg[2]
-              const instId = getMidiInstId()
+              const instId = getInstForChannel(chan)
               if (!instId) break
               const kit = getKit(instId)
               const pool = host.voicePool(instId, LIVE_VOICE_COUNT, kit)
@@ -94,7 +123,7 @@ export function useMidi(host: AudioHost) {
               break
             }
             case 0x80: { // Note Off
-              const instId = getMidiInstId()
+              const instId = getInstForChannel(chan)
               if (!instId) break
               const kit = getKit(instId)
               host.voicePool(instId, LIVE_VOICE_COUNT, kit).noteOff(msg[1])
