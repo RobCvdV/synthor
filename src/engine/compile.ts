@@ -64,10 +64,6 @@ export interface RenderContext {
   /** CC# → ref-key mapping, populated during compile so MIDI CC changes
    *  update the right refs without a recompile. */
   ccBindings?: import('../audio/ccBindings').CcBindings
-  /** Single instrument that gets live voice slots (8 voices with gate/freq/vel
-   *  refs for keyboard + MIDI input).  Only one instrument at a time — keeps the
-   *  graph small enough for Elementary to process reliably. */
-  liveInstrumentId?: Id
   /** When provided with >1 items, compile a flattened graph spanning all
    *  patterns in the arrangement instead of compiling just doc.patternId.
    *  Pattern switches within the arrangement require zero recompile. */
@@ -79,73 +75,70 @@ export interface RenderContext {
 }
 
 /**
- * Voice slots for every instrument — always compiled once at graph build time.
- * Keyboard preview and MIDI input both write to VoicePool refs directly;
- * instrument switches require zero recompile. Idle voice slots (gate=0) are
- * silent and consume minimal CPU.
+ * Voice slots for EVERY instrument — compiled once at graph build time.
+ * Keyboard preview, MIDI input, and tracker scheduler all write to the
+ * same refs directly. No recompile needed for any note event.
  *
  * Ref keys match VoicePool exactly:
  *   Osc/modular:  ${instId}:v:${i}:freq, :gate, :vel
  *   Drumkit:      ${instId}:ds:${si}:v${sv}:freq, :gate, :vel
  */
-function compileLiveVoices(
+function compileAllVoiceSlots(
   doc: Doc,
   paramRefs: RenderContext['paramRefs'],
   sampleMeta: ReturnType<typeof buildSampleMeta>,
   sampleHashById: Record<Id, string>,
   midiCcValues?: Record<number, number>,
   ccBindings?: RenderContext['ccBindings'],
-  liveInstrumentId?: Id,
 ): StereoOut | null {
-  if (!paramRefs || !liveInstrumentId) return null
-
-  const inst = doc.entities.instruments[liveInstrumentId]
-  if (!inst) return null
+  if (!paramRefs) return null
 
   const voiceCount = LIVE_VOICE_COUNT
   const lvZero = el.const({ key: 'lv:zero', value: 0 })
-  // Safe non-zero default — 0 Hz produces DC that saturates audio hardware
-  // into silence.  VoicePool sets the real freq before opening the gate.
   const defaultFreq = midiToFreq(69) // 440 Hz (A4)
 
-  if (inst.kind === 'drumkit') {
-    const subVoicesPerSlot = 2
-    let kitL: NodeRepr_t = lvZero
-    let kitR: NodeRepr_t = lvZero
-    for (let si = 0; si < inst.slots.length; si++) {
-      for (let sv = 0; sv < subVoicesPerSlot; sv++) {
-        const voiceKey = `${inst.id}:ds:${si}:v${sv}`
+  let allLeft: NodeRepr_t = lvZero
+  let allRight: NodeRepr_t = lvZero
+
+  for (const inst of Object.values(doc.entities.instruments)) {
+    if (inst.kind === 'drumkit') {
+      const subVoicesPerSlot = 2
+      let kitL: NodeRepr_t = lvZero
+      let kitR: NodeRepr_t = lvZero
+      for (let si = 0; si < inst.slots.length; si++) {
+        for (let sv = 0; sv < subVoicesPerSlot; sv++) {
+          const voiceKey = `${inst.id}:ds:${si}:v${sv}`
+          const freq = paramRefs.getOrCreate(`${voiceKey}:freq`, defaultFreq)
+          const gate = paramRefs.getOrCreate(`${voiceKey}:gate`, 0)
+          const velRef = paramRefs.getOrCreate(`${voiceKey}:vel`, 1)
+          const voice = renderDrumKitSlot(
+            inst.slots[si], doc.entities.instruments, gate, freq, voiceKey,
+            sampleMeta, sampleHashById, midiCcValues, paramRefs, ccBindings, {}, inst.id,
+          )
+          kitL = el.add(kitL, el.mul(voice.left, velRef))
+          kitR = el.add(kitR, el.mul(voice.right, velRef))
+        }
+      }
+      const masterGain = paramRefs.getOrCreate(`${inst.id}:masterGain`, inst.params.gain)
+      allLeft = el.add(allLeft, el.mul(kitL, 0.3, masterGain))
+      allRight = el.add(allRight, el.mul(kitR, 0.3, masterGain))
+    } else {
+      // Osc / modular: one signal chain per voice slot.
+      const slotVoices: StereoOut[] = []
+      for (let i = 0; i < voiceCount; i++) {
+        const voiceKey = `${inst.id}:v:${i}`
         const freq = paramRefs.getOrCreate(`${voiceKey}:freq`, defaultFreq)
         const gate = paramRefs.getOrCreate(`${voiceKey}:gate`, 0)
         const velRef = paramRefs.getOrCreate(`${voiceKey}:vel`, 1)
-        const voice = renderDrumKitSlot(
-          inst.slots[si], doc.entities.instruments, gate, freq, voiceKey,
-          sampleMeta, sampleHashById, midiCcValues, paramRefs, ccBindings, {}, inst.id,
-        )
-        kitL = el.add(kitL, el.mul(voice.left, velRef))
-        kitR = el.add(kitR, el.mul(voice.right, velRef))
+        slotVoices.push(renderInstrument(inst, freq, gate, voiceKey, sampleMeta, 0, sampleHashById, 0, velRef, {}, midiCcValues, paramRefs, ccBindings))
       }
-    }
-    const masterGain = paramRefs.getOrCreate(`${inst.id}:masterGain`, inst.params.gain)
-    return {
-      left: el.mul(kitL, 0.3, masterGain),
-      right: el.mul(kitR, 0.3, masterGain),
+      allLeft = el.add(allLeft, el.mul(slotVoices.reduce((a, v) => el.add(a, v.left), lvZero), 0.3))
+      allRight = el.add(allRight, el.mul(slotVoices.reduce((a, v) => el.add(a, v.right), lvZero), 0.3))
     }
   }
 
-  // Osc / modular: one signal chain per voice slot.
-  const slotVoices: StereoOut[] = []
-  for (let i = 0; i < voiceCount; i++) {
-    const voiceKey = `${inst.id}:v:${i}`
-    const freq = paramRefs.getOrCreate(`${voiceKey}:freq`, defaultFreq)
-    const gate = paramRefs.getOrCreate(`${voiceKey}:gate`, 0)
-    const velRef = paramRefs.getOrCreate(`${voiceKey}:vel`, 1)
-    slotVoices.push(renderInstrument(inst, freq, gate, voiceKey, sampleMeta, 0, sampleHashById, 0, velRef, {}, midiCcValues, paramRefs, ccBindings))
-  }
-  return {
-    left: el.mul(slotVoices.reduce((a, v) => el.add(a, v.left), lvZero), 0.3),
-    right: el.mul(slotVoices.reduce((a, v) => el.add(a, v.right), lvZero), 0.3),
-  }
+  if (Object.keys(doc.entities.instruments).length === 0) return null
+  return { left: allLeft, right: allRight }
 }
 
 /**
@@ -200,9 +193,9 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
   const sampleMeta = buildSampleMeta(doc.entities.samples, ctx.vfsLoadedHashes)
   const sampleHashById = buildSampleHashById(doc.entities.samples)
 
-  // Live voice slots for the selected instrument — keyboard and MIDI both
-  // write to VoicePool refs directly; instrument switches trigger recompile.
-  const liveOut = compileLiveVoices(doc, ctx.paramRefs, sampleMeta, sampleHashById, ctx.midiCcValues, ctx.ccBindings, ctx.liveInstrumentId)
+  // Live voice slots for every instrument — keyboard, MIDI and tracker
+  // all write to VoicePool refs. No recompile for any note event.
+  const liveOut = compileAllVoiceSlots(doc, ctx.paramRefs, sampleMeta, sampleHashById, ctx.midiCcValues, ctx.ccBindings)
 
   // Build the arrangement or fall back to the current pattern.  When the
   // arrangement has >1 items we compile a flattened graph spanning all
@@ -261,6 +254,8 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
         chOffset += count
       }
     }
+    console.log('[compile] trackChannels:', chOffset, 'total channels,', seen.size, 'tracks,',
+      [...ctx.trackChannels.entries()].slice(0, 5).map(([tid, c]) => `${tid.slice(0,8)}:${c.offset}+${c.count}`))
   }
 
   const zero = el.const({ value: 0 })
@@ -400,6 +395,9 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
     }
 
     // Gate + freq from the scheduler AudioWorklet via el.in.
+    if (chInfo) {
+      console.log('[compile] track', trackId.slice(0,8), 'el.in gate ch=', chInfo.offset, 'freq ch=', chInfo.offset + 1)
+    }
     const gate = chInfo
       ? el.in({ channel: chInfo.offset })
       : el.const({ value: 0 })

@@ -235,7 +235,7 @@ describe('compileLiveVoices', () => {
   it('creates voice-slot refs for the live instrument', () => {
     const { doc, instIds } = makeDoc([{ id: 'p1', name: 'P1', length: 16 }])
     const refs = mockParamRefs()
-    compileGraph(doc, defaultCtx({ paramRefs: refs as any, liveInstrumentId: instIds[0] }))
+    compileGraph(doc, defaultCtx({ paramRefs: refs as any }))
     // 1 instrument ≤4 → 8 voices. 8×3 voice refs + 1 gain + 1 pan = 26 refs.
     expect(refs.keys.size).toBeGreaterThanOrEqual(24)
     expect(refs.keys.has(`${instIds[0]}:v:0:freq`)).toBe(true)
@@ -246,7 +246,7 @@ describe('compileLiveVoices', () => {
   it('creates refs for all voice slots per instrument', () => {
     const { doc, instIds } = makeDoc([{ id: 'p1', name: 'P1', length: 16 }])
     const refs = mockParamRefs()
-    compileGraph(doc, defaultCtx({ paramRefs: refs as any, liveInstrumentId: instIds[0] }))
+    compileGraph(doc, defaultCtx({ paramRefs: refs as any }))
     for (let i = 0; i < 8; i++) {
       expect(refs.keys.has(`${instIds[0]}:v:${i}:freq`)).toBe(true)
       expect(refs.keys.has(`${instIds[0]}:v:${i}:gate`)).toBe(true)
@@ -272,7 +272,7 @@ describe('compileLiveVoices', () => {
       sectionIds: [],
     }
     const refs = mockParamRefs()
-    compileGraph(doc, defaultCtx({ paramRefs: refs as any, vfsLoadedHashes: new Set(['abc123']), liveInstrumentId: kit.id }))
+    compileGraph(doc, defaultCtx({ paramRefs: refs as any, vfsLoadedHashes: new Set(['abc123']) }))
     // 1 slot × 2 sub-voices × 3 refs (freq, gate, vel) + 1 masterGain = 7 refs
     expect(refs.keys.has(`${kit.id}:ds:0:v0:freq`)).toBe(true)
     expect(refs.keys.has(`${kit.id}:ds:0:v0:gate`)).toBe(true)
@@ -291,25 +291,25 @@ describe('compileLiveVoices', () => {
         return el.const({ key, value })
       },
     }
-    compileGraph(doc, defaultCtx({ paramRefs: refs as any, liveInstrumentId: instIds[0] }))
+    compileGraph(doc, defaultCtx({ paramRefs: refs as any }))
     expect(calls.find((c) => c.key === `${instIds[0]}:v:0:gate`)?.value).toBe(0)
     expect(calls.find((c) => c.key === `${instIds[0]}:v:0:freq`)?.value).toBe(440)
     expect(calls.find((c) => c.key === `${instIds[0]}:v:0:vel`)?.value).toBe(1)
   })
 
   it('mixes live voices with pattern output when playing', () => {
-    const { doc, instIds } = makeDoc([{ id: 'p1', name: 'P1', length: 16 }])
+    const { doc } = makeDoc([{ id: 'p1', name: 'P1', length: 16 }])
     const refs = mockParamRefs()
-    const out = compileGraph(doc, defaultCtx({ paramRefs: refs as any, playing: 1, liveInstrumentId: instIds[0] }))
+    const out = compileGraph(doc, defaultCtx({ paramRefs: refs as any, playing: 1 }))
     expect(out).toBeDefined()
     expect(out.left).toBeDefined()
     expect(out.right).toBeDefined()
   })
 
   it('live voices outside play gate — active even when stopped', () => {
-    const { doc, instIds } = makeDoc([{ id: 'p1', name: 'P1', length: 16 }])
+    const { doc } = makeDoc([{ id: 'p1', name: 'P1', length: 16 }])
     const refs = mockParamRefs()
-    const out = compileGraph(doc, defaultCtx({ paramRefs: refs as any, playing: 0, liveInstrumentId: instIds[0] }))
+    const out = compileGraph(doc, defaultCtx({ paramRefs: refs as any, playing: 0 }))
     expect(out).toBeDefined()
   })
 })

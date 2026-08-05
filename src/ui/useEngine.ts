@@ -6,7 +6,6 @@ import { buildPlaybackData } from '../player/playbackData'
 import { syncSamplesToVfs } from '../audio/vfsLoader'
 import { useDocStore } from '../state/docStore'
 import { useMidiStore } from '../state/midiStore'
-import { usePreviewStore } from '../state/previewStore'
 import { useProjectStore } from '../state/projectStore'
 import { rowHz, useTransportStore } from '../state/transportStore'
 import { useAppStore } from '../state/appStore'
@@ -122,61 +121,92 @@ export function useEngine(): AudioHost {
         const { bpm, linesPerBeat, playing, startRow, playEpoch } = useTransportStore.getState()
         const playMode = useAppStore.getState().playMode
 
-        // Build the flattened arrangement for section/song mode so pattern
-        // switches within the arrangement don't require a recompile.
+        // Build the flattened arrangement.
         const arrangement = playMode !== 'pattern'
           ? buildArrangement(doc, playMode)
           : undefined
         const effectiveArrangement = arrangement && arrangement.length > 1 ? arrangement : undefined
 
-        // Single instrument for live voice slots.
-        const preview = usePreviewStore.getState()
-        const hasKeyboardKeys = preview.instrumentId && Object.keys(preview.voices).length > 0
-        const liveInstId = hasKeyboardKeys ? preview.instrumentId
-          : (host.voicePools.size > 0 ? [...host.voicePools.keys()][0] : null)
-
-        // Track → scheduler channel mapping, populated by compileGraph.
-        const trackChannels = new Map<Id, { offset: number; count: number; instId: Id }>()
-
-        const stereo = compileGraph(doc, {
-          rowHz: rowHz(bpm, linesPerBeat),
-          playing: playing ? 1 : 0,
-          startRow,
-          playEpoch,
-          mutedTracks: effectiveMute,
-          vfsLoadedHashes: vfsLoadedRef.current,
-          midiCcValues: useMidiStore.getState().ccValues,
-          paramRefs: host.paramRefs,
-          ccBindings: host.ccBindings,
-          arrangement: effectiveArrangement,
-          liveInstrumentId: liveInstId ?? undefined,
-          trackChannels,
-        })
-
-        host.render(stereo)
-
-        // Update structural key tracking.
-        lastStructuralKeyRef.current = structuralKey()
-
-        // Build playback data for the scheduler using the same channel layout
-        // that compileGraph just populated.
+        // Build playback data first (pure, cheap — no compile needed).
         const arr = effectiveArrangement ?? [{ patternId: doc.patternId, startRow: 0 }]
         const playbackData = buildPlaybackData(doc, arr)
-        // Align channel offsets with what compileGraph assigned.
+
+        // Track → scheduler channel mapping.
+        const trackChannels = new Map<Id, { offset: number; count: number; instId: Id }>()
+
+        // Only recompile if the structural key changed (instruments, tracks,
+        // effects, samples). Note-only edits skip the compile entirely.
+        const currentKey = structuralKey()
+        const needRecompile = currentKey !== lastStructuralKeyRef.current
+        if (needRecompile) {
+          console.log('[useEngine] structural change — recompiling')
+          lastStructuralKeyRef.current = currentKey
+
+          // Assign channel offsets before compile so they match el.in nodes.
+          let chOffset = 0
+          const seen = new Set<Id>()
+          for (const item of arr) {
+            const pat = doc.entities.patterns[item.patternId]
+            if (!pat) continue
+            for (const tid of pat.trackIds) {
+              if (seen.has(tid)) continue
+              seen.add(tid)
+              const t = doc.entities.tracks[tid]
+              const i = t && doc.entities.instruments[t.instrumentId]
+              if (!i) continue
+              const count = i.kind === 'drumkit' ? i.slots.length : 2
+              trackChannels.set(tid, { offset: chOffset, count, instId: i.id })
+              chOffset += count
+            }
+          }
+
+          const stereo = compileGraph(doc, {
+            rowHz: rowHz(bpm, linesPerBeat),
+            playing: playing ? 1 : 0,
+            startRow,
+            playEpoch,
+            mutedTracks: effectiveMute,
+            vfsLoadedHashes: vfsLoadedRef.current,
+            midiCcValues: useMidiStore.getState().ccValues,
+            paramRefs: host.paramRefs,
+            ccBindings: host.ccBindings,
+            arrangement: effectiveArrangement,
+            trackChannels,
+          })
+          host.render(stereo)
+        } else {
+          // No structural change — reuse last channel layout from the doc.
+          // We rebuild channel offsets here to align playbackData.
+          let chOffset = 0
+          const seen = new Set<Id>()
+          for (const item of arr) {
+            const pat = doc.entities.patterns[item.patternId]
+            if (!pat) continue
+            for (const tid of pat.trackIds) {
+              if (seen.has(tid)) continue
+              seen.add(tid)
+              const t = doc.entities.tracks[tid]
+              const i = t && doc.entities.instruments[t.instrumentId]
+              if (!i) continue
+              const count = i.kind === 'drumkit' ? i.slots.length : 2
+              trackChannels.set(tid, { offset: chOffset, count, instId: i.id })
+              chOffset += count
+            }
+          }
+        }
+
+        // Align channel offsets in playbackData.
         for (const t of playbackData.tracks) {
           const ch = trackChannels.get(t.trackId)
-          if (ch) {
-            t.channelOffset = ch.offset
-          }
+          if (ch) t.channelOffset = ch.offset
         }
 
         // If playing, send data to the scheduler.
         const transport = useTransportStore.getState()
         if (transport.playing && host.schedulerNode) {
-          // Distinguish new play session from update.
           if (transport.playEpoch !== lastEpochRef.current) {
+            console.log('[useEngine] new play session playEpoch=', transport.playEpoch)
             lastEpochRef.current = transport.playEpoch
-            // Set transport:playing ref to 1 so the master gate opens.
             host.paramRefs.setValue('transport:playing', 1)
             host.schedulerNode.play(
               playbackData,
@@ -209,45 +239,48 @@ export function useEngine(): AudioHost {
     const unsubDoc = useDocStore.subscribe((state, prev) => {
       if (state.silentBatch) return
       if (state.doc === prev.doc) return
+      // App.tsx sets skipNextRecompile before changing doc.patternId during
+      // section/song playback — the pattern change is purely for UI.
+      if (host.skipNextRecompile) { host.skipNextRecompile = false; return }
 
-      const playing = useTransportStore.getState().playing
-      if (!playing) {
-        // Stopped: always recompile (things may have changed structurally).
+      // Check if this is a structural change (requires recompile).
+      const newKey = structuralKey()
+      if (newKey !== lastStructuralKeyRef.current) {
         schedule()
-        return
       }
-
-      // Playing: check if this is a structural change.
-      // Phase 1: always recompile on doc change while playing.
-      // Phase 2: optimize by comparing structuralKey and skipping
-      // recompile if only note data changed.
-      schedule()
+      // Note edits, playhead changes, etc. don't recompile — the scheduler
+      // gets updated via the render() → doRecompile() path which always
+      // sends playback data to the worklet.
     })
 
     // ── transport subscription ────────────────────────────────────────
     const unsubTransport = useTransportStore.subscribe((state, prev) => {
       if (state === prev) return
 
-      // Play/stop.
-      if (state.playing !== prev.playing) {
-        if (state.playing) {
-          schedule() // render will compile + call schedulerNode.play()
-        } else {
-          host.paramRefs.setValue('transport:playing', 0)
-          host.schedulerNode?.stop()
-          lastEpochRef.current = 0
-        }
+      // Play: send data to the scheduler worklet (NO recompile — graph
+      // already has el.in nodes and voice slots).
+      if (state.playing && !prev.playing) {
+        schedule() // calls render() which builds playbackData and calls schedulerNode.play()
         return
       }
 
-      // BPM change while playing: update scheduler tempo.
+      // Stop: gate off + stop scheduler.
+      if (!state.playing && prev.playing) {
+        host.paramRefs.setValue('transport:playing', 0)
+        host.schedulerNode?.stop()
+        lastEpochRef.current = 0
+        return
+      }
+
+      // BPM change while playing: update scheduler tempo only.
       if (state.playing && state.bpm !== prev.bpm && host.schedulerNode) {
         host.schedulerNode.setTempo(state.bpm, state.linesPerBeat)
       }
     })
 
     host.onReady = schedule
-    host.onVoicePoolCreated = schedule
+    // Voice pools write directly to refs (no recompile needed — all voice
+    // slots are compiled once in compileAllVoiceSlots).
 
     // Wire scheduler row events → transportStore for UI playhead.
     if (host.schedulerNode) {

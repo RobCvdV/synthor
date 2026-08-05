@@ -43,6 +43,7 @@ class SchedulerProcessor extends AudioWorkletProcessor {
           if (msg.totalRows != null) totalRows = msg.totalRows;
           startRow = msg.startRow || 0;
           currentRow = startRow;
+          this.port.postMessage({ type: 'log', msg: 'play received', sessionId, tracks: tracks.length, totalRows, rowsPerSec });
           break;
         case 'stop':
           playing = false;
@@ -68,7 +69,14 @@ class SchedulerProcessor extends AudioWorkletProcessor {
     const out = outputs[0];
     if (!out) return true;
     for (let ch = 0; ch < out.length; ch++) out[ch].fill(0);
-    if (!playing || tracks.length === 0) return true;
+    if (!playing || tracks.length === 0) {
+      // Log every ~60 blocks (1 sec) when idle
+      if (this._idleCount == null) this._idleCount = 0;
+      if (this._idleCount++ % 3000 === 0) {
+        this.port.postMessage({ type: 'log', msg: 'idle', channels: out.length, playing, trackCount: tracks.length });
+      }
+      return true;
+    }
 
     const rowsPerSample = rowsPerSec / sampleRate;
     const rowsPerBlock = rowsPerSample * BLOCK_SIZE;
@@ -91,6 +99,14 @@ class SchedulerProcessor extends AudioWorkletProcessor {
         if (base < out.length) out[base].fill(gate);
         if (base + 1 < out.length) out[base + 1].fill(freq);
       }
+    }
+
+    // Log every ~30 blocks (~87ms) for the first few seconds
+    if (this._dbgCount == null) this._dbgCount = 0;
+    if (this._dbgCount++ % 100 === 0 && this._dbgCount < 3000) {
+      const t0 = tracks[0];
+      this.port.postMessage({ type: 'log', msg: 'process', row: wrappedRow, totalRows, channels: out.length,
+        t0gate: t0 && t0.gate[wrappedRow], t0freq: t0 && t0.freq[wrappedRow], t0ch: t0 && t0.channelOffset });
     }
 
     this.port.postMessage({ type: 'row', row: wrappedRow, sessionId });
@@ -138,7 +154,12 @@ export class SchedulerNode {
     this.node = node
     node.port.onmessage = (e: MessageEvent) => {
       const msg = e.data
-      if (!msg || msg.sessionId !== this.sessionId) return
+      if (!msg) return
+      if (msg.type === 'log') {
+        console.log('[scheduler:worklet]', msg.msg, JSON.stringify(msg))
+        return
+      }
+      if (msg.sessionId !== this.sessionId) return
       if (msg.type === 'row') this.onRow?.(msg.row)
       else if (msg.type === 'loop') this.onLoop?.()
     }
@@ -149,9 +170,11 @@ export class SchedulerNode {
     if (!moduleLoaded) {
       const blob = new Blob([PROCESSOR_CODE], { type: 'application/javascript' })
       const url = URL.createObjectURL(blob)
+      console.log('[scheduler] loading worklet module...')
       await ctx.audioWorklet.addModule(url)
       URL.revokeObjectURL(url)
       moduleLoaded = true
+      console.log('[scheduler] worklet module loaded OK')
     }
 
     const node = new AudioWorkletNode(ctx, 'scheduler-processor', {
@@ -159,16 +182,24 @@ export class SchedulerNode {
       numberOfOutputs: 1,
       outputChannelCount: [32],
     })
+    console.log('[scheduler] AudioWorkletNode created, output channels:', node.channelCount)
 
     return new SchedulerNode(node)
   }
 
   play(data: PlaybackData, bpm: number, linesPerBeat: number, startRow = 0): void {
     this.sessionId++
+    const tracks = serializeTracks(data.tracks)
+    console.log('[scheduler] play session=', this.sessionId,
+      'tracks=', tracks.length,
+      'totalRows=', data.totalRows,
+      'rowsPerSec=', (bpm / 60) * linesPerBeat,
+      'startRow=', startRow,
+      'firstTrack=', tracks[0] ? { ch: tracks[0].channelOffset, count: tracks[0].channelCount, gateLen: tracks[0].gate.length, gate0: tracks[0].gate[0], freq0: tracks[0].freq[0] } : null)
     this.node.port.postMessage({
       type: 'play',
       sessionId: this.sessionId,
-      tracks: serializeTracks(data.tracks),
+      tracks,
       totalRows: data.totalRows,
       rowsPerSec: (bpm / 60) * linesPerBeat,
       startRow,

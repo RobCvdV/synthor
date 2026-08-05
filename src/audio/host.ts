@@ -131,9 +131,11 @@ export class AudioHost {
       })
 
       // Create and connect the scheduler AudioWorklet.
+      console.log('[host] creating SchedulerNode...')
       const sch = await SchedulerNode.create(this.ctx)
       sch.connect(node) // scheduler output → Elementary input
       this.schedulerNode = sch
+      console.log('[host] SchedulerNode connected to Elementary input, node.channelCount=', (node as any).channelCount, 'node.numberOfInputs=', (node as any).numberOfInputs)
 
       this.analyser = this.ctx.createAnalyser()
       node.connect(this.analyser)
