@@ -113,8 +113,11 @@ class SchedulerProcessor extends AudioWorkletProcessor {
 
     this.port.onmessage = (e: MessageEvent) => {
       const msg = e.data as SchedulerCommand
-      // Reject commands from stale sessions.
-      if (msg.sessionId !== 0 && msg.sessionId !== sessionId) return
+      // Play and stop are always accepted (they set the session).
+      // Other commands are rejected if their sessionId doesn't match.
+      if (msg.type !== 'play' && msg.type !== 'stop' && msg.type !== 'panic') {
+        if (msg.sessionId !== 0 && msg.sessionId !== sessionId) return
+      }
 
       switch (msg.type) {
         case 'play': {

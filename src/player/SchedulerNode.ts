@@ -7,11 +7,13 @@
  * The worklet outputs control signals (gate, freq per track) on its audio
  * channels. Connect this node to Elementary's input to feed el.in nodes.
  *
- * Module loading: Vite resolves `new URL(..., import.meta.url)` at build
- * time. The processor is self-contained (no project imports) because it
- * runs in the AudioWorkletGlobalScope.
+ * The processor module is loaded via Vite's ?url import, which compiles
+ * TypeScript → JavaScript, returns the public URL, and avoids HMR injection
+ * (HMR code breaks in the AudioWorkletGlobalScope).
  */
 
+// Vite ?url import: compiles the TS file, returns its public URL as a string.
+import processorUrl from './scheduler-processor.ts?url'
 import type { PlaybackData, TrackPlaybackData } from './playbackData'
 
 /** Structured-cloneable command sent to the worklet. */
@@ -60,15 +62,10 @@ export class SchedulerNode {
 
   /** Create and register the scheduler worklet. Call once per AudioContext. */
   static async create(ctx: AudioContext): Promise<SchedulerNode> {
-    // Register the worklet processor module.
-    // In Vite, new URL with a static path resolves at build time and
-    // emits the file as a separate chunk. The ?worker suffix isn't needed;
-    // Vite supports new URL for any asset type.
-    const moduleUrl = new URL(
-      './scheduler-processor.ts',
-      import.meta.url,
-    ).href
-    await ctx.audioWorklet.addModule(moduleUrl)
+    // Load the worklet processor module via its compiled URL.
+    // Vite's ?url import compiles TS → JS and returns the public URL
+    // WITHOUT HMR injection (safe for AudioWorkletGlobalScope).
+    await ctx.audioWorklet.addModule(processorUrl)
 
     const node = new AudioWorkletNode(ctx, 'scheduler-processor', {
       numberOfInputs: 0,
@@ -77,14 +74,6 @@ export class SchedulerNode {
     })
 
     return new SchedulerNode(node)
-  }
-
-  /** Number of audio output channels. Set before first play. */
-  set channelCount(n: number) {
-    // Re-create the node with the right output channel count if needed.
-    // Actually, the AudioWorkletNode channelCount is fixed at construction.
-    // We use 32 max and only write to the first N channels.
-    void n
   }
 
   /** Start playback. */
