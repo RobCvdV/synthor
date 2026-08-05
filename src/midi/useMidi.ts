@@ -1,14 +1,27 @@
 import { useEffect } from 'react'
 import { useMidiStore } from '../state/midiStore'
 import { useDocStore } from '../state/docStore'
+import { usePreviewStore } from '../state/previewStore'
 import type { AudioHost } from '../audio/host'
 import type { DrumKitInstrument } from '../domain/types'
+import { LIVE_VOICE_COUNT } from '../engine/voicePool'
 
 /** Look up the instrument for `instId` and return it if it's a drumkit
  *  (so the VoicePool is configured with per-slot routing). */
 function getKit(instId: string): DrumKitInstrument | undefined {
   const inst = useDocStore.getState().doc.entities.instruments[instId]
   return inst?.kind === 'drumkit' ? inst : undefined
+}
+
+/**
+ * Which instrument MIDI note events should play.  Keyboard preview
+ * (Instruments view) takes priority; falls back to the tracker cursor
+ * instrument otherwise.
+ */
+function getMidiInstId(): string | null {
+  const keyboardInstId = usePreviewStore.getState().instrumentId
+  if (keyboardInstId) return keyboardInstId
+  return useMidiStore.getState().activeInstrumentId
 }
 
 /**
@@ -69,23 +82,22 @@ export function useMidi(host: AudioHost) {
             case 0x90: { // Note On
               const note = msg[1]
               const vel = msg[2]
-              const instId = useMidiStore.getState().activeInstrumentId
+              const instId = getMidiInstId()
               if (!instId) break
               const kit = getKit(instId)
-              const pool = host.voicePool(instId, 8, kit)
+              const pool = host.voicePool(instId, LIVE_VOICE_COUNT, kit)
               if (vel === 0) {
                 pool.noteOff(note)
               } else {
-                // host.start() ensures the AudioContext is running.
                 void host.start().then(() => { pool.noteOn(note, vel) })
               }
               break
             }
             case 0x80: { // Note Off
-              const instId = useMidiStore.getState().activeInstrumentId
+              const instId = getMidiInstId()
               if (!instId) break
               const kit = getKit(instId)
-              host.voicePool(instId, 8, kit).noteOff(msg[1])
+              host.voicePool(instId, LIVE_VOICE_COUNT, kit).noteOff(msg[1])
               break
             }
             case 0xb0: { // Control Change

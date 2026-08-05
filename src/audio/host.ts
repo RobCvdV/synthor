@@ -3,7 +3,7 @@ import WebRenderer from '@elemaudio/web-renderer'
 import type { StereoOut } from '../engine/modular'
 import { ParamRefRegistry, setActiveParamRefs } from './paramRefs'
 import { CcBindings } from './ccBindings'
-import { VoicePool } from '../engine/voicePool'
+import { VoicePool, LIVE_VOICE_COUNT } from '../engine/voicePool'
 import type { DrumKitInstrument } from '../domain/types'
 
 /**
@@ -31,6 +31,16 @@ export class AudioHost {
    *  before the first MIDI note-on. */
   onReady: (() => void) | null = null
 
+  /** Called when a VoicePool is first created — triggers recompile so
+   *  voice slots appear in the graph for the new instrument. */
+  onVoicePoolCreated: (() => void) | null = null
+
+  /** Set by App.tsx before changing doc.patternId during section/song playback.
+   *  Tells useEngine to skip the next doc-store-triggered recompile — the
+   *  pattern change is purely for UI (which pattern the tracker shows) and the
+   *  audio graph already spans the full arrangement. */
+  skipNextRecompile = false
+
   /** Fixed voice pools per instrument (lazily created). */
   readonly voicePools = new Map<string, VoicePool>()
 
@@ -40,19 +50,22 @@ export class AudioHost {
    *  Safe to call from any path (MIDI, keyboard, engine) — `setKit` is a
    *  no-op on already-configured pools, so callers can pass kit late without
    *  worrying about creation order. */
-  voicePool(instId: string, maxVoices = 8, kit?: DrumKitInstrument): VoicePool {
+  voicePool(instId: string, maxVoices = LIVE_VOICE_COUNT, kit?: DrumKitInstrument): VoicePool {
     let pool = this.voicePools.get(instId)
     if (!pool) {
       pool = new VoicePool(this.paramRefs, instId, maxVoices)
       this.voicePools.set(instId, pool)
+      this.onVoicePoolCreated?.()
     }
     if (kit) pool.setKit(kit)
     return pool
   }
 
-  /** Kill all sounding voices across every instrument. */
+  /** Kill all sounding voices across every instrument — both VoicePool-managed
+   *  and the all-instrument live voice slots from compileLiveVoices. */
   panic(): void {
     for (const pool of this.voicePools.values()) pool.panic()
+    this.paramRefs.panic()
   }
 
   /** Precise AudioContext time captured at the moment the graph was rendered
@@ -136,29 +149,38 @@ export class AudioHost {
     this.renderBusy = true
     this.pendingGraph = null
 
-    this.core.render(
-      el.mul(stereo.left, el.const({ key: 'ch:l', value: 1 })),
-      el.mul(stereo.right, el.const({ key: 'ch:r', value: 1 })),
-    ).then(() => {
+    const finish = () => {
       this.renderBusy = false
       this.paramRefs.flushPending()
-      // If a newer graph was submitted while we were busy, render it now.
+      // Render the next queued graph, even if the current one failed.
       const next = this.pendingGraph
       this.pendingGraph = null
       if (next) this.render(next)
-    }).catch((err: unknown) => {
-      this.renderBusy = false
-      this.pendingGraph = null
-      this.paramRefs.flushPending()
-      console.error('Elementary render error:', err)
-      if (err && typeof err === 'object') {
-        const e = err as Record<string, unknown>
-        console.error('  message:', e.message)
-        console.error('  node property:', e.property)
-        console.error('  node kind:', e.kind)
-        console.error('  value:', e.value)
+    }
+
+    const doRender = () => {
+      try {
+        this.core!.render(
+          el.mul(stereo.left, el.const({ key: 'ch:l', value: 1 })),
+          el.mul(stereo.right, el.const({ key: 'ch:r', value: 1 })),
+        ).then(finish).catch((err: unknown) => {
+          console.error('Elementary render error:', err)
+          if (err && typeof err === 'object') {
+            const e = err as Record<string, unknown>
+            console.error('  message:', e.message)
+            console.error('  node property:', e.property)
+            console.error('  node kind:', e.kind)
+            console.error('  value:', e.value)
+          }
+          finish() // don't discard pendingGraph on error
+        })
+      } catch (syncErr: unknown) {
+        console.error('Elementary render sync error:', syncErr)
+        finish() // don't discard pendingGraph on sync error
       }
-    })
+    }
+
+    doRender()
   }
 
   /**

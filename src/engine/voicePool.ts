@@ -3,6 +3,11 @@ import type { ParamRefRegistry } from '../audio/paramRefs'
 import type { DrumKitInstrument, DrumKitSlot } from '../domain/types'
 import { getSlotForNote } from '../domain/types'
 
+/** Number of fixed voice slots per instrument for live keyboard/MIDI playback.
+ *  Must match the voiceCount in compileLiveVoices — mismatches cause dead slots
+ *  (notes that appear allocated in VoicePool but have no ref nodes in the graph). */
+export const LIVE_VOICE_COUNT = 8
+
 /**
  * Fixed-size voice pool for an instrument.  Manages voice allocation (which
  * MIDI note → which slot) and updates per-voice createRef nodes directly —

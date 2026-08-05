@@ -69,13 +69,19 @@ export class ParamRefRegistry {
   }
 
   /** Update a ref's value without recompiling.  If the ref isn't mounted yet
-   *  the value is queued and applied via flushPending after the next render. */
+   *  the value is queued and applied via flushPending after the next render.
+   *  When the ref exists, any stale pending entries for this key are removed
+   *  first — otherwise flushPending could override a direct setValue call
+   *  (e.g. a note-off directly setting gate=0 getting overridden by a
+   *  previously-queued gate=1). */
   setValue(key: string, value: number): void {
     const ref = this.refs.get(key)
     if (!ref) {
       this.pending.push({ key, value })
       return
     }
+    // Remove stale pending entries — this direct write supersedes them.
+    this.pending = this.pending.filter((p) => p.key !== key)
     try {
       if (ref.apply) ref.apply(value)
       else ref.setter({ value })
@@ -104,6 +110,15 @@ export class ParamRefRegistry {
 
   /** Discard all cached refs (call before structural recompile). */
   clear(): void { this.refs.clear(); this.pending.length = 0 }
+
+  /** Set all gate and velocity refs to 0 — silences every live voice instantly. */
+  panic(): void {
+    for (const [key, ref] of this.refs) {
+      if (key.endsWith(':gate') || key.endsWith(':vel')) {
+        try { ref.setter({ value: 0 }) } catch { /* ignore unmounted refs */ }
+      }
+    }
+  }
 
   get size(): number { return this.refs.size }
 }

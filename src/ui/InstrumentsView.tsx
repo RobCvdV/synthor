@@ -3,6 +3,7 @@ import { useDocStore } from '../state/docStore'
 import { usePreviewStore } from '../state/previewStore'
 import { useAppStore } from '../state/appStore'
 import { codeToSemitone } from './keymap'
+import { LIVE_VOICE_COUNT } from '../engine/voicePool'
 import { ModularEditor } from './ModularEditor'
 import { DrumKitEditor } from './DrumKitEditor'
 import { InstrumentSettings } from './InstrumentSettings'
@@ -111,7 +112,7 @@ export function InstrumentsView({ host }: { host: AudioHost }) {
       void host.start().then(() => {
         noteOn(instId, note)
         const kit = useDocStore.getState().doc.entities.instruments[instId]
-        host.voicePool(instId, 8, kit?.kind === 'drumkit' ? kit : undefined).noteOn(note, 127)
+        host.voicePool(instId, LIVE_VOICE_COUNT, kit?.kind === 'drumkit' ? kit : undefined).noteOn(note, 127)
       })
     },
     [host, noteOn, panic],

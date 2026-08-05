@@ -1,12 +1,14 @@
 import { useEffect, useRef } from 'react'
 import { AudioHost } from '../audio/host'
 import { compileGraph } from '../engine/compile'
+import { buildArrangement } from '../engine/arrangement'
 import { syncSamplesToVfs } from '../audio/vfsLoader'
 import { useDocStore } from '../state/docStore'
 import { useMidiStore } from '../state/midiStore'
 import { usePreviewStore } from '../state/previewStore'
 import { useProjectStore } from '../state/projectStore'
 import { rowHz, useTransportStore } from '../state/transportStore'
+import { useAppStore } from '../state/appStore'
 
 /**
  * Wires the reactive stores to the audio host: any change to the document,
@@ -31,7 +33,7 @@ export function useEngine(): AudioHost {
     g.__host = host
     g.__docStore = useDocStore
     g.__transportStore = useTransportStore
-    g.__previewStore = usePreviewStore
+    g.__midiStore = useMidiStore
   }
 
   // Track pending VFS sync so we don't render graphs referencing unloaded samples.
@@ -77,15 +79,38 @@ export function useEngine(): AudioHost {
 
       const doRender = () => {
         const { bpm, linesPerBeat, playing, startRow, playEpoch } = useTransportStore.getState()
-        const { instrumentId, voices } = usePreviewStore.getState()
-        const midiInstId = useMidiStore.getState().activeInstrumentId
-        const activeInstId = instrumentId || midiInstId
-        const active = Object.values(voices)
+        const playMode = useAppStore.getState().playMode
 
-        // Refine playStartTime at render time for every new play session
-        // (playEpoch change). This is more precise than the eager set in the
-        // toggle handler because it captures the AudioContext time right as
-        // the graph is pushed to the worklet, eliminating the rAF gap.
+        // Build the flattened arrangement for section/song mode so pattern
+        // switches within the arrangement don't require a recompile.
+        const arrangement = playMode !== 'pattern'
+          ? buildArrangement(doc, playMode)
+          : undefined
+        const effectiveArrangement = arrangement && arrangement.length > 1 ? arrangement : undefined
+
+        // Single instrument for live voice slots — keyboard preview takes
+        // priority (notes are actually held), then first VoicePool for MIDI.
+        const preview = usePreviewStore.getState()
+        const hasKeyboardKeys = preview.instrumentId && Object.keys(preview.voices).length > 0
+        const liveInstId = hasKeyboardKeys ? preview.instrumentId
+          : (host.voicePools.size > 0 ? [...host.voicePools.keys()][0] : null)
+
+        // Build the graph first, THEN capture playStartTime — so the playhead
+        // doesn't jump ahead during compilation.
+        const stereo = compileGraph(doc, {
+          rowHz: rowHz(bpm, linesPerBeat),
+          playing: playing ? 1 : 0,
+          startRow,
+          playEpoch,
+          mutedTracks: effectiveMute,
+          vfsLoadedHashes: vfsLoadedRef.current,
+          midiCcValues: useMidiStore.getState().ccValues,
+          paramRefs: host.paramRefs,
+          ccBindings: host.ccBindings,
+          arrangement: effectiveArrangement,
+          liveInstrumentId: liveInstId ?? undefined,
+        })
+
         if (playing && lastEpochRef.current !== playEpoch) {
           host.playStartTime = host.currentTime
           host.playStartRow = startRow
@@ -96,32 +121,10 @@ export function useEngine(): AudioHost {
           lastEpochRef.current = 0
         }
 
-        host.render(
-          compileGraph(doc, {
-            rowHz: rowHz(bpm, linesPerBeat),
-            playing: playing ? 1 : 0,
-            startRow,
-            playEpoch,
-            mutedTracks: effectiveMute,
-            preview: activeInstId ? { instrumentId: activeInstId, voices: active } : undefined,
-            vfsLoadedHashes: vfsLoadedRef.current,
-            midiCcValues: useMidiStore.getState().ccValues,
-            paramRefs: host.paramRefs,
-            voicePool: activeInstId
-              ? host.voicePool(
-                  activeInstId,
-                  8,
-                  doc.entities.instruments[activeInstId]?.kind === 'drumkit'
-                    ? doc.entities.instruments[activeInstId]
-                    : undefined,
-                )
-              : undefined,
-            ccBindings: host.ccBindings,
-          }),
-        )
+        host.render(stereo)
       }
 
-      // Wait for any in-flight VFS sync before rendering, so the sample
+      // Wait for any in-flight VFS sync before rendering, so sample
       // paths referenced in the graph actually exist in Elementary's VFS.
       const pending = vfsSyncRef.current
       if (pending) {
@@ -136,42 +139,60 @@ export function useEngine(): AudioHost {
       if (frame === 0) frame = requestAnimationFrame(render)
     }
 
+    // Live-jam dirty flag: when playing in pattern mode, edits are deferred
+    // to the loop boundary so the playing pattern doesn't glitch mid-loop.
+    let dirty = false
+
     const unsubDoc = useDocStore.subscribe((state, prev) => {
-      // Skip when only the flag toggled (mutateSilent), or when flag is active.
       if (state.silentBatch) return
-      // When silentBatch flips false→true→false, the final publish fires with
-      // doc === prev.doc — skip it, nothing structural changed.
       if (state.doc === prev.doc) return
+      // App.tsx sets skipNextRecompile before changing doc.patternId during
+      // section/song playback — the graph already spans the full arrangement.
+      if (host.skipNextRecompile) { host.skipNextRecompile = false; return }
+      // Live-jam mode: defer recompile to loop boundary.
+      if (useTransportStore.getState().playing && useAppStore.getState().playMode === 'pattern') {
+        dirty = true
+        return
+      }
       schedule()
     })
     const unsubTransport = useTransportStore.subscribe(schedule)
-    // Only recompile when the selected MIDI instrument changes — voice slot
-    // refs and CC bindings need to be created for the new instrument.
-    let prevMidiInst: string | null = null
-    const unsubMidi = useMidiStore.subscribe((state) => {
-      if (state.activeInstrumentId !== prevMidiInst) {
-        prevMidiInst = state.activeInstrumentId
-        schedule()
-      }
-    })
-    // Recompile when the keyboard instrument changes so createRef nodes exist
-    // for the new instrument before the first VoicePool noteOn is called.
-    let prevPreviewInst: string | null = null
-    const unsubPreview = usePreviewStore.subscribe((state) => {
-      if (state.instrumentId !== prevPreviewInst) {
-        prevPreviewInst = state.instrumentId
-        schedule()
-      }
-    })
-    host.onReady = schedule // compile after start() creates AudioContext (MIDI init)
+    host.onReady = schedule
+    host.onVoicePoolCreated = schedule // recompile when new instrument gets MIDI input
     schedule() // catch any state that changed before the host was ready
+
+    // Live-jam dirty-flag monitor: when edits are deferred during pattern-mode
+    // playback, trigger a recompile near the loop boundary (2 rows before wrap)
+    // so the new graph is ready before the next iteration starts.
+    let dirtyRaf = 0
+    const dirtyTick = () => {
+      if (!dirty || !host.isReady) { dirtyRaf = requestAnimationFrame(dirtyTick); return }
+      const { playing, bpm, linesPerBeat, startRow } = useTransportStore.getState()
+      const playMode = useAppStore.getState().playMode
+      if (!playing || playMode !== 'pattern') { dirtyRaf = requestAnimationFrame(dirtyTick); return }
+      const elapsed = host.currentTime - host.playStartTime
+      const rowsPerSec = rowHz(bpm, linesPerBeat)
+      const globalRow = startRow + Math.floor(elapsed * rowsPerSec)
+      const doc = useDocStore.getState().doc
+      const pattern = doc.entities.patterns[doc.patternId]
+      const len = pattern?.length ?? 64
+      const localRow = ((globalRow % len) + len) % len
+      // Trigger recompile when within 2 rows of the loop boundary.
+      if (localRow >= len - 2) {
+        dirty = false
+        schedule()
+      }
+      dirtyRaf = requestAnimationFrame(dirtyTick)
+    }
+    dirtyRaf = requestAnimationFrame(dirtyTick)
+
     return () => {
       host.onReady = null
+      host.onVoicePoolCreated = null
       if (frame) cancelAnimationFrame(frame)
+      if (dirtyRaf) cancelAnimationFrame(dirtyRaf)
       unsubDoc()
       unsubTransport()
-      unsubPreview()
-      unsubMidi()
     }
   }, [host])
 

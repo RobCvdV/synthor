@@ -437,7 +437,9 @@ describe('docStore — mixer', () => {
   it('reorders channel effects', () => {
     const store = useDocStore.getState()
     const chanId = store.addChannel('sub')
-    const fx1 = store.addChannelEffect(chanId, 'filter')
+    // Use stereo effects (reverb + delay) so each addChannelEffect creates
+    // exactly one effect — filter is mono and creates L+R pairs.
+    const fx1 = store.addChannelEffect(chanId, 'reverb')
     const fx2 = store.addChannelEffect(chanId, 'delay')
 
     store.moveChannelEffect(chanId, fx1, 1)

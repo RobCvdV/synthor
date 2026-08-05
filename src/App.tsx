@@ -15,6 +15,8 @@ import { useProjectStore } from './state/projectStore'
 import { createDefaultDoc } from './domain/factory'
 import { midiToName } from './domain/notes'
 import { useMidi } from './midi/useMidi'
+import { useMidiStore } from './state/midiStore'
+import { LIVE_VOICE_COUNT } from './engine/voicePool'
 
 /** True when a keystroke should go to a focused form field, not the tracker.
  *  Range sliders are excluded — they can't receive text, and we want global
@@ -287,6 +289,17 @@ export default function App() {
     })
   }, [trackCount, ready])
 
+  // Auto-select MIDI instrument from the cursor's current track so MIDI
+  // keyboards always play the instrument you're editing.  Re-evaluates on
+  // cursor moves and pattern switches (section/song playback).
+  useEffect(() => {
+    const state = useDocStore.getState()
+    const pattern = state.doc.entities.patterns[state.doc.patternId]
+    const trackId = pattern?.trackIds[trackerCursor.track]
+    const instId = trackId ? state.doc.entities.tracks[trackId]?.instrumentId : null
+    useMidiStore.getState().setActiveInstrument(instId ?? null)
+  }, [trackerCursor.track, trackCount, ready])
+
   // Visual playhead with pattern transition support for section/song modes.
   useEffect(() => {
     if (!playing) {
@@ -316,6 +329,10 @@ export default function App() {
           // Auto-switch the compiled pattern when crossing boundaries.
           if (item.patternId !== lastPatternId) {
             lastPatternId = item.patternId
+            // In section/song mode the audio graph spans the full arrangement,
+            // so this patternId change is purely for UI.  Suppress the recompile
+            // that the doc-store subscription would otherwise trigger.
+            if (playMode !== 'pattern' as typeof playMode) host.skipNextRecompile = true
             // Update doc's current pattern without creating an undo entry
             // by using the store setter directly.
             useDocStore.setState((s) => ({
@@ -671,14 +688,16 @@ export default function App() {
           e.preventDefault(); setSelection(null)
           const note = octaveRef.current * 12 + semi
           setCellNote(trackId, cur.row, note)
-          if (!useTransportStore.getState().playing) {
+          // Preview-pip the note through VoicePool regardless of transport
+          // state so you can hear what you're entering mid-playback.
+          {
             const d = useDocStore.getState().doc
             const instId = d.entities.tracks[trackId]?.instrumentId
             if (instId) {
               void host.start().then(() => {
                 const inst = d.entities.instruments[instId]
                 const kit = inst?.kind === 'drumkit' ? inst : undefined
-                const pool = host.voicePool(instId, 8, kit)
+                const pool = host.voicePool(instId, LIVE_VOICE_COUNT, kit)
                 pool.noteOn(note)
                 setTimeout(() => pool.noteOff(note), 120)
               })
