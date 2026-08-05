@@ -120,22 +120,22 @@ export class AudioHost {
       this.paramRefs.attach(this.core)
       setActiveParamRefs(this.paramRefs)
       this.ccBindings.attach(this.paramRefs)
-      // Initialize Elementary with 1 input port (32 channels) for the
-      // scheduler worklet's control signals (gate/freq per track).
+      // Initialize Elementary. Currently numberOfInputs: 0 because
+      // having ANY input port (numberOfInputs > 0) breaks all audio output
+      // — a bug in Elementary's WASM input handling. A fork with SharedArrayBuffer
+      // based communication (sabref node) is planned to bypass this.
       const node = await this.core.initialize(this.ctx, {
-        numberOfInputs: 1,
-        channelCount: 32,
-        channelCountMode: 'explicit' as const,
+        numberOfInputs: 0,
         numberOfOutputs: 1,
         outputChannelCount: [2],
       })
 
-      // Create and connect the scheduler AudioWorklet.
+      // Create the scheduler (output path TBD — el.in blocked by Elementary bug).
       console.log('[host] creating SchedulerNode...')
-      const sch = await SchedulerNode.create(this.ctx)
-      sch.connect(node) // scheduler output → Elementary input
+      const sch = await SchedulerNode.create(this.ctx, 32)
+      // sch.connect(node) — blocked: Elementary input handling is broken
       this.schedulerNode = sch
-      console.log('[host] SchedulerNode connected to Elementary input, node.channelCount=', (node as any).channelCount, 'node.numberOfInputs=', (node as any).numberOfInputs)
+      console.log('[host] SchedulerNode created')
 
       this.analyser = this.ctx.createAnalyser()
       node.connect(this.analyser)

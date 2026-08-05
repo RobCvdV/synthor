@@ -38,6 +38,8 @@ export function useEngine(): AudioHost {
     g.__docStore = useDocStore
     g.__transportStore = useTransportStore
     g.__midiStore = useMidiStore
+    // Expose el for console testing
+    import('@elemaudio/core').then((m) => { g.__el = m.el })
   }
 
   // Track pending VFS sync so we don't render graphs referencing unloaded samples.

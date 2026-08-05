@@ -166,7 +166,7 @@ export class SchedulerNode {
   }
 
   /** Create and register the scheduler worklet. Call once per AudioContext. */
-  static async create(ctx: AudioContext): Promise<SchedulerNode> {
+  static async create(ctx: AudioContext, channelCount = 32): Promise<SchedulerNode> {
     if (!moduleLoaded) {
       const blob = new Blob([PROCESSOR_CODE], { type: 'application/javascript' })
       const url = URL.createObjectURL(blob)
@@ -180,9 +180,9 @@ export class SchedulerNode {
     const node = new AudioWorkletNode(ctx, 'scheduler-processor', {
       numberOfInputs: 0,
       numberOfOutputs: 1,
-      outputChannelCount: [32],
+      outputChannelCount: [channelCount],
     })
-    console.log('[scheduler] AudioWorkletNode created, output channels:', node.channelCount)
+    console.log('[scheduler] AudioWorkletNode created, output channels:', channelCount)
 
     return new SchedulerNode(node)
   }
