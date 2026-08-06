@@ -25,6 +25,10 @@ let tracks = [];
 let totalRows = 64;
 let startRow = 0;
 
+// SharedArrayBuffer for writing gate/freq values to be read by Elementary.
+let sabFloats = null;   // Float32Array view
+let sabSignal = null;   // Int32Array view (atomic signal at end)
+
 class SchedulerProcessor extends AudioWorkletProcessor {
   constructor(opts) {
     super(opts);
@@ -35,6 +39,11 @@ class SchedulerProcessor extends AudioWorkletProcessor {
         if (msg.sessionId && msg.sessionId !== sessionId) return;
       }
       switch (msg.type) {
+        case 'sab':
+          // Receive SharedArrayBuffer from main thread.
+          sabFloats = new Float32Array(msg.sab, 0, msg.numFloats);
+          sabSignal = new Int32Array(msg.sab, msg.numFloats * 4, 1);
+          break;
         case 'play':
           sessionId = msg.sessionId;
           playing = true;
@@ -43,7 +52,6 @@ class SchedulerProcessor extends AudioWorkletProcessor {
           if (msg.totalRows != null) totalRows = msg.totalRows;
           startRow = msg.startRow || 0;
           currentRow = startRow;
-          this.port.postMessage({ type: 'log', msg: 'play received', sessionId, tracks: tracks.length, totalRows, rowsPerSec });
           break;
         case 'stop':
           playing = false;
@@ -67,46 +75,41 @@ class SchedulerProcessor extends AudioWorkletProcessor {
 
   process(_inputs, outputs, _parameters) {
     const out = outputs[0];
-    if (!out) return true;
-    for (let ch = 0; ch < out.length; ch++) out[ch].fill(0);
-    if (!playing || tracks.length === 0) {
-      // Log every ~60 blocks (1 sec) when idle
-      if (this._idleCount == null) this._idleCount = 0;
-      if (this._idleCount++ % 3000 === 0) {
-        this.port.postMessage({ type: 'log', msg: 'idle', channels: out.length, playing, trackCount: tracks.length });
-      }
-      return true;
-    }
+    if (out) for (let ch = 0; ch < out.length; ch++) out[ch].fill(0);
+    if (!playing || tracks.length === 0) return true;
 
     const rowsPerSample = rowsPerSec / sampleRate;
     const rowsPerBlock = rowsPerSample * BLOCK_SIZE;
     const row = Math.floor(currentRow);
     const wrappedRow = totalRows > 0 ? ((row % totalRows) + totalRows) % totalRows : row;
 
-    for (const t of tracks) {
-      const gate = t.gate[wrappedRow] != null ? t.gate[wrappedRow] : 0;
-      const freq = t.freq[wrappedRow] != null ? t.freq[wrappedRow] : 0;
-      const base = t.channelOffset;
-      if (t.slotGates) {
-        const keys = Object.keys(t.slotGates);
-        for (let ci = 0; ci < keys.length; ci++) {
-          if (base + ci < out.length) {
-            const sg = t.slotGates[keys[ci]];
-            out[base + ci].fill(sg && sg[wrappedRow] != null ? sg[wrappedRow] : 0);
+    // Write gate/freq values into SharedArrayBuffer.
+    // The SAB index matches el.in({channel: N}) so Elementary can read directly.
+    if (sabFloats) {
+      for (let ti = 0; ti < tracks.length; ti++) {
+        const t = tracks[ti];
+        const gate = t.gate[wrappedRow] != null ? t.gate[wrappedRow] : 0;
+        const freq = t.freq[wrappedRow] != null ? t.freq[wrappedRow] : 0;
+        const base = t.channelOffset;
+        if (base + 1 < sabFloats.length) {
+          sabFloats[base] = gate;
+          sabFloats[base + 1] = freq;
+        }
+        // Drumkit slot gates
+        if (t.slotGates) {
+          const keys = Object.keys(t.slotGates);
+          for (let ci = 0; ci < keys.length; ci++) {
+            if (base + ci < sabFloats.length) {
+              const sg = t.slotGates[keys[ci]];
+              sabFloats[base + ci] = sg && sg[wrappedRow] != null ? sg[wrappedRow] : 0;
+            }
           }
         }
-      } else {
-        if (base < out.length) out[base].fill(gate);
-        if (base + 1 < out.length) out[base + 1].fill(freq);
       }
-    }
-
-    // Log every ~30 blocks (~87ms) for the first few seconds
-    if (this._dbgCount == null) this._dbgCount = 0;
-    if (this._dbgCount++ % 100 === 0 && this._dbgCount < 3000) {
-      const t0 = tracks[0];
-      this.port.postMessage({ type: 'log', msg: 'process', row: wrappedRow, totalRows, channels: out.length,
-        t0gate: t0 && t0.gate[wrappedRow], t0freq: t0 && t0.freq[wrappedRow], t0ch: t0 && t0.channelOffset });
+      // Signal Elementary that new data is available.
+      if (sabSignal) {
+        Atomics.add(sabSignal, 0, 1);
+      }
     }
 
     this.port.postMessage({ type: 'row', row: wrappedRow, sessionId });
@@ -123,12 +126,14 @@ registerProcessor('scheduler-processor', SchedulerProcessor);
 
 /** Structured-cloneable command sent to the worklet. */
 interface SchedulerCommand {
-  type: 'play' | 'stop' | 'set-bpm' | 'update' | 'panic'
+  type: 'play' | 'stop' | 'set-bpm' | 'update' | 'panic' | 'sab'
   sessionId: number
   tracks?: SerializableTrack[]
   totalRows?: number
   rowsPerSec?: number
   startRow?: number
+  sab?: SharedArrayBuffer
+  numFloats?: number
 }
 
 interface SerializableTrack {
@@ -155,10 +160,7 @@ export class SchedulerNode {
     node.port.onmessage = (e: MessageEvent) => {
       const msg = e.data
       if (!msg) return
-      if (msg.type === 'log') {
-        console.log('[scheduler:worklet]', msg.msg, JSON.stringify(msg))
-        return
-      }
+      if (msg.type === 'log') { return }
       if (msg.sessionId !== this.sessionId) return
       if (msg.type === 'row') this.onRow?.(msg.row)
       else if (msg.type === 'loop') this.onLoop?.()
@@ -166,36 +168,37 @@ export class SchedulerNode {
   }
 
   /** Create and register the scheduler worklet. Call once per AudioContext. */
-  static async create(ctx: AudioContext, channelCount = 32): Promise<SchedulerNode> {
+  static async create(ctx: AudioContext, _channelCount = 32): Promise<SchedulerNode> {
     if (!moduleLoaded) {
       const blob = new Blob([PROCESSOR_CODE], { type: 'application/javascript' })
       const url = URL.createObjectURL(blob)
-      console.log('[scheduler] loading worklet module...')
       await ctx.audioWorklet.addModule(url)
       URL.revokeObjectURL(url)
       moduleLoaded = true
-      console.log('[scheduler] worklet module loaded OK')
     }
 
     const node = new AudioWorkletNode(ctx, 'scheduler-processor', {
       numberOfInputs: 0,
       numberOfOutputs: 1,
-      outputChannelCount: [channelCount],
+      outputChannelCount: [1],  // minimal — SAB used instead
     })
-    console.log('[scheduler] AudioWorkletNode created, output channels:', channelCount)
 
     return new SchedulerNode(node)
+  }
+
+  /** Pass a SharedArrayBuffer for gate/freq output (replaces audio channels). */
+  setSab(sab: SharedArrayBuffer, numFloats: number): void {
+    this.node.port.postMessage({
+      type: 'sab',
+      sessionId: 0,
+      sab,
+      numFloats,
+    } satisfies SchedulerCommand)
   }
 
   play(data: PlaybackData, bpm: number, linesPerBeat: number, startRow = 0): void {
     this.sessionId++
     const tracks = serializeTracks(data.tracks)
-    console.log('[scheduler] play session=', this.sessionId,
-      'tracks=', tracks.length,
-      'totalRows=', data.totalRows,
-      'rowsPerSec=', (bpm / 60) * linesPerBeat,
-      'startRow=', startRow,
-      'firstTrack=', tracks[0] ? { ch: tracks[0].channelOffset, count: tracks[0].channelCount, gateLen: tracks[0].gate.length, gate0: tracks[0].gate[0], freq0: tracks[0].freq[0] } : null)
     this.node.port.postMessage({
       type: 'play',
       sessionId: this.sessionId,

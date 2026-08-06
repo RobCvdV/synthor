@@ -64,6 +64,11 @@ export default defineConfig({
       // Fixed port so OPFS localStorage is stable across dev restarts.
       port: 5173,
       strictPort: true,
+      // Cross-origin isolation headers required for SharedArrayBuffer.
+      headers: {
+        'Cross-Origin-Opener-Policy': 'same-origin',
+        'Cross-Origin-Embedder-Policy': 'require-corp',
+      },
       ...(https ? { https } : {}),
     };
   })(),

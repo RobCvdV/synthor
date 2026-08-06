@@ -120,22 +120,18 @@ export class AudioHost {
       this.paramRefs.attach(this.core)
       setActiveParamRefs(this.paramRefs)
       this.ccBindings.attach(this.paramRefs)
-      // Initialize Elementary. Currently numberOfInputs: 0 because
-      // having ANY input port (numberOfInputs > 0) breaks all audio output
-      // — a bug in Elementary's WASM input handling. A fork with SharedArrayBuffer
-      // based communication (sabref node) is planned to bypass this.
+      // Simple init: no input channels (known working state for voice pool).
       const node = await this.core.initialize(this.ctx, {
         numberOfInputs: 0,
         numberOfOutputs: 1,
         outputChannelCount: [2],
       })
 
-      // Create the scheduler (output path TBD — el.in blocked by Elementary bug).
+      // Create the scheduler (not connected, no SAB — testing voice pool first).
       console.log('[host] creating SchedulerNode...')
-      const sch = await SchedulerNode.create(this.ctx, 32)
-      // sch.connect(node) — blocked: Elementary input handling is broken
+      const sch = await SchedulerNode.create(this.ctx, 1)
       this.schedulerNode = sch
-      console.log('[host] SchedulerNode created')
+      console.log('[host] SchedulerNode created (minimal)')
 
       this.analyser = this.ctx.createAnalyser()
       node.connect(this.analyser)

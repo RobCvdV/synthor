@@ -394,7 +394,9 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
       prepLaneSeqs[laneId] = prepSeq(seq, ctx.startRow, item.startRow, totalRows, isFlat)
     }
 
-    // Gate + freq from the scheduler AudioWorklet via el.in.
+    // Gate + freq from the scheduler via SharedArrayBuffer → el.in.
+    // Elementary's WorkletProcessor.js reads SAB and fills WASM input buffers
+    // directly in process() (no Web Audio input port needed).
     if (chInfo) {
       console.log('[compile] track', trackId.slice(0,8), 'el.in gate ch=', chInfo.offset, 'freq ch=', chInfo.offset + 1)
     }
