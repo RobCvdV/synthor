@@ -110,7 +110,7 @@ export function MixerView({ host: _host }: MixerViewProps) {
           {selectedChan.effects.map((fx, idx) => (
             <EffectCard key={fx.id} effect={fx} channelId={selectedChan.id}
               isFirst={idx === 0} isLast={idx === selectedChan.effects.length - 1}
-              onToggleBypass={(bypassed) => store().setChannelEffectParam(selectedChan.id, fx.id, 'bypass', bypassed ? 1 : 0)}
+              onToggleBypass={(bypassed) => store().setChannelEffectParamSilent(selectedChan.id, fx.id, 'bypass', bypassed ? 1 : 0)}
               onRemove={() => store().removeChannelEffect(selectedChan.id, fx.id)}
               onParamSilent={(key, value) => store().setChannelEffectParamSilent(selectedChan.id, fx.id, key, value)}
               onParamCommit={(key, value) => store().setChannelEffectParam(selectedChan.id, fx.id, key, value)}

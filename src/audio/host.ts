@@ -120,18 +120,25 @@ export class AudioHost {
       this.paramRefs.attach(this.core)
       setActiveParamRefs(this.paramRefs)
       this.ccBindings.attach(this.paramRefs)
-      // Simple init: no input channels (known working state for voice pool).
+      // The dist patch reads numberOfInputChannels from processorOptions to tell
+      // the WASM how many input buffers to allocate (matching Web Audio channel count).
+      const MAX_CONTROL_CHANNELS = 32
+
+      console.log('[host] creating SchedulerNode...')
+      const sch = await SchedulerNode.create(this.ctx, MAX_CONTROL_CHANNELS)
+      this.schedulerNode = sch
+
       const node = await this.core.initialize(this.ctx, {
-        numberOfInputs: 0,
+        numberOfInputs: 1,
         numberOfOutputs: 1,
         outputChannelCount: [2],
+        processorOptions: {
+          numberOfInputChannels: MAX_CONTROL_CHANNELS,
+        },
       })
 
-      // Create the scheduler (not connected, no SAB — testing voice pool first).
-      console.log('[host] creating SchedulerNode...')
-      const sch = await SchedulerNode.create(this.ctx, 1)
-      this.schedulerNode = sch
-      console.log('[host] SchedulerNode created (minimal)')
+      // Route scheduler control signals → Elementary audio inputs.
+      sch.connect(node)
 
       this.analyser = this.ctx.createAnalyser()
       node.connect(this.analyser)

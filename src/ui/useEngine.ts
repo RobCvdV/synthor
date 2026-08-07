@@ -58,28 +58,48 @@ export function useEngine(): AudioHost {
 
     /** Compute a structural hash over parts of the doc that require a recompile
      *  when changed (instrument entities, track→instrument bindings, pattern
-     *  trackIds, mix channels, effect definitions, sample hashes). */
+     *  trackIds, mix channels, effect definitions, sample hashes).
+     *  Every value that compileGraph reads to build graph nodes MUST appear here
+     *  — a missing field means a "silent" edit that never takes effect. */
     function structuralKey(): string {
       const { doc } = useDocStore.getState()
       const parts: string[] = []
-      // Instruments
+      // Instruments — any change that alters the signal chain needs a recompile.
       for (const [id, inst] of Object.entries(doc.entities.instruments)) {
-        const params = inst.kind === 'osc' ? `p:${JSON.stringify(inst.params)}`
-          : inst.kind === 'drumkit' ? `dk:${inst.slots.length}`
-          : `mod:${Object.keys(inst.modules).length}`
-        parts.push(`${id}:${inst.kind}:${params}`)
+        const chan = `ch${inst.channelId}:pan${inst.pan}`
+        if (inst.kind === 'osc') {
+          parts.push(`osc:${id}:${chan}:${JSON.stringify(inst.params)}`)
+        } else if (inst.kind === 'drumkit') {
+          const slots = inst.slots.map((s) =>
+            `${s.note}:${s.pitchOffset}:${s.instrumentId ?? ''}:${s.sampleId ?? ''}`,
+          ).join(',')
+          parts.push(`dk:${id}:${chan}:${slots}`)
+        } else if (inst.kind === 'modular') {
+          // Module types + output routing determine the signal chain.
+          // Params are ref-based so they don't appear here.
+          const mods = Object.keys(inst.modules).sort().map((mid) =>
+            `${mid}:${inst.modules[mid].type}`,
+          ).join(',')
+          // Connections (cords) define the signal flow between modules.
+          const conns = Object.values(inst.connections)
+            .sort((a, b) => a.id.localeCompare(b.id))
+            .map((c) => `${c.from.moduleId}:${c.from.port}->${c.to.moduleId}:${c.to.port}:${c.gain}`)
+            .join(',')
+          parts.push(`mod:${id}:${chan}:mods[${mods}]:conns[${conns}]:out${inst.outputId}`)
+        }
       }
       // Track→instrument bindings
       for (const [id, t] of Object.entries(doc.entities.tracks)) {
-        parts.push(`${id}->${t.instrumentId}`)
+        parts.push(`track:${id}->${t.instrumentId}`)
       }
       // Pattern→trackIds ordering
       for (const [id, p] of Object.entries(doc.entities.patterns)) {
-        parts.push(`${id}:${p.trackIds.join(',')}`)
+        parts.push(`pat:${id}:${p.trackIds.join(',')}`)
       }
-      // Mix channels
+      // Mix channels — kind + effect identity chain.
       for (const [id, c] of Object.entries(doc.entities.mixChannels)) {
-        parts.push(`chan:${id}:${c.kind}:${c.effects.map((e) => e.type).join(',')}`)
+        const fx = c.effects.map((e) => `${e.type}:${e.id}`).join(',')
+        parts.push(`chan:${id}:${c.kind}:${fx}`)
       }
       // Sample hashes
       for (const s of Object.values(doc.entities.samples)) {
@@ -156,11 +176,17 @@ export function useEngine(): AudioHost {
               const t = doc.entities.tracks[tid]
               const i = t && doc.entities.instruments[t.instrumentId]
               if (!i) continue
-              const count = i.kind === 'drumkit' ? i.slots.length : 2
+              const count = i.kind === 'drumkit' ? i.slots.length + 1 : 3
               trackChannels.set(tid, { offset: chOffset, count, instId: i.id })
               chOffset += count
             }
           }
+
+          // Clear stale refs from the previous graph so getOrCreate
+          // produces fresh createRef nodes for the new graph. Old refs
+          // whose setters point to destroyed audio-thread nodes cause
+          // silence after recompile.
+          host.paramRefs.clear()
 
           const stereo = compileGraph(doc, {
             rowHz: rowHz(bpm, linesPerBeat),
@@ -190,7 +216,7 @@ export function useEngine(): AudioHost {
               const t = doc.entities.tracks[tid]
               const i = t && doc.entities.instruments[t.instrumentId]
               if (!i) continue
-              const count = i.kind === 'drumkit' ? i.slots.length : 2
+              const count = i.kind === 'drumkit' ? i.slots.length + 1 : 3
               trackChannels.set(tid, { offset: chOffset, count, instId: i.id })
               chOffset += count
             }
@@ -280,18 +306,32 @@ export function useEngine(): AudioHost {
       }
     })
 
-    host.onReady = schedule
+    // ── mute/solo subscription ─────────────────────────────────────────
+    // Mute is a ref write, not a recompile. When mute or solo state changes
+    // we only update the track:xxx:mute refs in the running graph.
+    const unsubMute = useDocStore.subscribe((state, prev) => {
+      if (state.mutedTracks === prev.mutedTracks && state.soloedTracks === prev.soloedTracks) return
+      const { doc, mutedTracks, soloedTracks } = state
+      const hasSolo = Object.values(soloedTracks).some(Boolean)
+      const pattern = doc.entities.patterns[doc.patternId]
+      if (!pattern) return
+      for (const tid of pattern.trackIds) {
+        const muted = hasSolo ? !soloedTracks[tid] : !!mutedTracks[tid]
+        host.paramRefs.setValue(`track:${tid}:mute`, muted ? 0 : 1)
+      }
+    })
+
+    host.onReady = () => {
+      // Wire scheduler row events → transportStore for UI playhead.
+      if (host.schedulerNode) {
+        host.schedulerNode.onRow = (row) => {
+          useTransportStore.getState().setCurrentRow(row)
+        }
+      }
+      schedule()
+    }
     // Voice pools write directly to refs (no recompile needed — all voice
     // slots are compiled once in compileAllVoiceSlots).
-
-    // Wire scheduler row events → transportStore for UI playhead.
-    if (host.schedulerNode) {
-      host.schedulerNode.onRow = (row) => {
-        useTransportStore.getState().setCurrentRow(row)
-      }
-    }
-
-    schedule() // catch any state that changed before the host was ready
 
     return () => {
       host.onReady = null
@@ -299,6 +339,7 @@ export function useEngine(): AudioHost {
       if (frame) cancelAnimationFrame(frame)
       unsubDoc()
       unsubTransport()
+      unsubMute()
     }
   }, [host])
 

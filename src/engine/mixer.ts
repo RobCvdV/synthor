@@ -58,6 +58,9 @@ function compileOneEffect(
   const key = (name: string) => chanRefKey(channelId, fx.id, name)
   const k = (name: string, value: number) => kconst(key(name), value, paramRefs)
 
+  // Ref-based bypass so toggling doesn't require a recompile.
+  const bypass = k('bypass', p.bypass ? 1 : 0)
+
   // Stereo effects (or unsided) process both channels.
   // Mono effects with a side only process that channel.
   const isStereo = fx.type === 'reverb' || fx.type === 'delay' || fx.type === 'echo'
@@ -78,14 +81,21 @@ function compileOneEffect(
     return { left: input.left, right: fn(input.right) }
   }
 
+  /** Route through the effect or bypass it, controlled by the bypass ref. */
+  function bypassable(effected: StereoOut): StereoOut {
+    return {
+      left: el.select(bypass, input.left, effected.left),
+      right: el.select(bypass, input.right, effected.right),
+    }
+  }
+
   switch (fx.type) {
     // ── Filter ──────────────────────────────────────────────
     case 'filter': {
-      if (p.bypass) return input
       const cutoff = k('cutoff', p.cutoff ?? 1200)
       const q = k('q', p.q ?? 0.7)
       const mode = k('mode', p.mode ?? 0)
-      return sided(input, (sig) => {
+      const effected = sided(input, (sig) => {
         const svfKey = `${channelId}:${fx.id}:${side ?? 'LR'}`
         const lp = el.svf({ key: `${svfKey}:lp`, mode: 'lowpass' }, cutoff, q, sig)
         const hp = el.svf({ key: `${svfKey}:hp`, mode: 'highpass' }, cutoff, q, sig)
@@ -95,45 +105,43 @@ function compileOneEffect(
           el.select(el.le(mode, el.const({ value: 1.5 })), hp, bp),
         )
       })
+      return bypassable(effected)
     }
 
     // ── Gain ────────────────────────────────────────────────
     case 'gain': {
-      if (p.bypass) return input
       const level = k('level', p.level ?? 0.8)
-      return sided(input, (sig) => el.mul(sig, level))
+      return bypassable(sided(input, (sig) => el.mul(sig, level)))
     }
 
     // ── Saturator (tanh) ────────────────────────────────────
     case 'tanh': {
-      if (p.bypass) return input
       const drive = k('drive', p.drive ?? 4)
       const level = k('level', p.level ?? 1)
-      return sided(input, (sig) => el.mul(el.tanh(el.mul(sig, drive)), level))
+      return bypassable(sided(input, (sig) => el.mul(el.tanh(el.mul(sig, drive)), level)))
     }
 
     // ── Hard Clip ───────────────────────────────────────────
     case 'clip': {
-      if (p.bypass) return input
       const drive = k('drive', p.drive ?? 4)
       const threshold = k('threshold', p.threshold ?? 0.7)
       const level = k('level', p.level ?? 0.7)
       const neg = el.sub(el.const({ value: 0 }), threshold)
-      return sided(input, (sig) => {
+      const effected = sided(input, (sig) => {
         const driven = el.mul(sig, drive)
         return el.mul(el.max(neg, el.min(threshold, driven)), level)
       })
+      return bypassable(effected)
     }
 
     // ── Wave Folder ─────────────────────────────────────────
     case 'fold': {
-      if (p.bypass) return input
       const drive = k('drive', p.drive ?? 3)
       const threshold = k('threshold', p.threshold ?? 0.35)
       const level = k('level', p.level ?? 0.7)
       const neg = el.sub(el.const({ value: 0 }), threshold)
       const two = el.const({ value: 2 })
-      return sided(input, (sig) => {
+      const effected = sided(input, (sig) => {
         const driven = el.mul(sig, drive)
         const overPos = el.ge(driven, threshold)
         const overNeg = el.le(driven, neg)
@@ -144,52 +152,52 @@ function compileOneEffect(
         )
         return el.mul(folded, level)
       })
+      return bypassable(effected)
     }
 
     // ── Bit Crusher ─────────────────────────────────────────
     case 'crush': {
-      if (p.bypass) return input
       const bits = k('bits', p.bits ?? 4)
       const level = k('level', p.level ?? 1)
       const steps = el.pow(el.const({ value: 2 }), el.sub(bits, el.const({ value: 1 })))
-      return sided(input, (sig) => {
+      const effected = sided(input, (sig) => {
         const q = el.div(el.round(el.mul(sig, steps)), steps)
         return el.mul(q, level)
       })
+      return bypassable(effected)
     }
 
     // ── Single-tap Delay ────────────────────────────────────
     case 'delay': {
-      if (p.bypass) return input
       const timeSamps = el.ms2samps(k('time', p.time ?? 150))
       const mix = k('mix', p.mix ?? 0.5)
       const dry = el.sub(el.const({ value: 1 }), mix)
       const wetL = el.delay({ key: `${channelId}:${fx.id}:L`, size: DELAY_SIZE }, timeSamps, 0, input.left)
       const wetR = el.delay({ key: `${channelId}:${fx.id}:R`, size: DELAY_SIZE }, timeSamps, 0, input.right)
-      return {
+      const effected: StereoOut = {
         left: el.add(el.mul(input.left, dry), el.mul(wetL, mix)),
         right: el.add(el.mul(input.right, dry), el.mul(wetR, mix)),
       }
+      return bypassable(effected)
     }
 
     // ── Echo (delay + feedback) ─────────────────────────────
     case 'echo': {
-      if (p.bypass) return input
       const timeSamps = el.ms2samps(k('time', p.time ?? 150))
       const fb = k('feedback', p.feedback ?? 0.25)
       const mix = k('mix', p.mix ?? 0.5)
       const dry = el.sub(el.const({ value: 1 }), mix)
       const wetL = el.delay({ key: `${channelId}:${fx.id}:L`, size: DELAY_SIZE }, timeSamps, fb, input.left)
       const wetR = el.delay({ key: `${channelId}:${fx.id}:R`, size: DELAY_SIZE }, timeSamps, fb, input.right)
-      return {
+      const effected: StereoOut = {
         left: el.add(el.mul(input.left, dry), el.mul(wetL, mix)),
         right: el.add(el.mul(input.right, dry), el.mul(wetR, mix)),
       }
+      return bypassable(effected)
     }
 
     // ── Stereo Reverb ───────────────────────────────────────
     case 'reverb': {
-      if (p.bypass) return input
       const roomSize = k('roomSize', p.roomSize ?? 0.5)
       const feedback = k('feedback', p.feedback ?? 0.45)
       const damping = k('damping', p.damping ?? 0.5)
@@ -244,10 +252,11 @@ function compileOneEffect(
       const wetR = buildChannel('R', input.right)
       const dryGain = el.sub(el.const({ value: 1 }), wetMix)
 
-      return {
+      const effected: StereoOut = {
         left: el.add(el.mul(input.left, dryGain), el.mul(wetL, wetMix)),
         right: el.add(el.mul(input.right, dryGain), el.mul(wetR, wetMix)),
       }
+      return bypassable(effected)
     }
 
     default:

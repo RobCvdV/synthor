@@ -102,7 +102,7 @@ function compileAllVoiceSlots(
 
   for (const inst of Object.values(doc.entities.instruments)) {
     if (inst.kind === 'drumkit') {
-      const subVoicesPerSlot = 2
+      const subVoicesPerSlot = 1
       let kitL: NodeRepr_t = lvZero
       let kitR: NodeRepr_t = lvZero
       for (let si = 0; si < inst.slots.length; si++) {
@@ -233,8 +233,8 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
   const reset = el.mul(rawReset, ctx.playing)
 
   // Pre-pass: assign scheduler input channel offsets per unique track.
-  // Regular tracks get 2 channels (gate, freq); drumkit tracks get
-  // 1 channel per slot (gate only — freq is per-slot constant).
+  // Regular tracks get 3 channels (gate, freq, vol); drumkit tracks get
+  // 1 channel per slot + 1 for volume.
   // This MUST match the iteration order in buildPlaybackData.
   if (ctx.trackChannels) ctx.trackChannels.clear()
   let chOffset = 0
@@ -249,7 +249,7 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
         const t = doc.entities.tracks[tid]
         const i = t && doc.entities.instruments[t.instrumentId]
         if (!i) continue
-        const count = i.kind === 'drumkit' ? i.slots.length : 2
+        const count = i.kind === 'drumkit' ? i.slots.length + 1 : 3
         ctx.trackChannels.set(tid, { offset: chOffset, count, instId: i.id })
         chOffset += count
       }
@@ -280,13 +280,13 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
     const chInfo = ctx.trackChannels?.get(trackId)
 
     if (inst.kind === 'drumkit') {
-      const { volumeSeq, effectLanes: laneSeqs, laneDefs } = buildSequences(track, pattern.length)
+      const { effectLanes: laneSeqs, laneDefs } = buildSequences(track, pattern.length)
 
       // Effect lane processing (built-in effects apply at mix level).
       const effSig = buildEffectSignals(laneSeqs, laneDefs, pattern.length)
 
       // Prepare sequences (rotate or pad depending on mode).
-      const dkVol = prepSeq(volumeSeq, ctx.startRow, item.startRow, totalRows, isFlat)
+      // Volume comes from the scheduler via el.in — no seq2 needed.
       const dkVolMod = prepSeq(effSig.volMod, ctx.startRow, item.startRow, totalRows, isFlat)
       const dkFreqMul = prepSeq(effSig.freqMul, ctx.startRow, item.startRow, totalRows, isFlat)
       const dkPan = prepSeq(effSig.pan, ctx.startRow, item.startRow, totalRows, isFlat)
@@ -311,9 +311,13 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
         }
       }
 
-      // Volume modulation from per-cell volume × effect volume modifiers.
-      const vol = mkSeq2(`${trackId}:vol:${ctx.playEpoch}`, dkVol, clock, reset, true, isFlat, ctx.startRow, item.startRow)
-      let effVol: NodeRepr_t = el.mul(vol, mkSeq2(`${trackId}:volMod:${ctx.playEpoch}`, dkVolMod, clock, reset, true, isFlat, ctx.startRow, item.startRow))
+      // Per-track volume from scheduler via el.in.
+      const dkSchedulerVol = chInfo
+        ? el.in({ channel: chInfo.offset + inst.slots.length })
+        : el.const({ value: 1 })
+
+      // Effect-only modulation: volMod lane × tremolo.
+      let dkEffVol: NodeRepr_t = mkSeq2(`${trackId}:volMod:${ctx.playEpoch}`, dkVolMod, clock, reset, true, isFlat, ctx.startRow, item.startRow)
 
       // --- Tremolo on drumkit mix ---
       const hasDkTremolo = effSig.tremoloDepth.some((d) => d > 0)
@@ -325,7 +329,7 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
         const tremHz = el.mul(0.5, el.exp(el.mul(tremRateSeq, Math.log(100 / 0.5))))
         const tremlfo = el.cycle(tremHz)
         const tremMod = el.sub(1, el.mul(tremDepthSeq, el.sub(1, el.abs(tremlfo))))
-        effVol = el.mul(effVol, tremMod)
+        dkEffVol = el.mul(dkEffVol, tremMod)
       }
 
       // Portamento on mix (applied as freqMul).
@@ -350,17 +354,26 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
         mixR = el.add(mixR, voice.right)
       }
 
+      // Mute ref — set to 0 to silence, 1 to play. No recompile.
+      const dkMuteRef = ctx.paramRefs
+        ? ctx.paramRefs.getOrCreate(`track:${trackId}:mute`, muted ? 0 : 1)
+        : el.const({ value: muted ? 0 : 1 })
+
       // Apply per-row panning if any row has a pan effect.
       const hasDkPan = effSig.pan.some((p) => p !== 0.5)
       let dkVoice: StereoOut
-      if (hasDkPan && !muted) {
+      if (hasDkPan) {
         const panSeq = mkSeq2(`${trackId}:pan:${ctx.playEpoch}`, dkPan, clock, reset, true, isFlat, ctx.startRow, item.startRow)
         const panAngle = el.mul(panSeq, Math.PI / 2)
-        dkVoice = { left: el.mul(mixL, effVol, el.cos(panAngle), masterGain), right: el.mul(mixR, effVol, el.sin(panAngle), masterGain) }
+        dkVoice = {
+          left: el.mul(mixL, dkEffVol, dkSchedulerVol, dkMuteRef, el.cos(panAngle), masterGain, el.const({ value: 0.25 })),
+          right: el.mul(mixR, dkEffVol, dkSchedulerVol, dkMuteRef, el.sin(panAngle), masterGain, el.const({ value: 0.25 })),
+        }
       } else {
-        dkVoice = muted
-          ? { left: el.mul(mixL, 0), right: el.mul(mixR, 0) }
-          : { left: el.mul(mixL, effVol, masterGain), right: el.mul(mixR, effVol, masterGain) }
+        dkVoice = {
+          left: el.mul(mixL, dkEffVol, dkSchedulerVol, dkMuteRef, masterGain, el.const({ value: 0.25 })),
+          right: el.mul(mixR, dkEffVol, dkSchedulerVol, dkMuteRef, masterGain, el.const({ value: 0.25 })),
+        }
       }
       // Apply instrument-level pan from the mixer (ref-based, no recompile on pan change).
       const dkPanRef = ctx.paramRefs
@@ -372,7 +385,7 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
 
     // Osc / modular: gate + freq from scheduler AudioWorklet via el.in,
     // vol/effect lanes/LFO from seq2.
-    const { volumeSeq, effectLanes: laneSeqs, laneDefs } = buildSequences(track, pattern.length)
+    const { effectLanes: laneSeqs, laneDefs } = buildSequences(track, pattern.length)
     const firstNote = track.cells.find((c) => c.note != null)?.note
     const trackBaseFreq = firstNote != null ? midiToFreq(firstNote) : 0
 
@@ -383,7 +396,7 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
     const effSig = buildEffectSignals(laneSeqs, laneDefs, pattern.length, effSettings)
 
     // Prepare effect sequences (rotate or pad depending on mode).
-    const prepVolume = prepSeq(volumeSeq, ctx.startRow, item.startRow, totalRows, isFlat)
+    // Volume comes from the scheduler via el.in — no seq2 needed.
     const prepFreqMul = prepSeq(effSig.freqMul, ctx.startRow, item.startRow, totalRows, isFlat)
     const prepVolMod = prepSeq(effSig.volMod, ctx.startRow, item.startRow, totalRows, isFlat)
     const prepPan = prepSeq(effSig.pan, ctx.startRow, item.startRow, totalRows, isFlat)
@@ -394,8 +407,9 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
       prepLaneSeqs[laneId] = prepSeq(seq, ctx.startRow, item.startRow, totalRows, isFlat)
     }
 
-    // Gate + freq from the scheduler via SharedArrayBuffer → el.in.
-    // Elementary's WorkletProcessor.js reads SAB and fills WASM input buffers
+    // Gate + freq from the scheduler via Web Audio routing → el.in.
+    // The scheduler AudioWorklet outputs control signals on audio channels
+    // which are connected to Elementary's audio inputs.
     // directly in process() (no Web Audio input port needed).
     if (chInfo) {
       console.log('[compile] track', trackId.slice(0,8), 'el.in gate ch=', chInfo.offset, 'freq ch=', chInfo.offset + 1)
@@ -409,8 +423,14 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
     const freqMulSeq = mkSeq2(`${trackId}:freqMul:${ctx.playEpoch}`, prepFreqMul, clock, reset, true, isFlat, ctx.startRow, item.startRow)
     let effFreq: NodeRepr_t = el.mul(effFreqBase, freqMulSeq)
 
-    const vol = mkSeq2(`${trackId}:vol:${ctx.playEpoch}`, prepVolume, clock, reset, true, isFlat, ctx.startRow, item.startRow)
-    let effVol: NodeRepr_t = el.mul(vol, mkSeq2(`${trackId}:volMod:${ctx.playEpoch}`, prepVolMod, clock, reset, true, isFlat, ctx.startRow, item.startRow))
+    // Per-cell volume from scheduler via el.in.
+    const schedulerVol = chInfo
+      ? el.in({ channel: chInfo.offset + 2 })
+      : el.const({ value: 1 })
+
+    // Effect-only modulation: volMod lane × tremolo. Per-cell volume
+    // is applied after renderInstrument (combined with mute ref).
+    let effVol: NodeRepr_t = mkSeq2(`${trackId}:volMod:${ctx.playEpoch}`, prepVolMod, clock, reset, true, isFlat, ctx.startRow, item.startRow)
 
     // --- Vibrato: audio-rate sine LFO for smooth continuous modulation ---
     const hasVibrato = effSig.vibratoDepth.some((d) => d > 0)
@@ -464,18 +484,30 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
 
     const voice = renderInstrument(inst, effFreq, gate, trackId, sampleMeta, 0, sampleHashById, trackBaseFreq, effVol, inletSignals, ctx.midiCcValues, ctx.paramRefs, ctx.ccBindings)
 
+    // Mute ref — set to 0 to silence, 1 to play. No recompile.
+    const muteRef = ctx.paramRefs
+      ? ctx.paramRefs.getOrCreate(`track:${trackId}:mute`, muted ? 0 : 1)
+      : el.const({ value: muted ? 0 : 1 })
+
+    // Per-track gain scaling to prevent clipping when multiple tracks play.
+    const trackGain = el.const({ value: 0.25 })
+
+    // Apply per-cell volume (from scheduler), mute ref, and gain scaling.
+    const gated: StereoOut = {
+      left: el.mul(voice.left, schedulerVol, muteRef, trackGain),
+      right: el.mul(voice.right, schedulerVol, muteRef, trackGain),
+    }
+
     // Apply per-row panning if any row has a pan effect.
     const hasPan = effSig.pan.some((p) => p !== 0.5)
     let trackVoice: StereoOut
-    if (hasPan && !muted) {
+    if (hasPan) {
       // Convert 0..1 pan values to constant-power stereo gains.
       const panSeq = mkSeq2(`${trackId}:pan:${ctx.playEpoch}`, prepPan, clock, reset, true, isFlat, ctx.startRow, item.startRow)
       const panAngle = el.mul(panSeq, Math.PI / 2)
-      trackVoice = { left: el.mul(voice.left, el.cos(panAngle)), right: el.mul(voice.right, el.sin(panAngle)) }
+      trackVoice = { left: el.mul(gated.left, el.cos(panAngle)), right: el.mul(gated.right, el.sin(panAngle)) }
     } else {
-      trackVoice = muted
-        ? { left: el.mul(voice.left, 0), right: el.mul(voice.right, 0) }
-        : voice
+      trackVoice = gated
     }
     // Apply instrument-level pan from the mixer (ref-based, no recompile on pan change).
     const instPanRef = ctx.paramRefs
@@ -531,7 +563,7 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
   // Master output, gated by the transport:playing ref so play/stop is a
   // ref write instead of a recompile. Live voices sit outside the gate.
   const playingGate = ctx.paramRefs
-    ? ctx.paramRefs.getOrCreate('transport:playing', 0)
+    ? ctx.paramRefs.getOrCreate('transport:playing', ctx.playing)
     : el.const({ value: ctx.playing })
   const patternOut: StereoOut = {
     left: el.mul(masterOut.left, playingGate),

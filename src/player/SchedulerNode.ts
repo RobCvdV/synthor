@@ -25,10 +25,6 @@ let tracks = [];
 let totalRows = 64;
 let startRow = 0;
 
-// SharedArrayBuffer for writing gate/freq values to be read by Elementary.
-let sabFloats = null;   // Float32Array view
-let sabSignal = null;   // Int32Array view (atomic signal at end)
-
 class SchedulerProcessor extends AudioWorkletProcessor {
   constructor(opts) {
     super(opts);
@@ -39,11 +35,6 @@ class SchedulerProcessor extends AudioWorkletProcessor {
         if (msg.sessionId && msg.sessionId !== sessionId) return;
       }
       switch (msg.type) {
-        case 'sab':
-          // Receive SharedArrayBuffer from main thread.
-          sabFloats = new Float32Array(msg.sab, 0, msg.numFloats);
-          sabSignal = new Int32Array(msg.sab, msg.numFloats * 4, 1);
-          break;
         case 'play':
           sessionId = msg.sessionId;
           playing = true;
@@ -75,7 +66,11 @@ class SchedulerProcessor extends AudioWorkletProcessor {
 
   process(_inputs, outputs, _parameters) {
     const out = outputs[0];
-    if (out) for (let ch = 0; ch < out.length; ch++) out[ch].fill(0);
+    if (!out) return true;
+
+    // Zero all output channels each block.
+    for (let ch = 0; ch < out.length; ch++) out[ch].fill(0);
+
     if (!playing || tracks.length === 0) return true;
 
     const rowsPerSample = rowsPerSec / sampleRate;
@@ -83,32 +78,34 @@ class SchedulerProcessor extends AudioWorkletProcessor {
     const row = Math.floor(currentRow);
     const wrappedRow = totalRows > 0 ? ((row % totalRows) + totalRows) % totalRows : row;
 
-    // Write gate/freq values into SharedArrayBuffer.
-    // The SAB index matches el.in({channel: N}) so Elementary can read directly.
-    if (sabFloats) {
-      for (let ti = 0; ti < tracks.length; ti++) {
-        const t = tracks[ti];
-        const gate = t.gate[wrappedRow] != null ? t.gate[wrappedRow] : 0;
-        const freq = t.freq[wrappedRow] != null ? t.freq[wrappedRow] : 0;
-        const base = t.channelOffset;
-        if (base + 1 < sabFloats.length) {
-          sabFloats[base] = gate;
-          sabFloats[base + 1] = freq;
-        }
-        // Drumkit slot gates
-        if (t.slotGates) {
-          const keys = Object.keys(t.slotGates);
-          for (let ci = 0; ci < keys.length; ci++) {
-            if (base + ci < sabFloats.length) {
-              const sg = t.slotGates[keys[ci]];
-              sabFloats[base + ci] = sg && sg[wrappedRow] != null ? sg[wrappedRow] : 0;
-            }
+    // Write gate/freq/vol values directly to audio output channels.
+    // These are routed to Elementary's el.in nodes via Web Audio graph connection.
+    // Regular tracks: ch+0=gate, ch+1=freq, ch+2=vol
+    // Drumkit tracks: ch+0..N-1=slot gates, ch+N=vol
+    for (let ti = 0; ti < tracks.length; ti++) {
+      const t = tracks[ti];
+      const base = t.channelOffset;
+      // Drumkit slot gates
+      if (t.slotGates) {
+        const keys = Object.keys(t.slotGates);
+        for (let ci = 0; ci < keys.length; ci++) {
+          if (base + ci < out.length) {
+            const sg = t.slotGates[keys[ci]];
+            out[base + ci].fill(sg && sg[wrappedRow] != null ? sg[wrappedRow] : 0);
           }
         }
-      }
-      // Signal Elementary that new data is available.
-      if (sabSignal) {
-        Atomics.add(sabSignal, 0, 1);
+        // Drumkit volume on last channel.
+        const dkVol = t.vol[wrappedRow] != null ? t.vol[wrappedRow] : 1;
+        const dkVolCh = base + keys.length;
+        if (dkVolCh < out.length) out[dkVolCh].fill(dkVol);
+      } else {
+        // Regular track: gate, freq, vol.
+        const gate = t.gate[wrappedRow] != null ? t.gate[wrappedRow] : 0;
+        const freq = t.freq[wrappedRow] != null ? t.freq[wrappedRow] : 0;
+        const vol = t.vol[wrappedRow] != null ? t.vol[wrappedRow] : 1;
+        if (base < out.length) out[base].fill(gate);
+        if (base + 1 < out.length) out[base + 1].fill(freq);
+        if (base + 2 < out.length) out[base + 2].fill(vol);
       }
     }
 
@@ -126,14 +123,12 @@ registerProcessor('scheduler-processor', SchedulerProcessor);
 
 /** Structured-cloneable command sent to the worklet. */
 interface SchedulerCommand {
-  type: 'play' | 'stop' | 'set-bpm' | 'update' | 'panic' | 'sab'
+  type: 'play' | 'stop' | 'set-bpm' | 'update' | 'panic'
   sessionId: number
   tracks?: SerializableTrack[]
   totalRows?: number
   rowsPerSec?: number
   startRow?: number
-  sab?: SharedArrayBuffer
-  numFloats?: number
 }
 
 interface SerializableTrack {
@@ -142,6 +137,7 @@ interface SerializableTrack {
   vol: number[]
   slotGates?: Record<string, number[]>
   channelOffset: number
+  /** Total channels: 3 for regular (gate+freq+vol), slots.length+1 for drumkit. */
   channelCount: number
 }
 
@@ -167,8 +163,10 @@ export class SchedulerNode {
     }
   }
 
-  /** Create and register the scheduler worklet. Call once per AudioContext. */
-  static async create(ctx: AudioContext, _channelCount = 32): Promise<SchedulerNode> {
+  /** Create and register the scheduler worklet. Call once per AudioContext.
+   *  @param channelCount Number of output audio channels for control signals.
+   *         Each regular track uses 2 channels (gate+freq); drumkit slots use 1 each. */
+  static async create(ctx: AudioContext, channelCount = 64): Promise<SchedulerNode> {
     if (!moduleLoaded) {
       const blob = new Blob([PROCESSOR_CODE], { type: 'application/javascript' })
       const url = URL.createObjectURL(blob)
@@ -180,20 +178,10 @@ export class SchedulerNode {
     const node = new AudioWorkletNode(ctx, 'scheduler-processor', {
       numberOfInputs: 0,
       numberOfOutputs: 1,
-      outputChannelCount: [1],  // minimal — SAB used instead
+      outputChannelCount: [channelCount],
     })
 
     return new SchedulerNode(node)
-  }
-
-  /** Pass a SharedArrayBuffer for gate/freq output (replaces audio channels). */
-  setSab(sab: SharedArrayBuffer, numFloats: number): void {
-    this.node.port.postMessage({
-      type: 'sab',
-      sessionId: 0,
-      sab,
-      numFloats,
-    } satisfies SchedulerCommand)
   }
 
   play(data: PlaybackData, bpm: number, linesPerBeat: number, startRow = 0): void {
@@ -253,6 +241,6 @@ function serializeTracks(
     vol: t.vol,
     slotGates: t.slotGates,
     channelOffset: t.channelOffset,
-    channelCount: t.slotGates ? Object.keys(t.slotGates).length : 2,
+    channelCount: t.slotGates ? Object.keys(t.slotGates).length + 1 : 3,
   }))
 }

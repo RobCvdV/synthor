@@ -6,7 +6,7 @@ import { getSlotForNote } from '../domain/types'
 /** Number of fixed voice slots per instrument for live keyboard/MIDI playback.
  *  Must match the voiceCount in compileLiveVoices — mismatches cause dead slots
  *  (notes that appear allocated in VoicePool but have no ref nodes in the graph). */
-export const LIVE_VOICE_COUNT = 8
+export const LIVE_VOICE_COUNT = 4
 
 /**
  * Fixed-size voice pool for an instrument.  Manages voice allocation (which
@@ -14,8 +14,7 @@ export const LIVE_VOICE_COUNT = 8
  * no graph recompile needed, no snapshot(), no onChange callback.
  *
  * In drumkit mode (kit provided), MIDI notes are routed to the correct
- * drumkit slot via getSlotForNote. Each slot gets 2 sub-voices for
- * overlapping retriggers (e.g. hi-hat chokes).
+ * drumkit slot via getSlotForNote. Each slot gets 1 sub-voice.
  */
 export class VoicePool {
   readonly size: number
@@ -24,15 +23,13 @@ export class VoicePool {
   private freeStack: number[] = []
   private releaseTimers = new Map<number, ReturnType<typeof setTimeout>>()
 
-  /** Per-slot round-robin sub-voice counter for drumkit mode. */
-  private slotSubVoices: number[] = []
   /** Set via setKit() for drumkit instruments. */
   private kit?: DrumKitInstrument
 
   constructor(
     private refs: ParamRefRegistry,
     private instId: string,
-    size = 8,
+    size = 4,
   ) {
     this.size = size
     for (let i = size - 1; i >= 0; i--) this.freeStack.push(i)
@@ -53,7 +50,6 @@ export class VoicePool {
   setKit(kit: DrumKitInstrument): void {
     if (this.kit) return
     this.kit = kit
-    this.slotSubVoices = new Array(kit.slots.length).fill(0)
   }
 
   /** Snapshot of currently held notes → slot indices. Used by UI voice counter. */
@@ -107,9 +103,7 @@ export class VoicePool {
     this.releaseTimers.clear()
     if (this.kit) {
       for (let si = 0; si < this.kit.slots.length; si++) {
-        for (let sv = 0; sv < 2; sv++) {
-          this.refs.setValue(`${this.instId}:ds:${si}:v${sv}:gate`, 0)
-        }
+        this.refs.setValue(`${this.instId}:ds:${si}:v0:gate`, 0)
       }
     } else {
       for (let i = 0; i < this.size; i++) {
@@ -129,8 +123,8 @@ export class VoicePool {
     if (!slot) return -1
     const si = kit.slots.findIndex((s: DrumKitSlot) => s.id === slot.id)
     if (si < 0) return -1
-    // Round-robin across 2 sub-voices per slot for overlapping retriggers.
-    const sv = (this.slotSubVoices[si]++) & 1
+    // Single sub-voice per slot.
+    const sv = 0
     const prefix = `${this.instId}:ds:${si}:v${sv}`
     this.refs.setValue(`${prefix}:freq`, midiToFreq(note))
     this.refs.setValue(`${prefix}:vel`, velocity / 127)
@@ -144,9 +138,7 @@ export class VoicePool {
     if (!slot) return
     const si = kit.slots.findIndex((s: DrumKitSlot) => s.id === slot.id)
     if (si < 0) return
-    for (let sv = 0; sv < 2; sv++) {
-      this.refs.setValue(`${this.instId}:ds:${si}:v${sv}:gate`, 0)
-    }
+    this.refs.setValue(`${this.instId}:ds:${si}:v0:gate`, 0)
   }
 
   // ── internal ────────────────────────────────────────────────────────
