@@ -16,8 +16,12 @@ export interface Cell {
   note: number | null
   /** Per-cell volume modifier, 0..1. Null means default (full volume). */
   volume: number | null
-  /** When true, triggers note-off (release) on this row regardless of note. */
+  /** When true, triggers note-off (release) on this row regardless of note.
+   *  @deprecated Replaced by `hold`. Kept for backward compat with older save files. */
   noteOff: boolean
+  /** When true, continues holding the previous note (displayed as '|').
+   *  Mutually exclusive with `note`. */
+  hold?: boolean
   /**
    * Per-effect-lane values, keyed by lane definition id.
    * 0..1 per cell, or null when no value is set on this step.

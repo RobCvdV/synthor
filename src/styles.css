@@ -756,6 +756,7 @@ body {
 }
 
 .cell.noteoff .cell-note { color: #e07a5f; }
+.cell.hold .cell-note { color: #81c784; }
 
 /* ---- SongBar ------------------------------------------------------------ */
 .songbar {

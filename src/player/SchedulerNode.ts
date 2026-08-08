@@ -75,8 +75,11 @@ class SchedulerProcessor extends AudioWorkletProcessor {
 
     const rowsPerSample = rowsPerSec / sampleRate;
     const rowsPerBlock = rowsPerSample * BLOCK_SIZE;
-    const row = Math.floor(currentRow);
+    const rowFloat = currentRow;
+    const row = Math.floor(rowFloat);
     const wrappedRow = totalRows > 0 ? ((row % totalRows) + totalRows) % totalRows : row;
+    // Fraction within the current row, 0..1.  Used for sub-row staccato gate.
+    const rowFraction = rowFloat - row;
 
     // Write gate/freq/vol values directly to audio output channels.
     // These are routed to Elementary's el.in nodes via Web Audio graph connection.
@@ -85,13 +88,17 @@ class SchedulerProcessor extends AudioWorkletProcessor {
     for (let ti = 0; ti < tracks.length; ti++) {
       const t = tracks[ti];
       const base = t.channelOffset;
-      // Drumkit slot gates
+      // Drumkit slot gates — also use track-level staccato for sub-row
+      // gate timing so consecutive hits on the same slot retrigger.
       if (t.slotGates) {
+        const staccato = t.staccato && t.staccato[wrappedRow] != null ? t.staccato[wrappedRow] : 1;
         const keys = Object.keys(t.slotGates);
         for (let ci = 0; ci < keys.length; ci++) {
           if (base + ci < out.length) {
             const sg = t.slotGates[keys[ci]];
-            out[base + ci].fill(sg && sg[wrappedRow] != null ? sg[wrappedRow] : 0);
+            const sgVal = sg && sg[wrappedRow] != null ? sg[wrappedRow] : 0;
+            const effectiveSgVal = sgVal === 1 && rowFraction >= staccato ? 0 : sgVal;
+            out[base + ci].fill(effectiveSgVal);
           }
         }
         // Drumkit volume on last channel.
@@ -100,10 +107,13 @@ class SchedulerProcessor extends AudioWorkletProcessor {
         if (dkVolCh < out.length) out[dkVolCh].fill(dkVol);
       } else {
         // Regular track: gate, freq, vol.
-        const gate = t.gate[wrappedRow] != null ? t.gate[wrappedRow] : 0;
+        const gateVal = t.gate[wrappedRow] != null ? t.gate[wrappedRow] : 0;
         const freq = t.freq[wrappedRow] != null ? t.freq[wrappedRow] : 0;
         const vol = t.vol[wrappedRow] != null ? t.vol[wrappedRow] : 1;
-        if (base < out.length) out[base].fill(gate);
+        // Sub-row staccato: gate drops to 0 after 'staccato' fraction of the row.
+        const staccato = t.staccato && t.staccato[wrappedRow] != null ? t.staccato[wrappedRow] : 1;
+        const effectiveGate = gateVal === 1 && rowFraction >= staccato ? 0 : gateVal;
+        if (base < out.length) out[base].fill(effectiveGate);
         if (base + 1 < out.length) out[base + 1].fill(freq);
         if (base + 2 < out.length) out[base + 2].fill(vol);
       }
@@ -135,6 +145,7 @@ interface SerializableTrack {
   gate: number[]
   freq: number[]
   vol: number[]
+  staccato: number[]
   slotGates?: Record<string, number[]>
   channelOffset: number
   /** Total channels: 3 for regular (gate+freq+vol), slots.length+1 for drumkit. */
@@ -239,6 +250,7 @@ function serializeTracks(
     gate: t.gate,
     freq: t.freq,
     vol: t.vol,
+    staccato: t.staccato,
     slotGates: t.slotGates,
     channelOffset: t.channelOffset,
     channelCount: t.slotGates ? Object.keys(t.slotGates).length + 1 : 3,

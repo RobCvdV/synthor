@@ -119,7 +119,7 @@ function compileAllVoiceSlots(
           kitR = el.add(kitR, el.mul(voice.right, velRef))
         }
       }
-      const masterGain = paramRefs.getOrCreate(`${inst.id}:masterGain`, inst.params.gain)
+      const masterGain = paramRefs.getOrCreate(`${inst.id}:gain`, inst.params.gain)
       allLeft = el.add(allLeft, el.mul(kitL, 0.3, masterGain))
       allRight = el.add(allRight, el.mul(kitR, 0.3, masterGain))
     } else {
@@ -335,7 +335,10 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
       // Portamento on mix (applied as freqMul).
       const freqMulSeq = mkSeq2(`${trackId}:freqMul:${ctx.playEpoch}`, dkFreqMul, clock, reset, true, isFlat, ctx.startRow, item.startRow)
 
-      const masterGain = el.const({ value: inst.params.gain })
+      // Drumkit instrument gain via ref — no recompile on fader move.
+      const masterGain = ctx.paramRefs
+        ? ctx.paramRefs.getOrCreate(`${inst.id}:gain`, inst.params.gain)
+        : el.const({ value: inst.params.gain })
 
       let mixL: NodeRepr_t = zero
       let mixR: NodeRepr_t = zero

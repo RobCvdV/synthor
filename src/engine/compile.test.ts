@@ -236,8 +236,8 @@ describe('compileLiveVoices', () => {
     const { doc, instIds } = makeDoc([{ id: 'p1', name: 'P1', length: 16 }])
     const refs = mockParamRefs()
     compileGraph(doc, defaultCtx({ paramRefs: refs as any }))
-    // 1 instrument ≤4 → 8 voices. 8×3 voice refs + 1 gain + 1 pan = 26 refs.
-    expect(refs.keys.size).toBeGreaterThanOrEqual(24)
+    // 1 instrument → 4 voices. 4×3 voice refs + 1 gain + 1 pan = 14 refs.
+    expect(refs.keys.size).toBeGreaterThanOrEqual(12)
     expect(refs.keys.has(`${instIds[0]}:v:0:freq`)).toBe(true)
     expect(refs.keys.has(`${instIds[0]}:v:0:gate`)).toBe(true)
     expect(refs.keys.has(`${instIds[0]}:v:0:vel`)).toBe(true)
@@ -247,14 +247,14 @@ describe('compileLiveVoices', () => {
     const { doc, instIds } = makeDoc([{ id: 'p1', name: 'P1', length: 16 }])
     const refs = mockParamRefs()
     compileGraph(doc, defaultCtx({ paramRefs: refs as any }))
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 4; i++) {
       expect(refs.keys.has(`${instIds[0]}:v:${i}:freq`)).toBe(true)
       expect(refs.keys.has(`${instIds[0]}:v:${i}:gate`)).toBe(true)
       expect(refs.keys.has(`${instIds[0]}:v:${i}:vel`)).toBe(true)
     }
   })
 
-  it('creates drumkit slot refs with masterGain', () => {
+  it('creates drumkit slot refs with gain', () => {
     const master = createMasterChannel()
     const kit = newDrumKitInstrument('Kit')
     kit.slots = [{ id: 'slot1', note: 36, pitchOffset: 0, gain: 1, pan: 0, sampleId: 'smp1', instrumentId: null }]
@@ -273,12 +273,11 @@ describe('compileLiveVoices', () => {
     }
     const refs = mockParamRefs()
     compileGraph(doc, defaultCtx({ paramRefs: refs as any, vfsLoadedHashes: new Set(['abc123']) }))
-    // 1 slot × 2 sub-voices × 3 refs (freq, gate, vel) + 1 masterGain = 7 refs
+    // 1 slot × 1 sub-voice × 3 refs (freq, gate, vel) + 1 gain = 4 refs
     expect(refs.keys.has(`${kit.id}:ds:0:v0:freq`)).toBe(true)
     expect(refs.keys.has(`${kit.id}:ds:0:v0:gate`)).toBe(true)
     expect(refs.keys.has(`${kit.id}:ds:0:v0:vel`)).toBe(true)
-    expect(refs.keys.has(`${kit.id}:ds:0:v1:freq`)).toBe(true)
-    expect(refs.keys.has(`${kit.id}:masterGain`)).toBe(true)
+    expect(refs.keys.has(`${kit.id}:gain`)).toBe(true)
   })
 
   it('refs use gate=0, vel=1, freq=midiToFreq(69) initial values', () => {

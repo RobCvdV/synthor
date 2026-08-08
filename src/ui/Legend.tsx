@@ -9,7 +9,7 @@ const NOTE_ENTRY: Row[] = [
   { keys: 'S D G H J …', label: 'sharps (lower)' },
   { keys: '2 3 5 6 7 …', label: 'sharps (upper)' },
   { keys: '− / =', label: 'octave down / up' },
-  { keys: '`', label: 'note-off (toggle)' },
+  { keys: '\\', label: 'hold (continue note, shows |)' },
   { keys: '[ / ]', label: 'volume down / up' },
   { keys: '0-9, A-F', label: 'hex vol (vol column)' },
   { keys: 'Del', label: 'clear cell' },

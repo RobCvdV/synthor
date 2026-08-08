@@ -271,14 +271,10 @@ export function useEngine(): AudioHost {
       // section/song playback — the pattern change is purely for UI.
       if (host.skipNextRecompile) { host.skipNextRecompile = false; return }
 
-      // Check if this is a structural change (requires recompile).
-      const newKey = structuralKey()
-      if (newKey !== lastStructuralKeyRef.current) {
-        schedule()
-      }
-      // Note edits, playhead changes, etc. don't recompile — the scheduler
-      // gets updated via the render() → doRecompile() path which always
-      // sends playback data to the worklet.
+      // Always schedule a render — recompile only if structuralKey changed,
+      // but the scheduler always needs fresh playback data for note edits,
+      // hold signs, staccato values, etc.
+      schedule()
     })
 
     // ── transport subscription ────────────────────────────────────────

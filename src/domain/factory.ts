@@ -30,13 +30,13 @@ export function makeId(prefix: string): string {
 }
 
 export function emptyCells(length: number): Cell[] {
-  return Array.from({ length }, () => ({ note: null, volume: null, noteOff: false, effectLanes: {} }))
+  return Array.from({ length }, () => ({ note: null, volume: null, noteOff: false, hold: false, effectLanes: {} }))
 }
 
 /** Fit a cell list to a target length: truncate if longer, pad empty if shorter. */
 export function fitCells(cells: Cell[], length: number): Cell[] {
-  const out = cells.slice(0, length).map((c) => ({ note: c.note, volume: c.volume, noteOff: c.noteOff, effectLanes: { ...c.effectLanes } }))
-  while (out.length < length) out.push({ note: null, volume: null, noteOff: false, effectLanes: {} })
+  const out = cells.slice(0, length).map((c) => ({ note: c.note, volume: c.volume, noteOff: c.noteOff, hold: c.hold ?? false, effectLanes: { ...c.effectLanes } }))
+  while (out.length < length) out.push({ note: null, volume: null, noteOff: false, hold: false, effectLanes: {} })
   return out
 }
 

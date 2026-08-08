@@ -31,6 +31,7 @@ interface HistoryEntry {
 interface TrackSnapshot {
   instrument: Instrument
   cells: Cell[]
+  effectLanes: EffectLaneDef[]
 }
 
 interface DocState {
@@ -71,7 +72,9 @@ interface DocState {
 
   // --- Cell editing ---
   setCellNote: (trackId: Id, row: number, note: number | null) => void
+  /** @deprecated Use setCellHold instead. */
   setCellNoteOff: (trackId: Id, row: number, noteOff: boolean) => void
+  setCellHold: (trackId: Id, row: number, hold: boolean) => void
   setCellVolume: (trackId: Id, row: number, volume: number | null) => void
   addEffectLane: (trackId: Id, type: string) => void
   removeEffectLane: (trackId: Id, laneId: Id) => void
@@ -252,18 +255,29 @@ export const useDocStore = create<DocState>((set, get) => ({
       const track = draft.entities.tracks[trackId]
       if (track && track.cells[row]) {
         track.cells[row].note = note
-        // Setting a note clears note-off (they're mutually exclusive).
-        if (note !== null) track.cells[row].noteOff = false
+        // Note and hold/note-off are mutually exclusive.
+        track.cells[row].noteOff = false
+        track.cells[row].hold = false
       }
     }),
 
+  /** @deprecated Use setCellHold instead. Kept for old song compat. */
   setCellNoteOff: (trackId, row, noteOff) =>
     get().mutate((draft) => {
       const track = draft.entities.tracks[trackId]
       if (track && track.cells[row]) {
         track.cells[row].noteOff = noteOff
-        // Note-off and note are mutually exclusive: note-off clears any note.
         if (noteOff) track.cells[row].note = null
+      }
+    }),
+
+  setCellHold: (trackId, row, hold) =>
+    get().mutate((draft) => {
+      const track = draft.entities.tracks[trackId]
+      if (track && track.cells[row]) {
+        track.cells[row].hold = hold
+        // Hold and note are mutually exclusive: hold clears any note.
+        if (hold) track.cells[row].note = null
       }
     }),
 
@@ -350,6 +364,7 @@ export const useDocStore = create<DocState>((set, get) => ({
       trackClipboard: {
         instrument: doc.entities.instruments[track.instrumentId],
         cells: track.cells.map((c) => ({ ...c })),
+        effectLanes: [...track.effectLanes],
       },
     })
   },
@@ -362,6 +377,7 @@ export const useDocStore = create<DocState>((set, get) => ({
       const inst = cloneInstrument(snap.instrument, snap.instrument.name)
       const track = newTrack(inst.id, pattern.length)
       track.cells = fitCells(snap.cells, pattern.length)
+      track.effectLanes = snap.effectLanes.map((l) => ({ ...l }))
       draft.entities.instruments[inst.id] = inst
       draft.entities.tracks[track.id] = track
       pattern.trackIds.splice(clamp(atIndex, 0, pattern.trackIds.length), 0, track.id)
@@ -376,7 +392,7 @@ export const useDocStore = create<DocState>((set, get) => ({
       // Duplicating a track shares the same instrument (true reference reuse):
       // both lanes drive one instrument. Copy/paste is the "independent copy".
       const track = newTrack(src.instrumentId, pattern.length)
-      track.cells = src.cells.map((c) => ({ note: c.note, volume: c.volume, noteOff: c.noteOff, effectLanes: { ...c.effectLanes } }))
+      track.cells = src.cells.map((c) => ({ note: c.note, volume: c.volume, noteOff: c.noteOff, hold: c.hold ?? false, effectLanes: { ...c.effectLanes } }))
       track.effectLanes = [...src.effectLanes]
       draft.entities.tracks[track.id] = track
       pattern.trackIds.splice(clamp(atIndex, 0, pattern.trackIds.length), 0, track.id)
@@ -410,7 +426,7 @@ export const useDocStore = create<DocState>((set, get) => ({
       const col: Cell[] = []
       for (let r = r0; r <= r1; r++) {
         const c = track?.cells[r]
-        col.push(c ? { note: c.note, volume: c.volume, noteOff: c.noteOff, effectLanes: { ...c.effectLanes } } : { note: null, volume: null, noteOff: false, effectLanes: {} })
+        col.push(c ? { note: c.note, volume: c.volume, noteOff: c.noteOff, hold: c.hold ?? false, effectLanes: { ...c.effectLanes } } : { note: null, volume: null, noteOff: false, hold: false, effectLanes: {} })
       }
       cells.push(col)
     }
@@ -430,7 +446,7 @@ export const useDocStore = create<DocState>((set, get) => ({
         if (!track) continue
         for (let r = r0; r <= r1; r++) {
           if (track.cells[r]) {
-            track.cells[r] = { note: null, volume: null, noteOff: false, effectLanes: {} }
+            track.cells[r] = { note: null, volume: null, noteOff: false, hold: false, effectLanes: {} }
           }
         }
       }
@@ -884,7 +900,7 @@ export const useDocStore = create<DocState>((set, get) => ({
         draft.entities.tracks[newTrackId] = {
           id: newTrackId,
           instrumentId: srcTrack.instrumentId,
-          cells: srcTrack.cells.map((c) => ({ note: c.note, volume: c.volume, noteOff: c.noteOff, effectLanes: { ...c.effectLanes } })),
+          cells: srcTrack.cells.map((c) => ({ note: c.note, volume: c.volume, noteOff: c.noteOff, hold: c.hold ?? false, effectLanes: { ...c.effectLanes } })),
           effectLanes: [...srcTrack.effectLanes],
         }
         newTrackIds.push(newTrackId)

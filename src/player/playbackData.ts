@@ -18,6 +18,10 @@ export interface TrackPlaybackData {
   freq: number[]
   /** Volume modifier per row (0..1). */
   vol: number[]
+  /** Staccato value per row (0..1). Controls sub-row gate timing:
+   *  gate stays on for staccato × rowDuration, then drops to 0.
+   *  Only meaningful on the last row of a note+hold chain. */
+  staccato: number[]
   /** For drumkit tracks: per-slot gate sequences, keyed by slot id. */
   slotGates?: Record<Id, number[]>
   /** Channel offset assigned to this track (set by compileGraph). */
@@ -54,7 +58,7 @@ export function buildPlaybackData(
       if (!inst) continue
 
       // Build sequences for this track using existing pure functions.
-      const { freqSeq, gateSeq, volumeSeq } = buildSequences(track, pattern.length)
+      const { freqSeq, gateSeq, volumeSeq, staccatoSeq } = buildSequences(track, pattern.length)
 
       let existing = trackMap.get(trackId)
       if (!existing) {
@@ -64,6 +68,7 @@ export function buildPlaybackData(
           gate: [],
           freq: [],
           vol: [],
+          staccato: [],
           channelOffset: 0, // assigned by compileGraph
         }
         trackMap.set(trackId, existing)
@@ -76,23 +81,27 @@ export function buildPlaybackData(
         existing.gate.length = totalRows
         existing.freq.length = totalRows
         existing.vol.length = totalRows
+        existing.staccato.length = totalRows
         // Fill the gap between old end and current item's window.
         for (let i = oldLen; i < item.startRow; i++) {
           existing.gate[i] = 0
           existing.freq[i] = existing.freq[oldLen - 1] ?? 0
           existing.vol[i] = 1
+          existing.staccato[i] = 1
         }
         // Copy this pattern's data into its window.
         for (let i = 0; i < pattern.length; i++) {
           existing.gate[item.startRow + i] = gateSeq[i]
           existing.freq[item.startRow + i] = freqSeq[i]
           existing.vol[item.startRow + i] = volumeSeq[i]
+          existing.staccato[item.startRow + i] = staccatoSeq[i]
         }
       } else {
         // Single pattern — just use the sequences directly.
         existing.gate = gateSeq
         existing.freq = freqSeq
         existing.vol = volumeSeq
+        existing.staccato = staccatoSeq
       }
 
       // Drumkit: build per-slot gate sequences.

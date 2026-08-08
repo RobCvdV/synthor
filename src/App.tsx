@@ -83,7 +83,7 @@ export default function App() {
 
   const doc = useDocStore((s) => s.doc)
   const setCellNote = useDocStore((s) => s.setCellNote)
-  const setCellNoteOff = useDocStore((s) => s.setCellNoteOff)
+  const setCellHold = useDocStore((s) => s.setCellHold)
   const setCellVolume = useDocStore((s) => s.setCellVolume)
   const setCellEffectLane = useDocStore((s) => s.setCellEffectLane)
   const addEffectLane = useDocStore((s) => s.addEffectLane)
@@ -667,10 +667,10 @@ export default function App() {
         return
       }
 
-      // --- Note-off (backtick) ---
-      if (!e.ctrlKey && !e.metaKey && !e.altKey && e.code === 'Backquote') {
+      // --- Hold (backslash, displayed as '|') ---
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && e.code === 'Backslash') {
         e.preventDefault(); setSelection(null)
-        if (trackId) { const cell = useDocStore.getState().doc.entities.tracks[trackId]?.cells[cur.row]; setCellNoteOff(trackId, cur.row, !cell?.noteOff); setCursor((c) => ({ ...c, row: (c.row + 1) % pattern.length })) }
+        if (trackId) { const cell = useDocStore.getState().doc.entities.tracks[trackId]?.cells[cur.row]; setCellHold(trackId, cur.row, !cell?.hold); setCursor((c) => ({ ...c, row: (c.row + 1) % pattern.length })) }
         return
       }
 
@@ -707,7 +707,7 @@ export default function App() {
         }
       }
     },
-    [view, pattern, host, toggle, undo, redo, setCellNote, setCellNoteOff, setCellVolume, setCellEffectLane, addEffectLane, removeEffectLane, addTrack, removeTrack, moveTrack, copyTrack, pasteTrack, duplicateTrack, shiftTrack, toggleMute, copyRect, cutRect, pasteRect, clearEntry, laneCountForTrack, cyclePlayMode],
+    [view, pattern, host, toggle, undo, redo, setCellNote, setCellHold, setCellVolume, setCellEffectLane, addEffectLane, removeEffectLane, addTrack, removeTrack, moveTrack, copyTrack, pasteTrack, duplicateTrack, shiftTrack, toggleMute, copyRect, cutRect, pasteRect, clearEntry, laneCountForTrack, cyclePlayMode],
   )
 
   useEffect(() => {

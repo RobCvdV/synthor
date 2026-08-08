@@ -227,6 +227,7 @@ export function TrackerGrid({ doc, pattern, cursor, playhead, muted, soloed, sel
             const cell = t.cells[row]
             const note = cell?.note ?? null
             const noteOff = cell?.noteOff === true
+            const hold = cell?.hold === true
             const active = ti === cursor.track && row === cursor.row
             const noteActive = active && cursor.col === 0
             const volActive = active && cursor.col === 1
@@ -234,7 +235,8 @@ export function TrackerGrid({ doc, pattern, cursor, playhead, muted, soloed, sel
             const mutedClass = muted[t.id] ? ' muted' : ''
 
             let noteLabel: string
-            if (noteOff) noteLabel = '==='
+            if (hold) noteLabel = '|'
+            else if (noteOff) noteLabel = '==='
             else if (note === null) noteLabel = '···'
             else noteLabel = midiToName(note)
 
@@ -265,7 +267,7 @@ export function TrackerGrid({ doc, pattern, cursor, playhead, muted, soloed, sel
             return (
               <span
                 key={t.id}
-                className={'cell' + (active ? ' cursor' : '') + (sel ? ' selected' : '') + mutedClass + (noteOff ? ' noteoff' : '')}
+                className={'cell' + (active ? ' cursor' : '') + (sel ? ' selected' : '') + mutedClass + (hold ? ' hold' : noteOff ? ' noteoff' : '')}
                 style={{ width: trackCellWidth(t.effectLanes.length) }}
                 onMouseDown={(e) => { e.preventDefault(); onCellClick(row, ti, e.shiftKey) }}
               >

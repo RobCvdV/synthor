@@ -19,6 +19,7 @@ export const BUILTIN_LANE_TYPES = [
   'portamento',
   'volumeSlide',
   'panning',
+  'staccato',
 ] as const
 
 export type BuiltinLaneType = typeof BUILTIN_LANE_TYPES[number]
@@ -38,6 +39,7 @@ export const LANE_DEFS: Record<BuiltinLaneType, LaneDef> = {
   portamento:   { type: 'portamento',   label: 'Porta',     description: 'Pitch slide (80=center, 00=down, FF=up)' },
   volumeSlide:  { type: 'volumeSlide',  label: 'Vol Slide', description: 'Absolute volume to slide to (00–FF)' },
   panning:      { type: 'panning',      label: 'Panning',   description: 'Stereo position (00=left, FF=right)' },
+  staccato:     { type: 'staccato',     label: 'Staccato',  description: 'Note cut timing (00=immediate, FF=legato)' },
 }
 
 /** Check whether a lane type string is a built-in type. */

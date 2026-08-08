@@ -45,11 +45,13 @@ export function MixerView({ host: _host }: MixerViewProps) {
                 const vol = Math.max(0, Math.min(2, v))
                 if (inst.kind === 'osc') store().setOscParamSilent(inst.id, 'gain', vol)
                 else if (inst.kind === 'drumkit') store().setDrumKitParamSilent(inst.id, 'gain', vol)
+                else if (inst.kind === 'modular') store().setModuleParamSilent(inst.id, inst.outputId, 'gain', vol)
               }}
               onVolumeCommit={(v) => {
                 const vol = Math.max(0, Math.min(2, v))
                 if (inst.kind === 'osc') store().setOscParam(inst.id, 'gain', vol)
                 else if (inst.kind === 'drumkit') store().setDrumKitParam(inst.id, 'gain', vol)
+                else if (inst.kind === 'modular') store().setModuleParam(inst.id, inst.outputId, 'gain', vol)
               }}
               onPanSilent={(pan) => store().setInstrumentPanSilent(inst.id, Math.max(-1, Math.min(1, pan)))}
               onPanCommit={(pan) => store().setInstrumentPan(inst.id, Math.max(-1, Math.min(1, pan)))}
