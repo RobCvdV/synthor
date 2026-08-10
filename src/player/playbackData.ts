@@ -1,39 +1,162 @@
 /**
- * Pure functions to convert a Doc + arrangement into the per-track data
- * structures consumed by the scheduler AudioWorklet.  No audio imports,
- * no DOM, no React — unit-testable with vitest.
+ * Pure functions to convert a Doc + arrangement into per-slot data structures
+ * consumed by the scheduler AudioWorklet.  No audio imports, no DOM, no React —
+ * unit-testable with vitest.
+ *
+ * Voice slots are pre-allocated per instrument.  Tracks from different patterns
+ * that never play simultaneously share the same slot.  The graph is compiled once
+ * with all slots; the scheduler routes track data to the correct slot at the
+ * correct time.
  */
 
 import type { Doc, Id } from '../domain/types'
 import { buildSequences, buildDrumKitSlotSequences } from '../engine/sequences'
+import { computeSlotLayouts, getSlotChannelOffset, REGULAR_CH, DRUMKIT_CH, DRUMKIT_EXTRA_CHANNELS } from '../engine/voiceSlotLayout'
+import type { InstrumentSlotLayout } from '../engine/voiceSlotLayout'
 import type { ArrangementItem } from '../engine/arrangement'
 
-/** Per-track row data sent to the scheduler worklet. */
-export interface TrackPlaybackData {
-  trackId: Id
+/** Per-slot row data sent to the scheduler worklet.
+ *
+ *  Each slot has a fixed set of control channels (see REGULAR_CH / DRUMKIT_CH).
+ *  `signals[i]` is the per-row value array for channel `offset + i`.
+ *  The scheduler outputs `signals[i][row]` on output channel `offset + i`. */
+export interface VoiceSlotData {
   instId: Id
-  /** Gate sequence (0 or 1 per row). */
-  gate: number[]
-  /** Frequency sequence in Hz. */
-  freq: number[]
-  /** Volume modifier per row (0..1). */
-  vol: number[]
-  /** Staccato value per row (0..1). Controls sub-row gate timing:
-   *  gate stays on for staccato × rowDuration, then drops to 0.
-   *  Only meaningful on the last row of a note+hold chain. */
-  staccato: number[]
-  /** For drumkit tracks: per-slot gate sequences, keyed by slot id. */
-  slotGates?: Record<Id, number[]>
-  /** Channel offset assigned to this track (set by compileGraph). */
+  slotIndex: number
+  /** Per-channel signal arrays.  Layout matches InstrumentSlotLayout:
+   *  Regular: [gate, freq, vol, portamento, volumeSlide, panning,
+   *            vibratoRate, vibratoDepth, tremoloRate, tremoloDepth,
+   *            staccato, ...namedInlets]
+   *  Drumkit: [drumGate0, ..., drumGateN-1, vol, portamento, volumeSlide,
+   *            panning, vibratoRate, vibratoDepth, tremoloRate, tremoloDepth,
+   *            staccato, ...namedInlets] */
+  signals: number[][]
+  /** Global channel offset assigned during graph compilation. */
   channelOffset: number
+  /** Number of drum gate channels (0 for regular instrument slots). */
+  drumGateCount: number
 }
 
 /** Complete playback data for the scheduler. */
 export interface PlaybackData {
-  tracks: TrackPlaybackData[]
+  slots: VoiceSlotData[]
   totalRows: number
   /** Arrangement items for section/song mode (pattern windows). */
   arrangement: ArrangementItem[]
+}
+
+/** Default values for effect channels (used when a track doesn't have a
+ *  particular effect lane — the channel still needs a value). */
+const EFFECT_DEFAULTS: Record<string, number> = {
+  portamento: 0.5,
+  volumeSlide: 1,
+  panning: 0.5,
+  vibratoRate: 0,
+  vibratoDepth: 0,
+  tremoloRate: 0,
+  tremoloDepth: 0,
+  staccato: 1,
+}
+
+/** Map a lane type to its channel index within a slot's signals array. */
+function laneTypeToChannelIndex(
+  laneType: string,
+  layout: InstrumentSlotLayout,
+): number {
+  if (layout.isDrumkit) {
+    const dkCh = DRUMKIT_CH as Record<string, number>
+    const drumSounds = layout.drumSounds ?? 0
+    if (laneType in dkCh) return drumSounds + dkCh[laneType]
+    const namedIdx = layout.namedInletIds.indexOf(laneType)
+    if (namedIdx >= 0) return drumSounds + DRUMKIT_EXTRA_CHANNELS + namedIdx
+    return -1
+  }
+
+  const regCh = REGULAR_CH as Record<string, number>
+  if (laneType in regCh) return regCh[laneType]
+  const namedIdx = layout.namedInletIds.indexOf(laneType)
+  if (namedIdx >= 0) return 11 + namedIdx
+  return -1
+}
+
+/** Create a VoiceSlotData with all signal arrays initialized to defaults. */
+function createSlotData(
+  instId: Id,
+  slotIndex: number,
+  totalRows: number,
+  layout: InstrumentSlotLayout,
+): VoiceSlotData {
+  const signals: number[][] = new Array(layout.channelsPerSlot)
+
+  if (layout.isDrumkit) {
+    const drumSounds = layout.drumSounds ?? 0
+    for (let d = 0; d < drumSounds; d++) {
+      signals[d] = new Array(totalRows).fill(0)
+    }
+    signals[drumSounds + DRUMKIT_CH.vol] = new Array(totalRows).fill(1)
+    for (const [key, chIdx] of Object.entries(DRUMKIT_CH)) {
+      if (key === 'vol') continue
+      const ch = drumSounds + (chIdx as number)
+      signals[ch] = new Array(totalRows).fill(EFFECT_DEFAULTS[key] ?? 0)
+    }
+    for (let ni = 0; ni < layout.namedInletIds.length; ni++) {
+      signals[drumSounds + DRUMKIT_EXTRA_CHANNELS + ni] = new Array(totalRows).fill(0)
+    }
+  } else {
+    signals[REGULAR_CH.gate] = new Array(totalRows).fill(0)
+    signals[REGULAR_CH.freq] = new Array(totalRows).fill(0)
+    signals[REGULAR_CH.vol] = new Array(totalRows).fill(1)
+    signals[REGULAR_CH.staccato] = new Array(totalRows).fill(1)
+    for (const [key, chIdx] of Object.entries(REGULAR_CH)) {
+      if (key === 'gate' || key === 'freq' || key === 'vol' || key === 'staccato') continue
+      signals[chIdx as number] = new Array(totalRows).fill(EFFECT_DEFAULTS[key] ?? 0)
+    }
+    for (let ni = 0; ni < layout.namedInletIds.length; ni++) {
+      signals[11 + ni] = new Array(totalRows).fill(0)
+    }
+  }
+
+  return { instId, slotIndex, signals, channelOffset: 0, drumGateCount: layout.isDrumkit ? (layout.drumSounds ?? 0) : 0 }
+}
+
+/** Copy track sequence data into a regular-instrument slot's signals arrays
+ *  for a pattern window.
+ *
+ *  Gate/freq/vol/staccato come from buildSequences.  Effect lane values are
+ *  only written for cells that explicitly set them — rows without an explicit
+ *  value keep the slot's default (portamento=0.5, panning=0.5, etc.).  This
+ *  avoids overwriting correct defaults with buildSequences' lane fallback
+ *  which differs (panning falls back to 0). */
+function copyRegularTrackToSlot(
+  slot: VoiceSlotData,
+  layout: InstrumentSlotLayout,
+  track: { effectLanes: { id: Id; type: string }[]; cells: { effectLanes: Record<Id, number | null> }[] },
+  sequences: ReturnType<typeof buildSequences>,
+  startRow: number,
+  patternLength: number,
+): void {
+  const { freqSeq, gateSeq, volumeSeq, staccatoSeq } = sequences
+
+  for (let r = 0; r < patternLength; r++) {
+    const destRow = startRow + r
+    slot.signals[REGULAR_CH.gate][destRow] = gateSeq[r]
+    slot.signals[REGULAR_CH.freq][destRow] = freqSeq[r]
+    slot.signals[REGULAR_CH.vol][destRow] = volumeSeq[r]
+    slot.signals[REGULAR_CH.staccato][destRow] = staccatoSeq[r]
+  }
+
+  // Effect lanes: only copy cells where the user set an explicit value.
+  // The slot was initialised with correct per-effect defaults.
+  for (const lane of track.effectLanes) {
+    const chIdx = laneTypeToChannelIndex(lane.type, layout)
+    if (chIdx < 0 || chIdx >= slot.signals.length) continue
+    for (let r = 0; r < patternLength; r++) {
+      const cellVal = track.cells[r]?.effectLanes[lane.id]
+      if (cellVal !== null && cellVal !== undefined) {
+        slot.signals[chIdx][startRow + r] = cellVal
+      }
+    }
+  }
 }
 
 /** Build the playback data for the given doc and arrangement. */
@@ -41,95 +164,112 @@ export function buildPlaybackData(
   doc: Doc,
   arrangement: readonly ArrangementItem[],
 ): PlaybackData {
-  const trackMap = new Map<Id, TrackPlaybackData>()
+  const layouts = computeSlotLayouts(doc)
   const totalRows = arrangement.reduce(
     (sum, a) => sum + (doc.entities.patterns[a.patternId]?.length ?? 0),
     0,
   )
 
+  const layoutByInst = new Map<Id, InstrumentSlotLayout>()
+  for (const l of layouts) layoutByInst.set(l.instId, l)
+
+  // Create slot data for every instrument slot.
+  const allSlots: VoiceSlotData[] = []
+  for (const layout of layouts) {
+    for (let si = 0; si < layout.slotCount; si++) {
+      const slot = createSlotData(layout.instId, si, totalRows, layout)
+      slot.channelOffset = getSlotChannelOffset(layouts, layout.instId, si)
+      allSlots.push(slot)
+    }
+  }
+
+  // Assign tracks to slots per pattern window.
   for (const item of arrangement) {
     const pattern = doc.entities.patterns[item.patternId]
     if (!pattern) continue
+
+    const nextSlot = new Map<Id, number>()
 
     for (const trackId of pattern.trackIds) {
       const track = doc.entities.tracks[trackId]
       if (!track) continue
       const inst = doc.entities.instruments[track.instrumentId]
       if (!inst) continue
+      const layout = layoutByInst.get(track.instrumentId)
+      if (!layout) continue
 
-      // Build sequences for this track using existing pure functions.
-      const { freqSeq, gateSeq, volumeSeq, staccatoSeq } = buildSequences(track, pattern.length)
+      const slotIdx = nextSlot.get(track.instrumentId) ?? 0
+      nextSlot.set(track.instrumentId, slotIdx + 1)
+      if (slotIdx >= layout.slotCount) continue
 
-      let existing = trackMap.get(trackId)
-      if (!existing) {
-        existing = {
-          trackId,
-          instId: track.instrumentId,
-          gate: [],
-          freq: [],
-          vol: [],
-          staccato: [],
-          channelOffset: 0, // assigned by compileGraph
+      const slot = allSlots.find(
+        (s) => s.instId === layout.instId && s.slotIndex === slotIdx,
+      )
+      if (!slot) continue
+
+      const seq = buildSequences(track, pattern.length)
+
+      if (layout.isDrumkit && inst.kind === 'drumkit') {
+        const { slotGateSeqs } = buildDrumKitSlotSequences(track, pattern.length, inst)
+        const drumSounds = layout.drumSounds ?? 0
+
+        // Copy per-slot drum gates into signals[0..N-1].
+        for (let d = 0; d < drumSounds; d++) {
+          const dkSlot = inst.slots[d]
+          if (!dkSlot) continue
+          const gateSeq = slotGateSeqs[dkSlot.id]
+          if (!gateSeq) continue
+          for (let r = 0; r < pattern.length; r++) {
+            slot.signals[d][item.startRow + r] = gateSeq[r]
+          }
         }
-        trackMap.set(trackId, existing)
-      }
 
-      if (totalRows > pattern.length) {
-        // Multi-pattern arrangement — pad into the full timeline.
-        const oldLen = existing.gate.length
-        // Extend arrays to totalRows (they were already partially filled).
-        existing.gate.length = totalRows
-        existing.freq.length = totalRows
-        existing.vol.length = totalRows
-        existing.staccato.length = totalRows
-        // Fill the gap between old end and current item's window.
-        for (let i = oldLen; i < item.startRow; i++) {
-          existing.gate[i] = 0
-          existing.freq[i] = existing.freq[oldLen - 1] ?? 0
-          existing.vol[i] = 1
-          existing.staccato[i] = 1
+        // Copy vol and staccato.
+        for (let r = 0; r < pattern.length; r++) {
+          const destRow = item.startRow + r
+          const volCh = drumSounds + DRUMKIT_CH.vol
+          if (volCh < slot.signals.length) {
+            slot.signals[volCh][destRow] = seq.volumeSeq[r]
+          }
+          const stacCh = drumSounds + DRUMKIT_CH.staccato
+          if (stacCh < slot.signals.length) {
+            slot.signals[stacCh][destRow] = seq.staccatoSeq[r]
+          }
         }
-        // Copy this pattern's data into its window.
-        for (let i = 0; i < pattern.length; i++) {
-          existing.gate[item.startRow + i] = gateSeq[i]
-          existing.freq[item.startRow + i] = freqSeq[i]
-          existing.vol[item.startRow + i] = volumeSeq[i]
-          existing.staccato[item.startRow + i] = staccatoSeq[i]
+
+        // Map effect lane values — only explicit cell values.
+        for (const lane of track.effectLanes) {
+          const chIdx = laneTypeToChannelIndex(lane.type, layout)
+          if (chIdx < 0 || chIdx >= slot.signals.length) continue
+          for (let r = 0; r < pattern.length; r++) {
+            const cellVal = track.cells[r]?.effectLanes[lane.id]
+            if (cellVal !== null && cellVal !== undefined) {
+              slot.signals[chIdx][item.startRow + r] = cellVal
+            }
+          }
         }
       } else {
-        // Single pattern — just use the sequences directly.
-        existing.gate = gateSeq
-        existing.freq = freqSeq
-        existing.vol = volumeSeq
-        existing.staccato = staccatoSeq
-      }
-
-      // Drumkit: build per-slot gate sequences.
-      if (inst.kind === 'drumkit') {
-        const { slotGateSeqs } = buildDrumKitSlotSequences(
-          track,
-          pattern.length,
-          inst,
-        )
-        if (!existing.slotGates) existing.slotGates = {}
-        if (totalRows > pattern.length) {
-          // Pad each slot's gates into the full timeline.
-          for (const [slotId, seq] of Object.entries(slotGateSeqs)) {
-            const padded = existing.slotGates[slotId] ?? new Array(totalRows).fill(0)
-            for (let i = 0; i < pattern.length; i++) {
-              padded[item.startRow + i] = seq[i]
-            }
-            existing.slotGates[slotId] = padded
-          }
-        } else {
-          Object.assign(existing.slotGates, slotGateSeqs)
-        }
+        copyRegularTrackToSlot(slot, layout, track, seq, item.startRow, pattern.length)
       }
     }
   }
 
+  // Diagnostic: log slot occupancy.
+  if (allSlots.length > 0) {
+    const lines = allSlots.map((s) => {
+      const name = doc.entities.instruments[s.instId]?.name ?? s.instId.slice(0, 8)
+      const activeRow = s.signals[0]?.findIndex((v) => v !== 0)
+      const activeEnd = activeRow != null && activeRow >= 0
+        ? s.signals[0]?.lastIndexOf(1)
+        : undefined
+      return `${name} slot ${s.slotIndex}: ch ${s.channelOffset}, ` +
+        `gate rows ${activeRow ?? 'none'}${activeEnd != null && activeEnd !== activeRow ? `-${activeEnd}` : ''}${s.drumGateCount > 0 ? ` (dk ${s.drumGateCount})` : ''}`
+    })
+    console.log('[playbackData]', lines.join('\n  '), `\n  totalRows: ${totalRows}`)
+  }
+
   return {
-    tracks: [...trackMap.values()],
+    slots: allSlots,
     totalRows,
     arrangement: [...arrangement],
   }

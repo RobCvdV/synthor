@@ -21,8 +21,14 @@ export class AudioHost {
   private renderBusy = false
   private pendingGraph: StereoOut | null = null
 
-  /** The audio-thread scheduler node. Created on first start(). */
-  schedulerNode: SchedulerNode | null = null
+  /** The audio-thread scheduler nodes. One per 32-channel batch.
+   *  Multiple nodes overcome the browser's 32-channel AudioWorkletNode limit. */
+  schedulerNodes: SchedulerNode[] = []
+
+  /** Convenience accessor for the first scheduler node (pattern-mode and legacy). */
+  get schedulerNode(): SchedulerNode | null {
+    return this.schedulerNodes[0] ?? null
+  }
 
   /** Registry of createRef-backed param nodes for zero-recompile value updates. */
   readonly paramRefs = new ParamRefRegistry()
@@ -70,7 +76,7 @@ export class AudioHost {
   panic(): void {
     for (const pool of this.voicePools.values()) pool.panic()
     this.paramRefs.panic()
-    this.schedulerNode?.panic()
+    for (const sch of this.schedulerNodes) sch.panic()
   }
 
   /** Precise AudioContext time captured at the moment the graph was rendered
@@ -120,25 +126,33 @@ export class AudioHost {
       this.paramRefs.attach(this.core)
       setActiveParamRefs(this.paramRefs)
       this.ccBindings.attach(this.paramRefs)
-      // The dist patch reads numberOfInputChannels from processorOptions to tell
-      // the WASM how many input buffers to allocate (matching Web Audio channel count).
-      const MAX_CONTROL_CHANNELS = 32
+      // Multiple scheduler nodes to overcome the browser's 32-channel
+      // AudioWorkletNode limit.  Each handles up to 32 control channels;
+      // Elementary reads from all inputs as one flat channel space.
+      const CHANNELS_PER_NODE = 32
+      const NUM_SCHEDULER_NODES = 4
+      const TOTAL_CONTROL_CHANNELS = CHANNELS_PER_NODE * NUM_SCHEDULER_NODES
 
-      console.log('[host] creating SchedulerNode...')
-      const sch = await SchedulerNode.create(this.ctx, MAX_CONTROL_CHANNELS)
-      this.schedulerNode = sch
+      console.log('[host] creating', NUM_SCHEDULER_NODES, 'SchedulerNodes (', TOTAL_CONTROL_CHANNELS, 'total channels)...')
+      const schNodes: SchedulerNode[] = []
+      for (let i = 0; i < NUM_SCHEDULER_NODES; i++) {
+        schNodes.push(await SchedulerNode.create(this.ctx, CHANNELS_PER_NODE))
+      }
+      this.schedulerNodes = schNodes
 
       const node = await this.core.initialize(this.ctx, {
-        numberOfInputs: 1,
+        numberOfInputs: NUM_SCHEDULER_NODES,
         numberOfOutputs: 1,
         outputChannelCount: [2],
         processorOptions: {
-          numberOfInputChannels: MAX_CONTROL_CHANNELS,
+          numberOfInputChannels: TOTAL_CONTROL_CHANNELS,
         },
       })
 
-      // Route scheduler control signals → Elementary audio inputs.
-      sch.connect(node)
+      // Route each scheduler to its own Elementary input port.
+      for (let i = 0; i < NUM_SCHEDULER_NODES; i++) {
+        schNodes[i].connect(node, 0, i)
+      }
 
       this.analyser = this.ctx.createAnalyser()
       node.connect(this.analyser)
@@ -172,6 +186,7 @@ export class AudioHost {
     const finish = () => {
       this.renderBusy = false
       this.paramRefs.flushPending()
+      console.log('[host] render complete')
       // Render the next queued graph, even if the current one failed.
       const next = this.pendingGraph
       this.pendingGraph = null
@@ -184,7 +199,7 @@ export class AudioHost {
           el.mul(stereo.left, el.const({ key: 'ch:l', value: 1 })),
           el.mul(stereo.right, el.const({ key: 'ch:r', value: 1 })),
         ).then(finish).catch((err: unknown) => {
-          console.error('Elementary render error:', err)
+          console.error('[host] Elementary render error:', err)
           if (err && typeof err === 'object') {
             const e = err as Record<string, unknown>
             console.error('  message:', e.message)
@@ -195,7 +210,7 @@ export class AudioHost {
           finish() // don't discard pendingGraph on error
         })
       } catch (syncErr: unknown) {
-        console.error('Elementary render sync error:', syncErr)
+        console.error('[host] Elementary render sync error:', syncErr)
         finish() // don't discard pendingGraph on sync error
       }
     }

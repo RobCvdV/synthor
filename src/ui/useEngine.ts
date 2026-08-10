@@ -4,6 +4,7 @@ import { compileGraph } from '../engine/compile'
 import { buildArrangement } from '../engine/arrangement'
 import { buildPlaybackData } from '../player/playbackData'
 import { syncSamplesToVfs } from '../audio/vfsLoader'
+import { computeSlotLayouts } from '../engine/voiceSlotLayout'
 import { useDocStore } from '../state/docStore'
 import { useMidiStore } from '../state/midiStore'
 import { useProjectStore } from '../state/projectStore'
@@ -21,50 +22,41 @@ import type { Id } from '../domain/types'
  * The graph is only recompiled for structural edits (instrument changes,
  * track add/remove, effect structure, sample changes).
  *
- * Renders are coalesced to one per animation frame. A slider drag fires dozens
- * of mutations per second; coalescing caps it at ~60/s with only the latest
- * state — a single graph edit is instant, so one render per frame keeps audio
- * smooth.
+ * Voice slots are pre-allocated per instrument based on max concurrent tracks
+ * in any single pattern. Tracks from non-overlapping patterns share slots.
+ * Renders are coalesced to one per animation frame.
  */
 export function useEngine(): AudioHost {
   const hostRef = useRef<AudioHost | null>(null)
   if (hostRef.current === null) hostRef.current = new AudioHost()
   const host = hostRef.current
 
-  // Dev-only handles for debugging / audio verification from the console.
+  // Dev-only handles for debugging.
   if (import.meta.env.DEV) {
     const g = globalThis as Record<string, unknown>
     g.__host = host
     g.__docStore = useDocStore
     g.__transportStore = useTransportStore
     g.__midiStore = useMidiStore
-    // Expose el for console testing
     import('@elemaudio/core').then((m) => { g.__el = m.el })
   }
 
-  // Track pending VFS sync so we don't render graphs referencing unloaded samples.
   const vfsSyncRef = useRef<Promise<void> | null>(null)
   const lastVfsKeysRef = useRef('')
   const vfsLoadedRef = useRef<Set<string>>(new Set())
 
-  // Structural key for detecting edits that require a recompile (vs note edits
-  // that only update the scheduler).
   const lastStructuralKeyRef = useRef('')
-  // Track the last play session to distinguish play vs update.
   const lastEpochRef = useRef(0)
 
   useEffect(() => {
     let frame = 0
 
-    /** Compute a structural hash over parts of the doc that require a recompile
-     *  when changed (instrument entities, track→instrument bindings, pattern
-     *  trackIds, mix channels, effect definitions, sample hashes).
-     *  Every value that compileGraph reads to build graph nodes MUST appear here
-     *  — a missing field means a "silent" edit that never takes effect. */
+    /** Compute a structural hash over parts of the doc that require a recompile. */
     function structuralKey(): string {
       const { doc } = useDocStore.getState()
       const parts: string[] = []
-      // Instruments — any change that alters the signal chain needs a recompile.
+
+      // Instruments — any change that alters the signal chain.
       for (const [id, inst] of Object.entries(doc.entities.instruments)) {
         const chan = `ch${inst.channelId}:pan${inst.pan}`
         if (inst.kind === 'osc') {
@@ -75,12 +67,9 @@ export function useEngine(): AudioHost {
           ).join(',')
           parts.push(`dk:${id}:${chan}:${slots}`)
         } else if (inst.kind === 'modular') {
-          // Module types + output routing determine the signal chain.
-          // Params are ref-based so they don't appear here.
           const mods = Object.keys(inst.modules).sort().map((mid) =>
             `${mid}:${inst.modules[mid].type}`,
           ).join(',')
-          // Connections (cords) define the signal flow between modules.
           const conns = Object.values(inst.connections)
             .sort((a, b) => a.id.localeCompare(b.id))
             .map((c) => `${c.from.moduleId}:${c.from.port}->${c.to.moduleId}:${c.to.port}:${c.gain}`)
@@ -88,27 +77,40 @@ export function useEngine(): AudioHost {
           parts.push(`mod:${id}:${chan}:mods[${mods}]:conns[${conns}]:out${inst.outputId}`)
         }
       }
-      // Track→instrument bindings
+
+      // Track→instrument bindings + effect lane identity.
       for (const [id, t] of Object.entries(doc.entities.tracks)) {
-        parts.push(`track:${id}->${t.instrumentId}`)
+        const laneDefs = t.effectLanes.map((l) => `${l.id}:${l.type}`).join(',')
+        parts.push(`track:${id}->${t.instrumentId}:fx[${laneDefs}]`)
       }
-      // Pattern→trackIds ordering
+
+      // Pattern→trackIds ordering.
       for (const [id, p] of Object.entries(doc.entities.patterns)) {
         parts.push(`pat:${id}:${p.trackIds.join(',')}`)
       }
-      // Mix channels — kind + effect identity chain.
+
+      // Mix channels.
       for (const [id, c] of Object.entries(doc.entities.mixChannels)) {
         const fx = c.effects.map((e) => `${e.type}:${e.id}`).join(',')
         parts.push(`chan:${id}:${c.kind}:${fx}`)
       }
-      // Sample hashes
+
+      // Samples.
       for (const s of Object.values(doc.entities.samples)) {
         parts.push(`samp:${s.hash}`)
       }
-      // Sections
+
+      // Sections.
       for (const [id, sec] of Object.entries(doc.entities.sections)) {
         parts.push(`sec:${id}:${sec.patternIds.join(',')}`)
       }
+
+      // Instrument slot layouts — captures named inlet changes and slot counts.
+      const slotLayouts = computeSlotLayouts(doc)
+      for (const l of slotLayouts) {
+        parts.push(`slots:${l.instId}:${l.slotCount}:${l.channelsPerSlot}:in[${l.namedInletIds.join(',')}]`)
+      }
+
       return parts.join('|')
     }
 
@@ -117,8 +119,6 @@ export function useEngine(): AudioHost {
       if (!host.isReady) return
 
       const { doc, mutedTracks, soloedTracks } = useDocStore.getState()
-      // Compute effective mute: when any track is soloed, only soloed tracks
-      // are audible; mute state is ignored for soloed tracks.
       const hasSolo = Object.values(soloedTracks).some(Boolean)
       const effectiveMute = hasSolo
         ? Object.fromEntries(
@@ -127,7 +127,7 @@ export function useEngine(): AudioHost {
         : mutedTracks
       const slug = useProjectStore.getState().slug
 
-      // If samples changed, start loading them into VFS.
+      // Sync samples to VFS.
       const samples = Object.values(doc.entities.samples)
       const keys = samples.map((s) => s.hash).sort().join(',')
       if (keys !== lastVfsKeysRef.current) {
@@ -143,49 +143,20 @@ export function useEngine(): AudioHost {
         const { bpm, linesPerBeat, playing, startRow, playEpoch } = useTransportStore.getState()
         const playMode = useAppStore.getState().playMode
 
-        // Build the flattened arrangement.
         const arrangement = playMode !== 'pattern'
           ? buildArrangement(doc, playMode)
           : undefined
         const effectiveArrangement = arrangement && arrangement.length > 1 ? arrangement : undefined
 
-        // Build playback data first (pure, cheap — no compile needed).
         const arr = effectiveArrangement ?? [{ patternId: doc.patternId, startRow: 0 }]
         const playbackData = buildPlaybackData(doc, arr)
 
-        // Track → scheduler channel mapping.
-        const trackChannels = new Map<Id, { offset: number; count: number; instId: Id }>()
-
-        // Only recompile if the structural key changed (instruments, tracks,
-        // effects, samples). Note-only edits skip the compile entirely.
         const currentKey = structuralKey()
         const needRecompile = currentKey !== lastStructuralKeyRef.current
         if (needRecompile) {
           console.log('[useEngine] structural change — recompiling')
           lastStructuralKeyRef.current = currentKey
 
-          // Assign channel offsets before compile so they match el.in nodes.
-          let chOffset = 0
-          const seen = new Set<Id>()
-          for (const item of arr) {
-            const pat = doc.entities.patterns[item.patternId]
-            if (!pat) continue
-            for (const tid of pat.trackIds) {
-              if (seen.has(tid)) continue
-              seen.add(tid)
-              const t = doc.entities.tracks[tid]
-              const i = t && doc.entities.instruments[t.instrumentId]
-              if (!i) continue
-              const count = i.kind === 'drumkit' ? i.slots.length + 1 : 3
-              trackChannels.set(tid, { offset: chOffset, count, instId: i.id })
-              chOffset += count
-            }
-          }
-
-          // Clear stale refs from the previous graph so getOrCreate
-          // produces fresh createRef nodes for the new graph. Old refs
-          // whose setters point to destroyed audio-thread nodes cause
-          // silence after recompile.
           host.paramRefs.clear()
 
           const stereo = compileGraph(doc, {
@@ -199,51 +170,57 @@ export function useEngine(): AudioHost {
             paramRefs: host.paramRefs,
             ccBindings: host.ccBindings,
             arrangement: effectiveArrangement,
-            trackChannels,
           })
           host.render(stereo)
-        } else {
-          // No structural change — reuse last channel layout from the doc.
-          // We rebuild channel offsets here to align playbackData.
-          let chOffset = 0
-          const seen = new Set<Id>()
-          for (const item of arr) {
-            const pat = doc.entities.patterns[item.patternId]
-            if (!pat) continue
-            for (const tid of pat.trackIds) {
-              if (seen.has(tid)) continue
-              seen.add(tid)
-              const t = doc.entities.tracks[tid]
-              const i = t && doc.entities.instruments[t.instrumentId]
-              if (!i) continue
-              const count = i.kind === 'drumkit' ? i.slots.length + 1 : 3
-              trackChannels.set(tid, { offset: chOffset, count, instId: i.id })
-              chOffset += count
-            }
-          }
         }
 
-        // Align channel offsets in playbackData.
-        for (const t of playbackData.tracks) {
-          const ch = trackChannels.get(t.trackId)
-          if (ch) t.channelOffset = ch.offset
+        // Split slots into batches, one per scheduler node (32 channels each).
+        const CHANNELS_PER_NODE = 32
+        const batchedSlots = new Map<number, typeof playbackData.slots>()
+        for (const slot of playbackData.slots) {
+          const nodeIdx = Math.floor(slot.channelOffset / CHANNELS_PER_NODE)
+          if (!batchedSlots.has(nodeIdx)) batchedSlots.set(nodeIdx, [])
+          batchedSlots.get(nodeIdx)!.push({
+            ...slot,
+            channelOffset: slot.channelOffset - nodeIdx * CHANNELS_PER_NODE,
+          })
         }
 
-        // If playing, send data to the scheduler.
+        if (playbackData.slots.length > 0) {
+          const batchInfo = [...batchedSlots.entries()].map(
+            ([ni, slots]) => {
+              const names = slots.map((s) => {
+                const name = doc.entities.instruments[s.instId]?.name ?? s.instId.slice(0, 8)
+                return `${name}/${s.slotIndex}`
+              }).join(', ')
+              return `  Scheduler ${ni}: ${slots.length} slots, ch 0-${slots.reduce((m, s) => Math.max(m, s.channelOffset + s.signals.length), 0) - 1} (${names})`
+            },
+          )
+          console.log('[useEngine] batching:\n' + batchInfo.join('\n'))
+        }
+
+        // Send data to schedulers.
         const transport = useTransportStore.getState()
-        if (transport.playing && host.schedulerNode) {
+        const schNodes = host.schedulerNodes
+        if (transport.playing && schNodes.length > 0) {
           if (transport.playEpoch !== lastEpochRef.current) {
             console.log('[useEngine] new play session playEpoch=', transport.playEpoch)
             lastEpochRef.current = transport.playEpoch
             host.paramRefs.setValue('transport:playing', 1)
-            host.schedulerNode.play(
-              playbackData,
-              transport.bpm,
-              transport.linesPerBeat,
-              transport.startRow,
-            )
+            for (const [nodeIdx, sch] of schNodes.entries()) {
+              const batch = batchedSlots.get(nodeIdx) ?? []
+              sch.play(
+                { slots: batch, totalRows: playbackData.totalRows, arrangement: playbackData.arrangement },
+                transport.bpm,
+                transport.linesPerBeat,
+                transport.startRow,
+              )
+            }
           } else {
-            host.schedulerNode.update(playbackData)
+            for (const [nodeIdx, sch] of schNodes.entries()) {
+              const batch = batchedSlots.get(nodeIdx) ?? []
+              sch.update({ slots: batch, totalRows: playbackData.totalRows, arrangement: playbackData.arrangement })
+            }
           }
         } else if (!transport.playing) {
           lastEpochRef.current = 0
@@ -258,7 +235,6 @@ export function useEngine(): AudioHost {
       }
     }
 
-    // Coalesce bursts of store mutations into a single render on the next frame.
     const schedule = () => {
       if (frame === 0) frame = requestAnimationFrame(render)
     }
@@ -267,13 +243,7 @@ export function useEngine(): AudioHost {
     const unsubDoc = useDocStore.subscribe((state, prev) => {
       if (state.silentBatch) return
       if (state.doc === prev.doc) return
-      // App.tsx sets skipNextRecompile before changing doc.patternId during
-      // section/song playback — the pattern change is purely for UI.
       if (host.skipNextRecompile) { host.skipNextRecompile = false; return }
-
-      // Always schedule a render — recompile only if structuralKey changed,
-      // but the scheduler always needs fresh playback data for note edits,
-      // hold signs, staccato values, etc.
       schedule()
     })
 
@@ -281,53 +251,53 @@ export function useEngine(): AudioHost {
     const unsubTransport = useTransportStore.subscribe((state, prev) => {
       if (state === prev) return
 
-      // Play: send data to the scheduler worklet (NO recompile — graph
-      // already has el.in nodes and voice slots).
       if (state.playing && !prev.playing) {
-        schedule() // calls render() which builds playbackData and calls schedulerNode.play()
+        schedule()
         return
       }
 
-      // Stop: gate off + stop scheduler.
       if (!state.playing && prev.playing) {
         host.paramRefs.setValue('transport:playing', 0)
-        host.schedulerNode?.stop()
+        for (const sch of host.schedulerNodes) sch.stop()
         lastEpochRef.current = 0
         return
       }
 
-      // BPM change while playing: update scheduler tempo only.
-      if (state.playing && state.bpm !== prev.bpm && host.schedulerNode) {
-        host.schedulerNode.setTempo(state.bpm, state.linesPerBeat)
+      if (state.playing && state.bpm !== prev.bpm && host.schedulerNodes.length > 0) {
+        for (const sch of host.schedulerNodes) sch.setTempo(state.bpm, state.linesPerBeat)
       }
     })
 
     // ── mute/solo subscription ─────────────────────────────────────────
-    // Mute is a ref write, not a recompile. When mute or solo state changes
-    // we only update the track:xxx:mute refs in the running graph.
     const unsubMute = useDocStore.subscribe((state, prev) => {
       if (state.mutedTracks === prev.mutedTracks && state.soloedTracks === prev.soloedTracks) return
       const { doc, mutedTracks, soloedTracks } = state
       const hasSolo = Object.values(soloedTracks).some(Boolean)
       const pattern = doc.entities.patterns[doc.patternId]
       if (!pattern) return
+
+      // Map tracks to slots for the current pattern (same logic as buildPlaybackData).
+      const nextSlot = new Map<Id, number>()
       for (const tid of pattern.trackIds) {
+        const track = doc.entities.tracks[tid]
+        if (!track) continue
+        const si = nextSlot.get(track.instrumentId) ?? 0
+        nextSlot.set(track.instrumentId, si + 1)
         const muted = hasSolo ? !soloedTracks[tid] : !!mutedTracks[tid]
-        host.paramRefs.setValue(`track:${tid}:mute`, muted ? 0 : 1)
+        const refKey = `tracker:${track.instrumentId}:ts:${si}:mute`
+        host.paramRefs.setValue(refKey, muted ? 0 : 1)
       }
     })
 
     host.onReady = () => {
-      // Wire scheduler row events → transportStore for UI playhead.
-      if (host.schedulerNode) {
-        host.schedulerNode.onRow = (row) => {
+      const sch0 = host.schedulerNodes[0]
+      if (sch0) {
+        sch0.onRow = (row) => {
           useTransportStore.getState().setCurrentRow(row)
         }
       }
       schedule()
     }
-    // Voice pools write directly to refs (no recompile needed — all voice
-    // slots are compiled once in compileAllVoiceSlots).
 
     return () => {
       host.onReady = null

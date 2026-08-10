@@ -272,14 +272,14 @@ describe('buildSequences', () => {
     expect(seq.gateSeq[3]).toBe(1) // hold
   })
 
-  it('wrap stops at a hold sign', () => {
+  it('wrap continues through hold signs at pattern start', () => {
     const track = makeTrack(4)
     setNote(track, 2, 60)
     setHold(track, 3)
-    setHold(track, 0) // hold at position 0 breaks the wrap
+    setHold(track, 0) // hold at start should extend the wrapped note
     const seq = buildSequences(track, 4)
-    expect(seq.gateSeq[0]).toBe(0) // hold without prior note — no-op
-    expect(seq.gateSeq[1]).toBe(0)
+    expect(seq.gateSeq[0]).toBe(1) // wrapped from end, through hold
+    expect(seq.gateSeq[1]).toBe(1) // wrapped
     expect(seq.gateSeq[2]).toBe(1) // note 60
     expect(seq.gateSeq[3]).toBe(1) // hold
   })
@@ -320,5 +320,46 @@ describe('buildSequences', () => {
     expect(seq.gateSeq[0]).toBe(1) // note
     expect(seq.gateSeq[1]).toBe(0) // release
     expect(seq.staccatoSeq[0]).toBe(1) // default staccato
+  })
+
+  // ── effect lane output ──────────────────────────────────────────
+  it('effectLanes includes all defined lanes with correct fallbacks', () => {
+    const lanes = [
+      { id: 'lan_vr', type: 'vibratoRate' },
+      { id: 'lan_vd', type: 'vibratoDepth' },
+      { id: 'lan_porta', type: 'portamento' },
+      { id: 'lan_vol', type: 'volumeSlide' },
+      { id: 'lan_pan', type: 'panning' },
+    ]
+    const track = makeTrack(4, lanes)
+    const seq = buildSequences(track, 4)
+    // vibrato/tremolo/pan default to 0
+    expect(seq.effectLanes['lan_vr'][0]).toBe(0)
+    expect(seq.effectLanes['lan_vd'][0]).toBe(0)
+    // portamento defaults to 0.5 (center)
+    expect(seq.effectLanes['lan_porta'][0]).toBe(0.5)
+    // volumeSlide defaults to 1 (passthrough)
+    expect(seq.effectLanes['lan_vol'][0]).toBe(1)
+    // panning defaults to 0
+    expect(seq.effectLanes['lan_pan'][0]).toBe(0)
+  })
+
+  it('effectLanes reads per-cell values', () => {
+    const lanes = [{ id: 'lan_vd', type: 'vibratoDepth' }]
+    const track = makeTrack(4, lanes)
+    track.cells[0].effectLanes['lan_vd'] = 0.25
+    track.cells[2].effectLanes['lan_vd'] = 0.75
+    const seq = buildSequences(track, 4)
+    expect(seq.effectLanes['lan_vd']).toEqual([0.25, 0, 0.75, 0])
+  })
+
+  it('laneDefs are passed through from the track', () => {
+    const lanes = [
+      { id: 'lan_a', type: 'vibratoDepth' },
+      { id: 'lan_b', type: 'customInlet' },
+    ]
+    const track = makeTrack(4, lanes)
+    const seq = buildSequences(track, 4)
+    expect(seq.laneDefs).toEqual(lanes)
   })
 })

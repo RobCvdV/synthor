@@ -34,6 +34,13 @@ interface TrackSnapshot {
   effectLanes: EffectLaneDef[]
 }
 
+interface RectClipboard {
+  cells: Cell[][]
+  /** Effect lane definitions per source track column, so pasting into
+   *  a different track/pattern auto-creates matching lanes. */
+  trackLanes: EffectLaneDef[][]
+}
+
 interface DocState {
   doc: Doc
   past: HistoryEntry[]
@@ -41,7 +48,7 @@ interface DocState {
   /** Non-undoable scratch space for track copy/paste. */
   trackClipboard: TrackSnapshot | null
   /** Non-undoable scratch space for rectangular cell copy/paste. */
-  rectClipboard: Cell[][] | null
+  rectClipboard: RectClipboard | null
   /** Non-undoable performance state: which tracks are muted (keyed by id). */
   mutedTracks: Record<Id, boolean>
   /** Non-undoable performance state: which tracks are soloed (keyed by id). */
@@ -421,6 +428,7 @@ export const useDocStore = create<DocState>((set, get) => ({
     const r0 = Math.max(0, Math.min(startRow, endRow))
     const r1 = Math.min(doc.entities.patterns[doc.patternId].length - 1, Math.max(startRow, endRow))
     const cells: Cell[][] = []
+    const trackLanes: EffectLaneDef[][] = []
     for (let ti = t0; ti <= t1; ti++) {
       const track = doc.entities.tracks[trackIds[ti]]
       const col: Cell[] = []
@@ -429,8 +437,9 @@ export const useDocStore = create<DocState>((set, get) => ({
         col.push(c ? { note: c.note, volume: c.volume, noteOff: c.noteOff, hold: c.hold ?? false, effectLanes: { ...c.effectLanes } } : { note: null, volume: null, noteOff: false, hold: false, effectLanes: {} })
       }
       cells.push(col)
+      trackLanes.push(track ? [...track.effectLanes] : [])
     }
-    set({ rectClipboard: cells })
+    set({ rectClipboard: { cells, trackLanes } })
   },
 
   cutRect: (trackIds, startRow, endRow, startTrack, endTrack) => {
@@ -455,15 +464,25 @@ export const useDocStore = create<DocState>((set, get) => ({
 
   pasteRect: (trackIds, atRow, atTrack) => {
     const clip = get().rectClipboard
-    if (!clip || clip.length === 0) return
+    if (!clip || clip.cells.length === 0) return
     get().mutate((draft) => {
       const pattern = draft.entities.patterns[draft.patternId]
-      for (let ti = 0; ti < clip.length; ti++) {
+      for (let ti = 0; ti < clip.cells.length; ti++) {
         const targetIdx = atTrack + ti
         if (targetIdx < 0 || targetIdx >= trackIds.length) continue
         const track = draft.entities.tracks[trackIds[targetIdx]]
         if (!track) continue
-        const col = clip[ti]
+        const col = clip.cells[ti]
+
+        // Auto-create any effect lanes referenced by the pasted cells
+        // that don't exist on the target track yet.
+        const srcLanes = clip.trackLanes[ti] ?? []
+        for (const srcLane of srcLanes) {
+          if (!track.effectLanes.some((l) => l.id === srcLane.id)) {
+            track.effectLanes.push({ ...srcLane })
+          }
+        }
+
         for (let ri = 0; ri < col.length; ri++) {
           const targetRow = atRow + ri
           if (targetRow < 0 || targetRow >= pattern.length) continue

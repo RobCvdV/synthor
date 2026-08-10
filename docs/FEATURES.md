@@ -8,55 +8,6 @@
 
 ## Tier 1 — High impact, low effort
 
-### Effect columns (the defining tracker feature)
-
-Add one (or two) per-row effect columns to `Cell`. Effects are 3-character
-commands: a type byte + two hex digits for the operand (classic `.xx` / `xy`
-format). The engine compiles effect sequences alongside gate/freq/vol and
-applies them at the instrument level.
-
-Start with these 8 effect types:
-
-| Code | Name | What it does |
-|------|------|-------------|
-| `0xy` | Arpeggio | Cycle base note, base+x, base+y each tick — chords on one track |
-| `1xx` | Portamento up | Slide pitch up at speed xx per tick |
-| `2xx` | Portamento down | Slide pitch down at speed xx per tick |
-| `4xy` | Vibrato | Oscillating pitch — speed x, depth y |
-| `7xy` | Tremolo | Oscillating volume — speed x, depth y |
-| `8xx` | Set panning | Per-row stereo position (00=left, 80=center, FF=right) |
-| `Axy` | Volume slide | Fade volume up/down smoothly across a sustained note |
-| `Dxx` | Pattern break | Jump to row xx of the next pattern in the section |
-
-**Prerequisites:** `Cell` gets `effect: number | null` + `effectValue: number | null`.
-**Classic lineage:** Every tracker since Ultimate Soundtracker (1987).
-
----
-
-### Sustained notes (real gates across rows)
-
-Replace the current one-row-staccato gate with sustained gates: a note holds
-across empty rows until the next note or an explicit note-off. The `noteOff`
-toggle already works in the UI; `buildSequences` just needs to propagate gate=1
-forward and only drop to 0 on note-off or a new retrigger.
-
-**Prerequisites:** None — the data model already has `noteOff`.
-**Classic lineage:** ProTracker, FastTracker 2, Impulse Tracker.
-
----
-
-### Pattern duplication
-
-Deep-clone a pattern (name + length + all tracks + cells) with one action.
-`Ctrl+Shift+D` or a right-click / button. The store already has `cloneInstrument`;
-the same pattern applied to a full pattern with tracks.
-
-**Prerequisites:** None.
-**Classic lineage:** All trackers have this; essential for building song
-arrangements from variations of a base pattern.
-
----
-
 ### Solo per track
 
 Complement to mute. `Shift+F1..F12` solos a track (mutes all others). A second
@@ -64,16 +15,6 @@ press restores the previous mute state. Or: shift+click a mute indicator.
 
 **Prerequisites:** None — `mutedTracks` in docStore, just needs toggle logic.
 **Classic lineage:** FastTracker 2, Renoise.
-
----
-
-### Tap tempo
-
-Click the BPM display in the toolbar at the desired tempo. Average the last N
-taps for stability. Pure UI addition — no engine changes.
-
-**Prerequisites:** None.
-**Classic lineage:** Impulse Tracker, modern DAWs.
 
 ---
 
@@ -111,17 +52,6 @@ source" toggle).
 
 **Prerequisites:** None — purely a UI scroll behavior.
 **Classic lineage:** FastTracker 2, Renoise, most tracker-inspired DAWs.
-
----
-
-### Jump to pattern positions
-
-Quick navigation: jump to row 0, ¼, ½, ¾ of the pattern. Key combos like
-`Ctrl+Home` for top, `Ctrl+End` for bottom, `Ctrl+1/2/3/4` for quarter marks.
-Listed in the vision as a desired navigation feature.
-
-**Prerequisites:** None.
-**Classic lineage:** Impulse Tracker (Ctrl+Home/End for pattern boundaries).
 
 ---
 

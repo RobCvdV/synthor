@@ -476,6 +476,8 @@ function ArrangeTab({ doc }: { doc: Doc }) {
               >
                 {section.patternIds.map((patId, pi) => {
                   const pat = doc.entities.patterns[patId]
+                  // console.log('[render] section',secId,', patId', patId, 'pi', pi, 'pat', pat)
+
                   if (!pat) return null
                   const isCurrent = patId === doc.patternId
                   const isPatEditing = editingPattern === patId
@@ -483,7 +485,7 @@ function ArrangeTab({ doc }: { doc: Doc }) {
                   const lineBelow = patLine?.secId === secId && patLine?.idx === pi && patLine?.edge === 'below'
 
                   return (
-                    <li key={`${secId}-${patId}`}>
+                    <li key={`${secId}-${patId}-${pi}`}>
                       {lineAbove && <div className="arrange-drop-line" />}
                       <div
                         className={'arrange-pattern-item' + (isCurrent ? ' current' : '')}

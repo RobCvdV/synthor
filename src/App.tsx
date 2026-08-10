@@ -487,7 +487,7 @@ export default function App() {
       if (e.metaKey && !e.ctrlKey && !e.altKey) {
         switch (e.code) {
           case 'KeyC': e.preventDefault(); { const s = selectionRef.current; if (s) copyRect(ids, s.startRow, s.endRow, s.startTrack, s.endTrack); else if (trackId) copyTrack(trackId) } return
-          case 'KeyV': e.preventDefault(); { const rc = useDocStore.getState().rectClipboard; if (rc) pasteRect(ids, cur.row, cur.track); else { pasteTrack(cur.track + 1); setCursor((c) => ({ ...c, track: Math.min(liveTrackCount() - 1, cur.track + 1) })) } } return
+          case 'KeyV': e.preventDefault(); { const rc = useDocStore.getState().rectClipboard; if (rc) { const s = selectionRef.current; const pr = s ? s.startRow : cur.row; const pt = s ? s.startTrack : cur.track; pasteRect(ids, pr, pt) } else { pasteTrack(cur.track + 1); setCursor((c) => ({ ...c, track: Math.min(liveTrackCount() - 1, cur.track + 1) })) } } return
           case 'KeyX': e.preventDefault(); { const s = selectionRef.current; if (s) { cutRect(ids, s.startRow, s.endRow, s.startTrack, s.endTrack); setSelection(null) } else if (trackId) { copyTrack(trackId); removeTrack(trackId); setCursor((c) => ({ ...c, track: Math.max(0, Math.min(c.track, liveTrackCount() - 1)) })) } } return
           case 'KeyD': e.preventDefault(); if (trackId) { duplicateTrack(trackId, cur.track + 1); setCursor((c) => ({ ...c, track: Math.min(liveTrackCount() - 1, cur.track + 1) })) } return
           case 'ArrowUp':   e.preventDefault(); clearEntry(); setCursor(snapStep(8, -1)); return
@@ -517,7 +517,7 @@ export default function App() {
       if (e.ctrlKey && !e.metaKey && !e.altKey) {
         switch (e.code) {
           case 'KeyC': e.preventDefault(); { const s = selectionRef.current; if (s) copyRect(ids, s.startRow, s.endRow, s.startTrack, s.endTrack); else if (trackId) copyTrack(trackId) } return
-          case 'KeyV': e.preventDefault(); { const rc = useDocStore.getState().rectClipboard; if (rc) pasteRect(ids, cur.row, cur.track); else { pasteTrack(cur.track + 1); setCursor((c) => ({ ...c, track: Math.min(liveTrackCount() - 1, cur.track + 1) })) } } return
+          case 'KeyV': e.preventDefault(); { const rc = useDocStore.getState().rectClipboard; if (rc) { const s = selectionRef.current; const pr = s ? s.startRow : cur.row; const pt = s ? s.startTrack : cur.track; pasteRect(ids, pr, pt) } else { pasteTrack(cur.track + 1); setCursor((c) => ({ ...c, track: Math.min(liveTrackCount() - 1, cur.track + 1) })) } } return
           case 'KeyX': e.preventDefault(); { const s = selectionRef.current; if (s) { cutRect(ids, s.startRow, s.endRow, s.startTrack, s.endTrack); setSelection(null) } else if (trackId) { copyTrack(trackId); removeTrack(trackId); setCursor((c) => ({ ...c, track: Math.max(0, Math.min(c.track, liveTrackCount() - 1)) })) } } return
           case 'KeyD': e.preventDefault(); if (trackId) { duplicateTrack(trackId, cur.track + 1); setCursor((c) => ({ ...c, track: Math.min(liveTrackCount() - 1, cur.track + 1) })) } return
           case 'Backspace': e.preventDefault(); if (trackId) { removeTrack(trackId); setCursor((c) => ({ ...c, track: Math.max(0, Math.min(c.track, liveTrackCount() - 1)) })) } return

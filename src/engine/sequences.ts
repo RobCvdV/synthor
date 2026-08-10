@@ -173,13 +173,24 @@ export function buildSequences(track: Track, length: number): TrackSequences {
     // No sustain after the hold chain — gate drops to 0 naturally.
   }
 
+  // Carry frequency forward through release rows so that key-tracked
+  // filters and other freq-dependent modules don't see freq=0 during the
+  // release phase.  This matches keyboard noteOff behavior, where only
+  // the gate drops — the frequency stays at the played note's pitch.
+  let lastFreq = 0
+  for (let row = 0; row < length; row++) {
+    if (freqSeq[row] > 0) lastFreq = freqSeq[row]
+    else freqSeq[row] = lastFreq
+  }
+
   // Wrap-around sustain: if the last row is gate=1, carry it forward
   // to the start so the note sustains across the pattern loop boundary.
-  // Stop at the first new note or hold/noteOff (they break the wrap).
+  // Only a new note or legacy noteOff breaks the wrap — hold signs at the
+  // pattern start ARE the continuation (they extend the wrapped note).
   if (gateSeq[length - 1] === 1) {
     for (let row = 0; row < length; row++) {
       const cell = track.cells[row]
-      if (cell?.note != null || cell?.noteOff || cell?.hold) break
+      if (cell?.note != null || cell?.noteOff) break
       gateSeq[row] = 1
       freqSeq[row] = freqSeq[length - 1]
     }
