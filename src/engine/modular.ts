@@ -212,7 +212,8 @@ export function compileModular(
             ),
           ),
         )
-        return el.mul(oscOut, gain)
+        // DC-block to prevent offset from polyBLEP oscillators (especially triangle)
+        return el.mul(el.dcblock(oscOut), gain)
       }
 
       case 'filter': {
