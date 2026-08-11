@@ -153,10 +153,10 @@ interface DocState {
   // --- Drum kit operations ---
   addDrumKitSlot: (instrumentId: Id, note: number, sampleId?: Id, slotInstrumentId?: Id) => void
   removeDrumKitSlot: (instrumentId: Id, slotId: Id) => void
-  setDrumKitSlotParam: (instrumentId: Id, slotId: Id, key: 'note' | 'pitchOffset' | 'gain' | 'pan', value: number) => void
+  setDrumKitSlotParam: (instrumentId: Id, slotId: Id, key: 'note' | 'baseNote' | 'volume' | 'pan', value: number) => void
   /** Set a param on the slot at the given note. If the slot is inherited,
    *  promotes it (copies parent source) and sets the param in one undo step. */
-  setOrPromoteSlotParam: (instrumentId: Id, note: number, key: 'pitchOffset' | 'gain' | 'pan', value: number) => void
+  setOrPromoteSlotParam: (instrumentId: Id, note: number, key: 'baseNote' | 'volume' | 'pan', value: number) => void
   setDrumKitSlotSource: (instrumentId: Id, slotId: Id, sampleId: Id | null, slotInstrumentId: Id | null) => void
   setDrumKitParam: (instrumentId: Id, key: string, value: number) => void
   setDrumKitParamFast: (instrumentId: Id, key: string, value: number) => void
@@ -765,8 +765,8 @@ export const useDocStore = create<DocState>((set, get) => ({
         note,
         sampleId: sampleId ?? null,
         instrumentId: slotInstrumentId ?? null,
-        pitchOffset: 0,
-        gain: 1,
+        baseNote: 60,
+        volume: 1,
         pan: 0,
       }
       // Insert in sorted position by note.
@@ -782,7 +782,7 @@ export const useDocStore = create<DocState>((set, get) => ({
       inst.slots = inst.slots.filter((s) => s.id !== slotId)
     }),
 
-  setDrumKitSlotParam: (instrumentId, slotId, key, value) =>
+  setDrumKitSlotParam: (instrumentId, slotId, key, value) => {
     get().mutate((draft) => {
       const inst = draft.entities.instruments[instrumentId]
       if (inst?.kind !== 'drumkit') return
@@ -793,9 +793,12 @@ export const useDocStore = create<DocState>((set, get) => ({
       if (key === 'note') {
         inst.slots.sort((a, b) => a.note - b.note)
       }
-    }),
+    })
+    updateParamRef(`${instrumentId}:slot:${slotId}:${key}`, value)
+  },
 
-  setOrPromoteSlotParam: (instrumentId, note, key, value) =>
+  setOrPromoteSlotParam: (instrumentId, note, key, value) => {
+    let effectiveSlotId: string | undefined
     get().mutate((draft) => {
       const inst = draft.entities.instruments[instrumentId]
       if (inst?.kind !== 'drumkit') return
@@ -809,18 +812,24 @@ export const useDocStore = create<DocState>((set, get) => ({
           note,
           sampleId: slot.sampleId,
           instrumentId: slot.instrumentId,
-          pitchOffset: slot.pitchOffset,
-          gain: slot.gain,
+          baseNote: slot.baseNote,
+          volume: slot.volume,
           pan: slot.pan,
         }
         newSlot[key] = value
         const idx = inst.slots.findIndex((s) => s.note > note)
         if (idx === -1) inst.slots.push(newSlot)
         else inst.slots.splice(idx, 0, newSlot)
+        effectiveSlotId = newSlot.id
       } else {
         slot[key] = value
+        effectiveSlotId = slot.id
       }
-    }),
+    })
+    if (effectiveSlotId) {
+      updateParamRef(`${instrumentId}:slot:${effectiveSlotId}:${key}`, value)
+    }
+  },
 
   setDrumKitSlotSource: (instrumentId, slotId, sampleId, slotInstrumentId) =>
     get().mutate((draft) => {

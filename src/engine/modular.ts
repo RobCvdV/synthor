@@ -80,8 +80,6 @@ export function compileModular(
   keyPrefix: string = inst.id,
   /** Sample metadata indexed by sampleIndex param — sorted by sample name. */
   sampleMeta: SampleMeta[] = [],
-  /** Base frequency in Hz for pitch tracking. 0 = use original rate. */
-  baseFreq: number = 0,
   /** Per-cell volume signal (0..1), available to the `volume` source module. */
   vol: Node = 1,
   /** Per-effect-lane seq2 signals for named instrument inlets, keyed by
@@ -199,16 +197,16 @@ export function compileModular(
         // All 5 oscillator types run in the graph so waveform changes are instant.
         const wf = kconst(key('waveform'), p.waveform ?? 0)
         const saw = el.blepsaw(tuned)
-        const square = el.blepsquare(tuned)
         const triangle = el.bleptriangle(tuned)
         const sine = el.cycle(tuned)
         const phase = el.phasor(tuned)
-        const pulseWidth = el.sub(el.mul(el.le(phase, width), el.const({ value: 2 })), el.const({ value: 1 }))
+        // Phasor-based pulse: width controls duty cycle (0..1). width=0.5 = square.
+        const pulse = el.sub(el.mul(el.le(phase, width), el.const({ value: 2 })), el.const({ value: 1 }))
         const oscOut = el.select(
           el.le(wf, el.const({ value: 0.5 })), saw,
-          el.select(el.le(wf, el.const({ value: 1.5 })), square,
+          el.select(el.le(wf, el.const({ value: 1.5 })), pulse,
             el.select(el.le(wf, el.const({ value: 2.5 })), triangle,
-              el.select(el.le(wf, el.const({ value: 3.5 })), sine, pulseWidth),
+              el.select(el.le(wf, el.const({ value: 3.5 })), sine, pulse),
             ),
           ),
         )
@@ -302,17 +300,16 @@ export function compileModular(
         const one = el.const({ value: 1 })
         const two = el.const({ value: 2 })
         const pi2 = el.const({ value: 2 * Math.PI })
-        const half = el.const({ value: 0.5 })
         const lfoSine = el.sin(el.mul(phase, pi2))
         const lfoTri = el.sub(one, el.mul(two, el.abs(el.sub(el.mul(phase, two), one))))
         const lfoSaw = el.sub(el.mul(phase, two), one)
-        const lfoSq = el.sub(el.mul(el.le(phase, half), two), one)
+        // Phasor-based pulse: width controls duty cycle. width=0.5 = square.
         const lfoPulse = el.sub(el.mul(el.le(phase, width), two), one)
         const shape = el.select(
           el.le(wf, el.const({ value: 0.5 })), lfoSine,
           el.select(el.le(wf, el.const({ value: 1.5 })), lfoTri,
             el.select(el.le(wf, el.const({ value: 2.5 })), lfoSaw,
-              el.select(el.le(wf, el.const({ value: 3.5 })), lfoSq, lfoPulse),
+              el.select(el.le(wf, el.const({ value: 3.5 })), lfoPulse, lfoPulse),
             ),
           ),
         )
@@ -496,56 +493,54 @@ export function compileModular(
         const meta = idx >= 0 && idx < sampleMeta.length ? sampleMeta[idx] : null
         if (!meta?.hash) return SILENCE
 
-        const pitchTrack = Math.round(p.pitchTrack ?? 0)
+        const pitchTrack = Math.round(p.pitchTrack ?? 1)
         const loop = Math.round(p.loop ?? 0)
-        const centerNote = Math.round(p.centerNote ?? 60)
-        const centerFreq = midiToFreq(centerNote)
         const gain = kconst(key('gain'), p.gain ?? 1)
 
-        if (!pitchTrack || freqIn === null) {
-          // No pitch tracking — fire-once trigger at static rate.
-          // Include sample hash in key so Elementary reloads when sample changes.
-          const ch = el.mc.sample(
-            {
-              key: `${keyPrefix}:${m.id}:${meta.hash}`,
-              path: meta.hash,
-              channels: meta.channels,
-              playbackRate: baseFreq > 0 ? baseFreq / centerFreq : 1,
-            },
-            gateSig,
-          )
-          const out = el.mul(ch[0], gain)
-          if (meta.channels === 2) memo.set(`${m.id}:outR`, el.mul(ch[1], gain))
-          else memo.set(`${m.id}:outR`, out)
-          return out
+        // playRate + finetune as live kconst refs → ratio = 2^(semitones/12).
+        const playRateRef = kconst(key('playRate'), p.playRate ?? 0)
+        const finetuneRef = kconst(key('finetune'), p.finetune ?? 0)
+        const ln2 = el.const({ value: Math.LN2 })
+        const ratio = el.exp(el.mul(ln2, el.add(el.div(playRateRef, 12), el.div(finetuneRef, 12))))
+
+        // rate = freqIn / midiToFreq(60) * ratio  — pitch-tracked
+        // rate = ratio                            — no pitch tracking
+        const rate = pitchTrack && freqIn !== null
+          ? el.mul(el.div(freqIn, el.const({ value: midiToFreq(60) })), ratio)
+          : ratio
+
+        // Loop ON: table+phasor for continuous cycling.  Loop OFF: el.sample
+        // triggers on gate rising edge, plays to completion, and adapts to
+        // signal-rate playbackRate changes in real time.
+        if (loop) {
+          const rateFactor = meta.sampleRate / (meta.frames * midiToFreq(60))
+          const phasorRate = el.mul(rate, el.const({ key: `${keyPrefix}:${m.id}:rf:${meta.hash}`, value: rateFactor }))
+          const phase = el.phasor(phasorRate)
+          const sampleDur = meta.frames / meta.sampleRate
+          const time = el.mul(phase, el.const({ key: `${keyPrefix}:${m.id}:dur`, value: sampleDur }))
+          const tbl = createNode('table', {
+            key: `${keyPrefix}:${m.id}:tbl:${meta.hash}`,
+            path: meta.hash,
+            channels: meta.channels,
+          }, [resolve(time)])
+          const ch = unpack(tbl as NodeRepr_t, meta.channels)
+          const env = makeAdsr(0.001, 0.05, 1, 0.05, gateSig)
+          const outL = el.mul(ch[0], gain, env)
+          if (meta.channels === 2) memo.set(`${m.id}:outR`, el.mul(ch[1], gain, env))
+          else memo.set(`${m.id}:outR`, outL)
+          return outL
         }
 
-        // Pitch-tracked: table + phasor for real frequency modulation.
-        // rate = freqIn * sampleRate / (frames * centerFreq)
-        // At centerNote: sweeps 0→sampleDur in sampleDur seconds (1× speed).
-        const rateFactor = meta.sampleRate / (meta.frames * centerFreq)
-        const rate = el.mul(freqIn, el.const({ key: `${keyPrefix}:${m.id}:rf:${meta.hash}`, value: rateFactor }))
-
-        const phase = loop
-          ? el.phasor(rate)
-          : el.syncphasor(rate, gateSig)
-
-        const sampleDur = meta.frames / meta.sampleRate
-        const time = el.mul(phase, el.const({ key: `${keyPrefix}:${m.id}:dur`, value: sampleDur }))
-        // Include sample hash in key so Elementary reloads when sample changes.
-        const tbl = createNode('table', {
-          key: `${keyPrefix}:${m.id}:tbl:${meta.hash}`,
-          path: meta.hash,
-          channels: meta.channels,
-        }, [resolve(time)])
-        const ch = unpack(tbl as NodeRepr_t, meta.channels)
-
-        // Gate with a fast envelope so the sample doesn't ring after release.
-        const env = makeAdsr(0.001, 0.05, 1, 0.05, gateSig)
-        const outL = el.mul(ch[0], gain, env)
-        if (meta.channels === 2) memo.set(`${m.id}:outR`, el.mul(ch[1], gain, env))
-        else memo.set(`${m.id}:outR`, outL)
-        return outL
+        const smp = (el as any).sample(
+          { key: `${keyPrefix}:${m.id}:${meta.hash}`, path: meta.hash, channels: meta.channels },
+          gateSig,
+          rate,
+        ) as NodeRepr_t
+        const ch = unpack(smp, meta.channels)
+        const out = el.mul(ch[0], gain)
+        if (meta.channels === 2) memo.set(`${m.id}:outR`, el.mul(ch[1], gain))
+        else memo.set(`${m.id}:outR`, out)
+        return out
       }
 
       // output is evaluated per-channel at the top level — render() for the

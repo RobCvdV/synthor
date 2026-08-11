@@ -233,14 +233,11 @@ export function buildDrumKitSlotSequences(
     if (!slot) continue
 
     slotGateSeqs[slot.id][row] = 1
-    // For sample-based slots the cell note only selects which slot fires;
-    // playback speed is determined by the slot's own note + pitchOffset so a
-    // kick always sounds like a kick regardless of which MIDI note triggers it.
-    // For instrument (synth) slots the cell note IS the pitch — the slot's
-    // note only defines the key-range assignment, and pitchOffset fine-tunes
-    // the synth's frequency.
-    const baseNote = slot.instrumentId ? note : slot.note
-    slotFreqSeqs[slot.id][row] = midiToFreq(baseNote + slot.pitchOffset)
+    // Effective note: baseNote + key-offset within the slot's range.
+    // For instrument slots the synth receives this frequency directly.
+    // For sample slots the freq is unused (el.mc.sample uses static playbackRate).
+    const effectiveNote = slot.baseNote + (note - slot.note)
+    slotFreqSeqs[slot.id][row] = midiToFreq(effectiveNote)
   }
 
   return { slotGateSeqs, slotFreqSeqs }

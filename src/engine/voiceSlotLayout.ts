@@ -16,12 +16,11 @@ import { isBuiltinLaneType } from '../domain/effects'
  *  vibratoRate, vibratoDepth, tremoloRate, tremoloDepth, staccato = 11 base. */
 const REGULAR_BASE_CHANNELS = 11
 
-/** Drumkit: N drum-gate channels replace the single gate, freq is computed
- *  from the slot's base note.  channelsPerSlot = drumSounds + 10, where
- *  10 = (vol + 9 other effects) = 11 base - 1 (single gate already counted). */
-/** Extra channels beyond the drum-gate block: vol + 9 other effect channels
- *  (portamento, volumeSlide, panning, vibratoRate, vibratoDepth, tremoloRate,
- *   tremoloDepth, staccato). */
+/** Drumkit: N drum-gate channels + N drum-freq channels, plus extra effect
+ *  channels.  channelsPerSlot = 2*drumSounds + DRUMKIT_EXTRA_CHANNELS. */
+/** Extra channels beyond the drum-gate+freq blocks: vol + 9 other effect
+ *  channels (portamento, volumeSlide, panning, vibratoRate, vibratoDepth,
+ *   tremoloRate, tremoloDepth, staccato). */
 export const DRUMKIT_EXTRA_CHANNELS = 10
 
 /** Fixed channel indices within a regular slot. */
@@ -40,7 +39,7 @@ export const REGULAR_CH = {
 } as const
 
 /** Fixed channel indices for effect lanes within a drumkit slot (relative to
- *  the end of the drum-gate block).  Drum-gate channels are 0..N-1. */
+ *  the end of the drum-gate+freq blocks).  Gates at 0..N-1, freqs at N..2N-1. */
 export const DRUMKIT_CH = {
   vol: 0,
   portamento: 1,
@@ -61,6 +60,10 @@ export interface InstrumentSlotLayout {
   channelsPerSlot: number
   /** First channel of the first slot (global offset). */
   baseChannel: number
+  /** Per-slot global channel offsets (length === slotCount).  Each slot is
+   *  individually aligned to 32-channel scheduler-node boundaries so no
+   *  single slot's channels straddle two nodes. */
+  slotBaseChannels: number[]
   /** Named inlet names in channel order (alphabetical for determinism). */
   namedInletIds: Id[]
   isDrumkit: boolean
@@ -136,32 +139,32 @@ export function computeSlotLayouts(doc: Doc): InstrumentSlotLayout[] {
     const drumSounds = isDrumkit ? inst.slots.length : undefined
     const namedInletIds = [...u.namedInlets].sort()
     const channelsPerSlot = isDrumkit
-      ? (drumSounds ?? 0) + DRUMKIT_EXTRA_CHANNELS + namedInletIds.length
+      ? 2 * (drumSounds ?? 0) + DRUMKIT_EXTRA_CHANNELS + namedInletIds.length
       : REGULAR_BASE_CHANNELS + namedInletIds.length
-    const totalCh = u.maxConcurrent * channelsPerSlot
 
-    // Align to the next 32-channel scheduler-node boundary when the
-    // instrument's slot block would straddle the boundary.  Without
-    // this, trailing channels (vol, staccato, etc.) of straddling
-    // slots are silently dropped by the batching logic.
+    // Assign each slot individually, aligning to 32-channel scheduler-node
+    // boundaries so no single slot straddles two nodes.
     const SLOT_BOUNDARY = 32
-    if (totalCh <= SLOT_BOUNDARY && (nextChannel % SLOT_BOUNDARY) + totalCh > SLOT_BOUNDARY) {
-      nextChannel = Math.ceil(nextChannel / SLOT_BOUNDARY) * SLOT_BOUNDARY
+    const slotBaseChannels: number[] = []
+    for (let si = 0; si < u.maxConcurrent; si++) {
+      if ((nextChannel % SLOT_BOUNDARY) + channelsPerSlot > SLOT_BOUNDARY) {
+        nextChannel = Math.ceil(nextChannel / SLOT_BOUNDARY) * SLOT_BOUNDARY
+      }
+      slotBaseChannels.push(nextChannel)
+      nextChannel += channelsPerSlot
     }
-    // Large instruments that exceed a full node are unsupported for now.
-    const baseChannel = nextChannel
+    const baseChannel = slotBaseChannels[0]
 
     layouts.push({
       instId,
       slotCount: u.maxConcurrent,
       channelsPerSlot,
       baseChannel,
+      slotBaseChannels,
       namedInletIds,
       isDrumkit,
       drumSounds,
     })
-
-    nextChannel += totalCh
   }
 
   // Diagnostic logging.
@@ -170,7 +173,8 @@ export function computeSlotLayouts(doc: Doc): InstrumentSlotLayout[] {
       '[slotLayout]',
       layouts.map((l) => {
         const name = doc.entities.instruments[l.instId]?.name ?? l.instId.slice(0, 8)
-        return `${name}: ${l.slotCount} slots × ${l.channelsPerSlot}ch = ch ${l.baseChannel}-${l.baseChannel + l.slotCount * l.channelsPerSlot - 1}`
+        const chs = l.slotBaseChannels.map((c) => `${c}-${c + l.channelsPerSlot - 1}`).join(', ')
+        return `${name}: ${l.slotCount} slots × ${l.channelsPerSlot}ch = [${chs}]`
       }).join('\n  '),
       `\n  Total channels: ${nextChannel}`,
     )
@@ -183,10 +187,14 @@ export function computeSlotLayouts(doc: Doc): InstrumentSlotLayout[] {
 
 /** Total channels needed across all slots.  Use to determine scheduler node count. */
 export function totalChannels(layouts: InstrumentSlotLayout[]): number {
-  return layouts.reduce(
-    (sum, l) => sum + l.slotCount * l.channelsPerSlot,
-    0,
-  )
+  let total = 0
+  for (const l of layouts) {
+    for (let si = 0; si < l.slotCount; si++) {
+      const ch = l.slotBaseChannels[si] ?? l.baseChannel + si * l.channelsPerSlot
+      total = Math.max(total, ch + l.channelsPerSlot)
+    }
+  }
+  return total
 }
 
 /** Look up the global channel offset for a specific instrument slot. */
@@ -197,7 +205,7 @@ export function getSlotChannelOffset(
 ): number {
   for (const l of layouts) {
     if (l.instId === instId) {
-      return l.baseChannel + slotIndex * l.channelsPerSlot
+      return l.slotBaseChannels[slotIndex] ?? l.baseChannel + slotIndex * l.channelsPerSlot
     }
   }
   return 0

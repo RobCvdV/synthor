@@ -257,7 +257,7 @@ describe('compileLiveVoices', () => {
   it('creates drumkit slot refs with gain', () => {
     const master = createMasterChannel()
     const kit = newDrumKitInstrument('Kit')
-    kit.slots = [{ id: 'slot1', note: 36, pitchOffset: 0, gain: 1, pan: 0, sampleId: 'smp1', instrumentId: null }]
+    kit.slots = [{ id: 'slot1', note: 36, baseNote: 36, volume: 1, pan: 0, sampleId: 'smp1', instrumentId: null }]
     const doc: Doc = {
       entities: {
         instruments: { [kit.id]: kit },

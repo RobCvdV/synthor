@@ -126,7 +126,12 @@ export class VoicePool {
     // Single sub-voice per slot.
     const sv = 0
     const prefix = `${this.instId}:ds:${si}:v${sv}`
-    this.refs.setValue(`${prefix}:freq`, midiToFreq(note))
+    // Effective note: baseNote + key-offset within the slot's range.
+    const effectiveNote = slot.baseNote + (note - slot.note)
+    // Drop gate to 0 first so every trigger creates a clean 0→1 rising
+    // edge, even when two notes map to the same drumkit slot.
+    this.refs.setValue(`${prefix}:gate`, 0)
+    this.refs.setValue(`${prefix}:freq`, midiToFreq(effectiveNote))
     this.refs.setValue(`${prefix}:vel`, velocity / 127)
     this.refs.setValue(`${prefix}:gate`, 1)
     return si

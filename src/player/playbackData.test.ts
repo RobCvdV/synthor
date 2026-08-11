@@ -164,8 +164,8 @@ describe('buildPlaybackData', () => {
   it('builds drumkit slot data with per-sound gate channels', () => {
     const drums = newDrumKitInstrument('Drums')
     drums.slots = [
-      { id: 'dkick', note: 36, sampleId: null, instrumentId: null, pitchOffset: 0, gain: 1, pan: 0 },
-      { id: 'dsnare', note: 38, sampleId: null, instrumentId: null, pitchOffset: 0, gain: 1, pan: 0 },
+      { id: 'dkick', note: 36, sampleId: null, instrumentId: null, baseNote: 36, volume: 1, pan: 0 },
+      { id: 'dsnare', note: 38, sampleId: null, instrumentId: null, baseNote: 38, volume: 1, pan: 0 },
     ]
     const track = newTrack(drums.id, 4)
     // Set MIDI notes that map to the kick and snare.
@@ -188,8 +188,11 @@ describe('buildPlaybackData', () => {
     expect(slot.signals[1][0]).toBe(0)
     expect(slot.signals[1][2]).toBe(1)
 
-    // Vol channel is at drumSounds + DRUMKIT_CH.vol = 2 + 0 = 2.
-    expect(slot.signals[2][0]).toBe(1) // default vol
+    // Vol channel is at 2*drumSounds + DRUMKIT_CH.vol = 4 + 0 = 4.
+    expect(slot.signals[4][0]).toBe(1) // default vol
+    // Freq channels are at indices 2 and 3 (drumSounds=2, gate+freq pairs).
+    expect(slot.signals[2][0]).toBeCloseTo(65.41) // kick freq at row 0 (MIDI 36)
+    expect(slot.signals[3][2]).toBeCloseTo(73.42) // snare freq at row 2 (MIDI 38)
   })
 
   it('effect lane defaults are applied to all slot channels', () => {

@@ -101,7 +101,7 @@ class SchedulerProcessor extends AudioWorkletProcessor {
     //   Regular: 0=gate, 1=freq, 2=vol, 3=portamento, 4=volumeSlide,
     //            5=panning, 6=vibRate, 7=vibDepth, 8=tremRate,
     //            9=tremDepth, 10=staccato, 11+ = named inlets
-    //   Drumkit: 0..N-1=drum gates, N=vol, N+1=portamento, ..., N+8=staccato
+    //   Drumkit: 0..N-1=drum gates, N..2N-1=drum freqs, 2N=vol, ..., 2N+8=staccato
     const slots = this.slots;
     for (let si = 0; si < slots.length; si++) {
       const slot = slots[si];
@@ -109,8 +109,8 @@ class SchedulerProcessor extends AudioWorkletProcessor {
       const signals = slot.signals;
       const drumGates = slot.drumGateCount || 0;
 
-      // Staccato index: channel 10 for regular, drumSounds+8 for drumkit.
-      const staccatoIdx = drumGates > 0 ? drumGates + 8 : 10;
+      // Staccato index: channel 10 for regular, 2*drumSounds+8 for drumkit.
+      const staccatoIdx = drumGates > 0 ? 2 * drumGates + 8 : 10;
       const staccato = signals[staccatoIdx]
         ? (signals[staccatoIdx][wrappedRow] ?? 1)
         : 1;

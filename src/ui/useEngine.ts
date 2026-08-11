@@ -63,13 +63,17 @@ export function useEngine(): AudioHost {
           parts.push(`osc:${id}:${chan}:${JSON.stringify(inst.params)}`)
         } else if (inst.kind === 'drumkit') {
           const slots = inst.slots.map((s) =>
-            `${s.note}:${s.pitchOffset}:${s.instrumentId ?? ''}:${s.sampleId ?? ''}`,
+            `${s.note}:${s.baseNote}:${s.instrumentId ?? ''}:${s.sampleId ?? ''}`,
           ).join(',')
           parts.push(`dk:${id}:${chan}:${slots}`)
         } else if (inst.kind === 'modular') {
-          const mods = Object.keys(inst.modules).sort().map((mid) =>
-            `${mid}:${inst.modules[mid].type}`,
-          ).join(',')
+          const mods = Object.keys(inst.modules).sort().map((mid) => {
+            const mod = inst.modules[mid]
+            let key = `${mid}:${mod.type}`
+            // Sample index changes are structural (different hash → different table key).
+            if (mod.type === 'sample') key += `:s${mod.params.sampleIndex ?? 0}`
+            return key
+          }).join(',')
           const conns = Object.values(inst.connections)
             .sort((a, b) => a.id.localeCompare(b.id))
             .map((c) => `${c.from.moduleId}:${c.from.port}->${c.to.moduleId}:${c.to.port}:${c.gain}`)
@@ -108,7 +112,7 @@ export function useEngine(): AudioHost {
       // Instrument slot layouts — captures named inlet changes and slot counts.
       const slotLayouts = computeSlotLayouts(doc)
       for (const l of slotLayouts) {
-        parts.push(`slots:${l.instId}:${l.slotCount}:${l.channelsPerSlot}:in[${l.namedInletIds.join(',')}]`)
+        parts.push(`slots:${l.instId}:${l.slotCount}:${l.channelsPerSlot}:${l.slotBaseChannels.join(',')}:in[${l.namedInletIds.join(',')}]`)
       }
 
       return parts.join('|')

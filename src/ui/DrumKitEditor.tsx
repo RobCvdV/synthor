@@ -23,8 +23,8 @@ interface EffectiveSlot {
   note: number | null    // the slot's own note (null when no slot covers)
   sampleId: Id | null
   instrumentId: Id | null
-  pitchOffset: number
-  gain: number
+  baseNote: number
+  volume: number
   pan: number
   inherited: boolean
 }
@@ -32,7 +32,7 @@ interface EffectiveSlot {
 function getEffective(note: number, kit: DrumKitInstrument, sampleNames: Record<Id, string>, instNames: Record<Id, string>): EffectiveSlot {
   const slot = getSlotForNote(kit, note)
   if (!slot) {
-    return { label: '(empty)', slotId: null, note: null, sampleId: null, instrumentId: null, pitchOffset: 0, gain: 1, pan: 0, inherited: false }
+    return { label: '(empty)', slotId: null, note: null, sampleId: null, instrumentId: null, baseNote: 60, volume: 1, pan: 0, inherited: false }
   }
   let label = ''
   if (slot.sampleId) label = sampleNames[slot.sampleId] ?? '(deleted)'
@@ -44,8 +44,8 @@ function getEffective(note: number, kit: DrumKitInstrument, sampleNames: Record<
     note: slot.note,
     sampleId: slot.sampleId,
     instrumentId: slot.instrumentId,
-    pitchOffset: slot.pitchOffset,
-    gain: slot.gain,
+    baseNote: slot.baseNote,
+    volume: slot.volume,
     pan: slot.pan,
     inherited: slot.note !== note,
   }
@@ -116,7 +116,7 @@ export function DrumKitEditor({ inst }: { inst: DrumKitInstrument }) {
   )
 
   const doSetParam = useCallback(
-    (note: number, key: 'pitchOffset' | 'gain' | 'pan', value: number) => {
+    (note: number, key: 'baseNote' | 'volume' | 'pan', value: number) => {
       const eff = effectiveMap.get(note)
       if (!eff?.slotId) {
         // No slot covers this note — create one with a default source.
@@ -179,8 +179,8 @@ export function DrumKitEditor({ inst }: { inst: DrumKitInstrument }) {
         <div className="dk-key-row dk-header">
           <span className="dk-key-label">Key</span>
           <span className="dk-source">Source</span>
-          <span className="dk-param-col">Pitch</span>
-          <span className="dk-param-col dk-slider-col">Gain</span>
+          <span className="dk-param-col">Base note</span>
+          <span className="dk-param-col dk-slider-col">Volume</span>
           <span className="dk-param-col dk-slider-col">Pan</span>
         </div>
 
@@ -254,22 +254,22 @@ export function DrumKitEditor({ inst }: { inst: DrumKitInstrument }) {
                 )}
               </span>
 
-              {/* Pitch offset */}
+              {/* Base note */}
               <span className="dk-param-col">
-                <input
-                  type="number"
-                  className="dk-param-input"
-                  min={-24}
-                  max={24}
-                  step={1}
-                  value={eff.pitchOffset}
-                  readOnly={eff.inherited || !eff.slotId}
-                  onChange={(e) => doSetParam(note, 'pitchOffset', Number(e.target.value))}
+                <select
+                  className="dk-param-select"
+                  value={eff.baseNote}
+                  disabled={eff.inherited || !eff.slotId}
+                  onChange={(e) => doSetParam(note, 'baseNote', Number(e.target.value))}
                   onClick={(e) => e.stopPropagation()}
-                />
+                >
+                  {Array.from({ length: 128 }, (_, i) => (
+                    <option key={i} value={i}>{noteLabel(i)}</option>
+                  ))}
+                </select>
               </span>
 
-              {/* Gain */}
+              {/* Volume */}
               <span className="dk-param-col dk-slider-col">
                 <input
                   type="range"
@@ -277,13 +277,13 @@ export function DrumKitEditor({ inst }: { inst: DrumKitInstrument }) {
                   min={0}
                   max={1}
                   step={0.01}
-                  value={eff.gain}
+                  value={eff.volume}
                   readOnly={eff.inherited || !eff.slotId}
-                  onChange={(e) => doSetParam(note, 'gain', Number(e.target.value))}
+                  onChange={(e) => doSetParam(note, 'volume', Number(e.target.value))}
                   onClick={(e) => e.stopPropagation()}
-                  title={`Gain: ${eff.gain.toFixed(2)}`}
+                  title={`Volume: ${eff.volume.toFixed(2)}`}
                 />
-                <span className="dk-slider-val">{eff.gain.toFixed(2)}</span>
+                <span className="dk-slider-val">{eff.volume.toFixed(2)}</span>
               </span>
 
               {/* Pan */}

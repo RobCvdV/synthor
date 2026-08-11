@@ -143,8 +143,8 @@ export function cloneInstrument(inst: Instrument, name: string): Instrument {
       note: s.note,
       sampleId: s.sampleId,
       instrumentId: s.instrumentId ?? null,
-      pitchOffset: s.pitchOffset,
-      gain: s.gain,
+      baseNote: s.baseNote,
+      volume: s.volume,
       pan: s.pan,
     }))
     return { id: makeId('inst'), kind: 'drumkit', name, slots, keyLo: inst.keyLo ?? 36, keyHi: inst.keyHi ?? 60, params: { ...inst.params }, channelId: inst.channelId ?? MASTER_CHANNEL_ID, pan: inst.pan ?? 0 }

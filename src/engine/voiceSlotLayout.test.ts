@@ -86,10 +86,10 @@ describe('computeSlotLayouts', () => {
     const drums = newDrumKitInstrument('Drums')
     // Add 4 drum slots to ensure channel count is non-trivial.
     drums.slots = [
-      { id: 'slot_0', note: 36, sampleId: null, instrumentId: null, pitchOffset: 0, gain: 1, pan: 0 },
-      { id: 'slot_1', note: 38, sampleId: null, instrumentId: null, pitchOffset: 0, gain: 1, pan: 0 },
-      { id: 'slot_2', note: 42, sampleId: null, instrumentId: null, pitchOffset: 0, gain: 1, pan: 0 },
-      { id: 'slot_3', note: 46, sampleId: null, instrumentId: null, pitchOffset: 0, gain: 1, pan: 0 },
+      { id: 'slot_0', note: 36, sampleId: null, instrumentId: null, baseNote: 36, volume: 1, pan: 0 },
+      { id: 'slot_1', note: 38, sampleId: null, instrumentId: null, baseNote: 38, volume: 1, pan: 0 },
+      { id: 'slot_2', note: 42, sampleId: null, instrumentId: null, baseNote: 42, volume: 1, pan: 0 },
+      { id: 'slot_3', note: 46, sampleId: null, instrumentId: null, baseNote: 46, volume: 1, pan: 0 },
     ]
 
     const bt = newTrack(bass.id, 64)
@@ -121,7 +121,7 @@ describe('computeSlotLayouts', () => {
     expect(drumLayout.slotCount).toBe(1)
     expect(drumLayout.isDrumkit).toBe(true)
     expect(drumLayout.drumSounds).toBe(4)
-    expect(drumLayout.channelsPerSlot).toBe(14) // 4 + 10
+    expect(drumLayout.channelsPerSlot).toBe(18) // 2*4 + 10
 
     // Channel assignment depends on sorted inst IDs; with UUIDs the order varies.
     // All we assert is each instrument gets its expected slot count and the

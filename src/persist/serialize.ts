@@ -20,7 +20,7 @@ import type { Doc } from '../domain/types'
  * (osc-only) and new files with modular instruments both satisfy the same
  * schema. A bump is only needed for a *breaking* shape change (e.g. sections).
  */
-export const CURRENT_SCHEMA_VERSION = 7
+export const CURRENT_SCHEMA_VERSION = 8
 
 export interface SongMeta {
   name: string
@@ -93,6 +93,9 @@ export function migrate(raw: unknown): SongFile {
 
   // v6→v7: add mixer channels, instrument routing (channelId, pan), and mixerInstrumentOrder.
   if (version < 7) raw = upgradeV6toV7(raw)
+
+  // v7→v8: drumkit slots: pitchOffset→baseNote, gain→volume; sample node centerNote→playRate+finetune.
+  if (version < 8) raw = upgradeV7toV8(raw)
 
   // v1→v1 migration: when the stereo output was added (commit b3917fc), the
   // output module's inlet changed from 'in' to 'inL'. Old modular instruments
@@ -364,6 +367,67 @@ function upgradeV6toV7(raw: any): any {
   }
 
   return { ...raw, schemaVersion: 7, doc: { ...raw.doc, entities: ee } }
+}
+
+function upgradeV7toV8(raw: any): any {
+  const entities = raw.doc?.entities
+  if (!entities || !isRecord(entities)) return raw
+
+  const ee = { ...entities }
+
+  // Drumkit slots: pitchOffset→baseNote (preserving first-key pitch), gain→volume.
+  if (isRecord(ee.instruments)) {
+    const insts = ee.instruments as Record<string, unknown>
+    const fixed: Record<string, unknown> = {}
+    for (const [id, inst] of Object.entries(insts)) {
+      if (isRecord(inst) && inst.kind === 'drumkit' && Array.isArray((inst as any).slots)) {
+        fixed[id] = {
+          ...inst,
+          slots: (inst as any).slots.map((s: any) => {
+            const base = isRecord(s) ? s : {}
+            return {
+              ...base,
+              baseNote: 60 + (typeof base.pitchOffset === 'number' ? base.pitchOffset : 0),
+              volume: typeof base.gain === 'number' ? base.gain : 1,
+            }
+          }),
+        }
+      } else {
+        fixed[id] = inst
+      }
+    }
+    ee.instruments = fixed
+  }
+
+  // Sample modules: remove stale centerNote, ensure playRate + finetune exist.
+  if (isRecord(ee.instruments)) {
+    const insts = ee.instruments as Record<string, unknown>
+    const fixedInst: Record<string, unknown> = {}
+    for (const [id, inst] of Object.entries(insts)) {
+      if (isRecord(inst) && inst.kind === 'modular' && isRecord((inst as any).modules)) {
+        const mods = (inst as any).modules as Record<string, unknown>
+        const fixedMods: Record<string, unknown> = {}
+        for (const [mid, mod] of Object.entries(mods)) {
+          if (isRecord(mod) && mod.type === 'sample' && isRecord(mod.params)) {
+            const p = { ...mod.params as Record<string, unknown> }
+            delete p.centerNote
+            if (typeof p.playRate !== 'number') p.playRate = 0
+            if (typeof p.finetune !== 'number') p.finetune = 0
+            if (typeof p.pitchTrack !== 'number') p.pitchTrack = 1
+            fixedMods[mid] = { ...mod, params: p }
+          } else {
+            fixedMods[mid] = mod
+          }
+        }
+        fixedInst[id] = { ...inst, modules: fixedMods }
+      } else {
+        fixedInst[id] = inst
+      }
+    }
+    ee.instruments = fixedInst
+  }
+
+  return { ...raw, schemaVersion: 8, doc: { ...raw.doc, entities: ee } }
 }
 
 /**

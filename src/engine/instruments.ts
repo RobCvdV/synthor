@@ -30,8 +30,6 @@ export function renderInstrument(
   note: NodeRepr_t | number = 0,
   /** sampleId → VFS hash lookup for drumkit slot resolution. */
   sampleHashById: Record<string, string> = {},
-  /** Base frequency in Hz for sample pitch tracking (preview only). */
-  baseFreq: number = 0,
   /** Per-cell volume signal (0..1). Defaults to 1 (no attenuation). */
   volume: NodeRepr_t | number = 1,
   /** Per-effect-lane seq2 signals for named instrument inlets, keyed by inlet name. */
@@ -45,7 +43,7 @@ export function renderInstrument(
 ): StereoOut {
   switch (inst.kind) {
     case 'osc': {
-      void voiceKey; void note; void baseFreq; void inletSignals; void midiCcValues; void ccBindings
+      void voiceKey; void note; void inletSignals; void midiCcValues; void ccBindings
       const env = makeAdsr(0.005, 0.12, 0.7, 0.25, gate)
       const tone = el.blepsaw(freq)
       // Use createRef when available so slider changes take effect without recompile.
@@ -57,12 +55,12 @@ export function renderInstrument(
     }
     case 'modular': {
       void note
-      return compileModular(inst, freq, gate, voiceKey, sampleMeta, baseFreq, volume, inletSignals, midiCcValues, paramRefs, ccBindings)
+      return compileModular(inst, freq, gate, voiceKey, sampleMeta, volume, inletSignals, midiCcValues, paramRefs, ccBindings)
     }
     case 'drumkit': {
       // Drumkit rendering is handled at the compile level via renderDrumKitSlot,
       // so per-slot sequencer signals (gate + freq) can be used.
-      void voiceKey; void freq; void note; void baseFreq; void sampleMeta; void sampleHashById; void volume; void gate; void inletSignals; void ccBindings
+      void voiceKey; void freq; void note; void sampleMeta; void sampleHashById; void volume; void gate; void inletSignals; void ccBindings
       return { left: el.const({ value: 0 }), right: el.const({ value: 0 }) }
     }
   }
@@ -89,8 +87,10 @@ export function renderDrumKitSlot(
   ccBindings?: import('../audio/ccBindings').CcBindings,
   /** Named inlet signals from effect lanes, propagated to sub-instruments. */
   inletSignals: Record<string, NodeRepr_t> = {},
-  /** Drumkit instrument id — when provided, slot gain/pan use createRef. */
+  /** Drumkit instrument id — when provided, slot volume/pan use createRef. */
   kitInstId?: string,
+  /** Instrument-level pan (-1..+1). Combined with slot pan via addition. */
+  instPan: NodeRepr_t | number = 0,
 ): StereoOut {
   const zero = el.const({ value: 0 })
   let rawL: NodeRepr_t = zero
@@ -109,27 +109,17 @@ export function renderDrumKitSlot(
       if (meta) {
         const key = `${voiceKey}:slot:${slot.id}:${hash}`
 
-        // One-shot sample playback via Elementary's built-in el.sample.
-        // This is the same node the modular synth uses — it handles stereo
-        // correctly and plays once on each gate rising edge.
-        //
-        // playbackRate is relative to original speed: 1.0 = original pitch,
-        // 2.0 = one octave up. Computed from slot.note + pitchOffset, NOT
-        // the triggering MIDI note — drum hits are not pitch-tracked.
-        const centerFreq = midiToFreq(slot.note)
-        const playbackRate = midiToFreq(slot.note + slot.pitchOffset) / centerFreq
+        // el.mc.sample — v4 native API, reliable gate + proper multi-channel.
+        // playbackRate sets the base pitch; per-note offset within the slot's
+        // range is not yet supported with mc.sample (no signal-rate rate).
+        const baseFreq = 261.6255653005986 // midiToFreq(60)
+        const playbackRate = midiToFreq(slot.baseNote) / baseFreq
         const ch = el.mc.sample(
-          {
-            key: `${key}:sample`,
-            path: hash,
-            channels: meta.channels,
-            playbackRate,
-          },
+          { key: `${key}:sample`, path: hash, channels: meta.channels, playbackRate },
           slotGate,
         )
-        const gain = el.const({ value: 1 })
-        rawL = el.mul(ch[0], gain)
-        rawR = el.mul(ch[meta.channels === 2 ? 1 : 0], gain)
+        rawL = ch[0]
+        rawR = ch[meta.channels >= 2 ? 1 : 0]
       }
     }
   } else if (slot.instrumentId) {
@@ -143,8 +133,7 @@ export function renderDrumKitSlot(
         sampleMeta,
         0,
         sampleHashById,
-        midiToFreq(slot.note),
-        1, // volume
+        1, // volume — slot volume multiplies in end stage
         inletSignals,
         midiCcValues,
         paramRefs,
@@ -155,20 +144,24 @@ export function renderDrumKitSlot(
     }
   }
 
-  // Apply per-slot gain and constant-power pan.
-  // Use createRef when available so slider changes don't need a recompile.
+  // Apply per-slot volume and combined pan (slot + instrument).
   const slotKey = (name: string) => kitInstId ? `${kitInstId}:slot:${slot.id}:${name}` : ''
-  const g = paramRefs && kitInstId
-    ? paramRefs.getOrCreate(slotKey('gain'), slot.gain)
-    : el.const({ value: slot.gain })
-  const panL = paramRefs && kitInstId
-    ? paramRefs.getOrCreate(slotKey('panL'), 0.5 * (1 - slot.pan))
-    : el.const({ value: 0.5 * (1 - slot.pan) })
-  const panR = paramRefs && kitInstId
-    ? paramRefs.getOrCreate(slotKey('panR'), 0.5 * (1 + slot.pan))
-    : el.const({ value: 0.5 * (1 + slot.pan) })
+  const volRef = paramRefs && kitInstId
+    ? paramRefs.getOrCreate(slotKey('volume'), slot.volume)
+    : el.const({ value: slot.volume })
+  const slotPanRef = paramRefs && kitInstId
+    ? paramRefs.getOrCreate(slotKey('pan'), slot.pan)
+    : el.const({ value: slot.pan })
+  // Combine slot pan + instrument pan, clamped to [-1, 1].
+  const effPan = el.max(el.const({ value: -1 }),
+    el.min(el.const({ value: 1 }),
+      el.add(slotPanRef, instPan)))
+  // Constant-power pan without √2 boost (channel-level applyPan provides it).
+  const angle = el.add(el.mul(effPan, Math.PI / 4), Math.PI / 4)
+  const panL = el.cos(angle)
+  const panR = el.sin(angle)
   return {
-    left: el.mul(rawL, g, panL),
-    right: el.mul(rawR, g, panR),
+    left: el.mul(rawL, volRef, panL),
+    right: el.mul(rawR, volRef, panR),
   }
 }

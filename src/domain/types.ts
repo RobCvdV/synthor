@@ -172,10 +172,11 @@ export interface DrumKitSlot {
   sampleId: Id | null
   /** Instrument to play (mutually exclusive with sampleId). */
   instrumentId: Id | null
-  /** Pitch offset in semitones applied ON TOP of the tracker note. */
-  pitchOffset: number
-  /** Per-slot gain, 0..1. */
-  gain: number
+  /** MIDI note that plays when the first key in this slot's range is
+   *  triggered. Higher keys play proportionally higher. */
+  baseNote: number
+  /** Per-slot volume, 0..1. Multiplied with synth outlet. */
+  volume: number
   /** Pan, -1 (left) .. +1 (right). */
   pan: number
 }

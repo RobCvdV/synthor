@@ -123,7 +123,7 @@ function compileAllVoiceSlots(
           const velRef = paramRefs.getOrCreate(`${voiceKey}:vel`, 1)
           const voice = renderDrumKitSlot(
             inst.slots[si], doc.entities.instruments, gate, freq, voiceKey,
-            sampleMeta, sampleHashById, midiCcValues, paramRefs, ccBindings, {}, inst.id,
+            sampleMeta, sampleHashById, midiCcValues, paramRefs, ccBindings, {}, inst.id, inst.pan ?? 0,
           )
           kitL = el.add(kitL, el.mul(voice.left, velRef))
           kitR = el.add(kitR, el.mul(voice.right, velRef))
@@ -139,7 +139,7 @@ function compileAllVoiceSlots(
         const freq = paramRefs.getOrCreate(`${voiceKey}:freq`, defaultFreq)
         const gate = paramRefs.getOrCreate(`${voiceKey}:gate`, 0)
         const velRef = paramRefs.getOrCreate(`${voiceKey}:vel`, 1)
-        slotVoices.push(renderInstrument(inst, freq, gate, voiceKey, sampleMeta, 0, sampleHashById, 0, velRef, {}, midiCcValues, paramRefs, ccBindings))
+        slotVoices.push(renderInstrument(inst, freq, gate, voiceKey, sampleMeta, 0, sampleHashById, velRef, {}, midiCcValues, paramRefs, ccBindings))
       }
       allLeft = el.add(allLeft, el.mul(slotVoices.reduce((a, v) => el.add(a, v.left), lvZero), 0.3))
       allRight = el.add(allRight, el.mul(slotVoices.reduce((a, v) => el.add(a, v.right), lvZero), 0.3))
@@ -181,7 +181,7 @@ function compileTrackerVoiceSlots(
     const effSettings = inst.kind !== 'drumkit' ? inst.effectSettings : undefined
 
     for (let si = 0; si < layout.slotCount; si++) {
-      const offset = layout.baseChannel + si * layout.channelsPerSlot
+      const offset = layout.slotBaseChannels[si]
       const trackerKey = `${inst.id}:ts:${si}`
 
       // ── Named inlet signals (shared between regular and drumkit) ──
@@ -190,7 +190,7 @@ function compileTrackerVoiceSlots(
         const drumSounds = layout.drumSounds ?? 0
         for (let ni = 0; ni < layout.namedInletIds.length; ni++) {
           inletSignals[layout.namedInletIds[ni]] = el.in({
-            channel: offset + drumSounds + DRUMKIT_EXTRA_CHANNELS + ni,
+            channel: offset + 2 * drumSounds + DRUMKIT_EXTRA_CHANNELS + ni,
           })
         }
       } else {
@@ -216,21 +216,24 @@ function compileTrackerVoiceSlots(
 
       if (layout.isDrumkit && inst.kind === 'drumkit') {
         const drumSounds = layout.drumSounds ?? 0
+        const effBase = 2 * drumSounds
 
-        // ── Drum gate channels ──
+        // ── Drum gate + freq channels ──
         const drumGates: NodeRepr_t[] = []
+        const drumFreqs: NodeRepr_t[] = []
         for (let d = 0; d < drumSounds; d++) {
           drumGates.push(el.in({ channel: offset + d }))
+          drumFreqs.push(el.in({ channel: offset + drumSounds + d }))
         }
 
         // ── Effect channels ──
-        const dkVol = el.in({ channel: offset + drumSounds + DRUMKIT_CH.vol })
-        const portamento = el.in({ channel: offset + drumSounds + DRUMKIT_CH.portamento })
+        const dkVol = el.in({ channel: offset + effBase + DRUMKIT_CH.vol })
+        const portamento = el.in({ channel: offset + effBase + DRUMKIT_CH.portamento })
         const freqMul = buildPortamento(portamento, effSettings?.portamento ?? 4)
-        const volMod = el.in({ channel: offset + drumSounds + DRUMKIT_CH.volumeSlide })
-        const pan = el.in({ channel: offset + drumSounds + DRUMKIT_CH.panning })
-        const tremRate = el.in({ channel: offset + drumSounds + DRUMKIT_CH.tremoloRate })
-        const tremDepth = el.in({ channel: offset + drumSounds + DRUMKIT_CH.tremoloDepth })
+        const volMod = el.in({ channel: offset + effBase + DRUMKIT_CH.volumeSlide })
+        const pan = el.in({ channel: offset + effBase + DRUMKIT_CH.panning })
+        const tremRate = el.in({ channel: offset + effBase + DRUMKIT_CH.tremoloRate })
+        const tremDepth = el.in({ channel: offset + effBase + DRUMKIT_CH.tremoloDepth })
 
         // Tremolo on drumkit mix.
         let dkEffVol = buildTremolo(
@@ -243,27 +246,24 @@ function compileTrackerVoiceSlots(
         let mixR: NodeRepr_t = zero
         for (let d = 0; d < drumSounds; d++) {
           const dkSlot = inst.slots[d]
-          const slotFreq = el.mul(
-            el.const({ value: midiToFreq(dkSlot.note + dkSlot.pitchOffset) }),
-            freqMul,
-          )
+          const slotFreq = el.mul(drumFreqs[d], freqMul)
           const voice = renderDrumKitSlot(
             dkSlot, doc.entities.instruments, drumGates[d], slotFreq,
             trackerKey, sampleMeta, sampleHashById,
             ctx.midiCcValues, ctx.paramRefs, ctx.ccBindings,
-            inletSignals, inst.id,
+            inletSignals, inst.id, instPanRef,
           )
           mixL = el.add(mixL, voice.left)
           mixR = el.add(mixR, voice.right)
         }
 
-        // Apply pan, vol, mute.
+        // Apply pan, vol, mute.  instPan is already folded into slot-level pan.
         const panAngle = el.mul(pan, Math.PI / 2)
         const dkVoice: StereoOut = {
           left: el.mul(mixL, dkEffVol, dkVol, slotMuteRef, el.cos(panAngle), masterGain, el.const({ value: 0.25 })),
           right: el.mul(mixR, dkEffVol, dkVol, slotMuteRef, el.sin(panAngle), masterGain, el.const({ value: 0.25 })),
         }
-        getChannel(inst.channelId ?? MASTER_CHANNEL_ID).push(applyPan(dkVoice, instPanRef))
+        getChannel(inst.channelId ?? MASTER_CHANNEL_ID).push(dkVoice)
       } else {
         // ── Regular instrument slot ──
         const gate = el.in({ channel: offset + REGULAR_CH.gate })
@@ -297,7 +297,7 @@ function compileTrackerVoiceSlots(
 
         const voice = renderInstrument(
           inst, effFreq, gate, trackerKey,
-          sampleMeta, 0, sampleHashById, 0,
+          sampleMeta, 0, sampleHashById,
           effVol, inletSignals,
           ctx.midiCcValues, ctx.paramRefs, ctx.ccBindings,
         )
@@ -354,15 +354,10 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
   if (slotLayouts.length > 0) {
     console.log(
       '[compile] slots:',
-      slotLayouts.map((l) =>
-        `${l.instId}: ${l.slotCount} slots × ${l.channelsPerSlot}ch = ch ${l.baseChannel}-${l.baseChannel + l.slotCount * l.channelsPerSlot - 1} (${l.isDrumkit ? 'dk' : 'reg'})`,
-      ).join(', '),
-      'total:',
-      slotLayouts.reduce((s, l) => s + l.slotCount * l.channelsPerSlot, 0),
-      'aligned:',
-      slotLayouts.length > 0
-        ? slotLayouts[slotLayouts.length - 1].baseChannel + slotLayouts[slotLayouts.length - 1].slotCount * slotLayouts[slotLayouts.length - 1].channelsPerSlot
-        : 0,
+      slotLayouts.map((l) => {
+        const chs = l.slotBaseChannels.map((c) => `${c}-${c + l.channelsPerSlot - 1}`).join(',')
+        return `${l.instId}: ${l.slotCount} slots × ${l.channelsPerSlot}ch = [${chs}] (${l.isDrumkit ? 'dk' : 'reg'})`
+      }).join(', '),
     )
   }
 
