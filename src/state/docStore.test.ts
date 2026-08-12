@@ -2,7 +2,8 @@ import { describe, expect, it, beforeEach } from 'vitest'
 import { useDocStore } from '../state/docStore'
 import { createDefaultDoc, makeId, newModularInstrument } from '../domain/factory'
 import type { Connection, Doc, Module, ModularInstrument } from '../domain/types'
-import { defaultParams } from '../domain/moduleDefs'
+import { defaultParams, MODULE_DEFS } from '../domain/moduleDefs'
+import { collectClipboardModules, preparePastedModules } from '../domain/clipboard'
 
 /** Reset the store to a known fresh state before each test. */
 function resetStore(doc?: Doc) {
@@ -510,7 +511,7 @@ describe('docStore — mixer', () => {
 })
 
 /* ------------------------------------------------------------------ */
-/*  Modular clipboard — pasteModules / removeModules                   */
+/*  Modular clipboard — pasteModules / removeModules / moveModules      */
 /* ------------------------------------------------------------------ */
 
 /** Build a fresh modular instrument, add it to the store, return its id. */
@@ -833,5 +834,205 @@ describe('docStore — modular clipboard', () => {
     expect(getModular(inst2.id).modules[id]).toBeDefined()
     // Original instrument is unchanged.
     expect(getModular(instId).modules[m.id]).toBeDefined()
+  })
+})
+
+/*  paste-then-select — auto-select pasted nodes                          */
+describe('paste-then-select round-trip', () => {
+  let instId: string
+
+  beforeEach(() => {
+    instId = setupModular()
+  })
+
+  it('preparePastedModules returns ids that match store after pasteModules', () => {
+    const inst = getModular(instId)
+    const nonSingletons = Object.keys(inst.modules).filter(
+      (id) => !MODULE_DEFS[inst.modules[id].type].singleton,
+    )
+    const clip = collectClipboardModules(inst, nonSingletons)!
+    const { modules: prepared } = preparePastedModules(clip)
+    const pastedIds = prepared.map((m) => m.id)
+
+    // Paste into the store.
+    useDocStore.getState().pasteModules(instId, prepared, [])
+
+    // All prepared IDs must exist in the store now.
+    const storeInst = getModular(instId)
+    for (const id of pastedIds) {
+      expect(storeInst.modules[id]).toBeDefined()
+    }
+  })
+
+  it('pasted ids are unique — no collision with existing or other pasted ids', () => {
+    const inst = getModular(instId)
+    const existingIds = new Set(Object.keys(inst.modules))
+    const nonSingletons = Object.keys(inst.modules).filter(
+      (id) => !MODULE_DEFS[inst.modules[id].type].singleton,
+    )
+    const clip = collectClipboardModules(inst, nonSingletons)!
+
+    // Paste twice — both sets should have unique, non-colliding ids.
+    const a = preparePastedModules(clip)
+    const b = preparePastedModules(clip)
+
+    useDocStore.getState().pasteModules(instId, a.modules, a.connections)
+    useDocStore.getState().pasteModules(instId, b.modules, b.connections)
+
+    const idsA = new Set(a.modules.map((m) => m.id))
+    const idsB = new Set(b.modules.map((m) => m.id))
+
+    // No overlap with existing ids.
+    for (const id of idsA) expect(existingIds.has(id)).toBe(false)
+    for (const id of idsB) expect(existingIds.has(id)).toBe(false)
+    // No overlap between the two pastes.
+    for (const id of idsA) expect(idsB.has(id)).toBe(false)
+  })
+
+  it('pasted connections reference only pasted module ids', () => {
+    const inst = getModular(instId)
+    const oscId = Object.keys(inst.modules).find((id) => inst.modules[id].type === 'osc')!
+    const filterId = Object.keys(inst.modules).find((id) => inst.modules[id].type === 'filter')!
+    const clip = collectClipboardModules(inst, [oscId, filterId])!
+    const { modules, connections } = preparePastedModules(clip)
+
+    useDocStore.getState().pasteModules(instId, modules, connections)
+
+    const pastedIds = new Set(modules.map((m) => m.id))
+    const storeInst = getModular(instId)
+    for (const c of connections) {
+      const stored = storeInst.connections[c.id]
+      expect(stored).toBeDefined()
+      // Both endpoints must be in the pasted set.
+      expect(pastedIds.has(stored.from.moduleId)).toBe(true)
+      expect(pastedIds.has(stored.to.moduleId)).toBe(true)
+    }
+  })
+
+  it('prepare → paste → find yields correct count and types', () => {
+    const inst = getModular(instId)
+    const nonSingletons = Object.keys(inst.modules).filter(
+      (id) => !MODULE_DEFS[inst.modules[id].type].singleton,
+    )
+    const clip = collectClipboardModules(inst, nonSingletons)!
+    const { modules, connections } = preparePastedModules(clip)
+    const before = Object.keys(getModular(instId).modules).length
+
+    useDocStore.getState().pasteModules(instId, modules, connections)
+
+    const storeInst = getModular(instId)
+    const allIds = Object.keys(storeInst.modules)
+    expect(allIds.length).toBe(before + modules.length)
+
+    // Pasted modules are present with correct type.
+    for (const m of modules) {
+      expect(storeInst.modules[m.id].type).toBe(m.type)
+    }
+  })
+})
+
+/*  moveModules — batch position updates for multi-node drag              */
+describe('docStore — moveModules', () => {
+  let instId: string
+
+  beforeEach(() => {
+    instId = setupModular()
+  })
+
+  it('moveModules moves a single module', () => {
+    const mod = makeClipModule('gain')
+    useDocStore.getState().pasteModules(instId, [mod], [])
+    const newPos = { x: 200, y: 300 }
+
+    useDocStore.getState().moveModules(instId, [{ id: mod.id, pos: newPos }])
+
+    const got = getModular(instId).modules[mod.id]
+    expect(got).toBeDefined()
+    expect(got.pos).toEqual(newPos)
+  })
+
+  it('moveModules moves multiple modules in one call', () => {
+    const m1 = makeClipModule('gain')
+    const m2 = makeClipModule('filter')
+    useDocStore.getState().pasteModules(instId, [m1, m2], [])
+
+    const pos1 = { x: 111, y: 222 }
+    const pos2 = { x: 333, y: 444 }
+    useDocStore.getState().moveModules(instId, [
+      { id: m1.id, pos: pos1 },
+      { id: m2.id, pos: pos2 },
+    ])
+
+    expect(getModular(instId).modules[m1.id].pos).toEqual(pos1)
+    expect(getModular(instId).modules[m2.id].pos).toEqual(pos2)
+  })
+
+  it('moveModules is one undo step', () => {
+    const m1 = makeClipModule('gain')
+    const m2 = makeClipModule('filter')
+    useDocStore.getState().pasteModules(instId, [m1, m2], [])
+    const origPos1 = { ...getModular(instId).modules[m1.id].pos }
+    const origPos2 = { ...getModular(instId).modules[m2.id].pos }
+
+    useDocStore.getState().moveModules(instId, [
+      { id: m1.id, pos: { x: 999, y: 111 } },
+      { id: m2.id, pos: { x: 888, y: 222 } },
+    ])
+
+    expect(getModular(instId).modules[m1.id].pos).toEqual({ x: 999, y: 111 })
+    expect(getModular(instId).modules[m2.id].pos).toEqual({ x: 888, y: 222 })
+
+    useDocStore.getState().undo()
+
+    // Both modules should revert to their original positions with ONE undo.
+    expect(getModular(instId).modules[m1.id].pos).toEqual(origPos1)
+    expect(getModular(instId).modules[m2.id].pos).toEqual(origPos2)
+  })
+
+  it('redo after moveModules restores the batch move', () => {
+    const m1 = makeClipModule('gain')
+    useDocStore.getState().pasteModules(instId, [m1], [])
+    const newPos = { x: 500, y: 600 }
+
+    useDocStore.getState().moveModules(instId, [{ id: m1.id, pos: newPos }])
+    useDocStore.getState().undo()
+    expect(getModular(instId).modules[m1.id].pos).not.toEqual(newPos)
+
+    useDocStore.getState().redo()
+    expect(getModular(instId).modules[m1.id].pos).toEqual(newPos)
+  })
+
+  it('ignores unknown module ids', () => {
+    const mod = makeClipModule('gain')
+    useDocStore.getState().pasteModules(instId, [mod], [])
+    const newPos = { x: 100, y: 200 }
+
+    useDocStore.getState().moveModules(instId, [
+      { id: mod.id, pos: newPos },
+      { id: 'nonexistent', pos: { x: 0, y: 0 } },
+    ])
+
+    expect(getModular(instId).modules[mod.id].pos).toEqual(newPos)
+  })
+
+  it('no-op for unknown instrument (no history entry)', () => {
+    const pastLen = useDocStore.getState().past.length
+    useDocStore.getState().moveModules('nonexistent', [
+      { id: 'any', pos: { x: 1, y: 2 } },
+    ])
+    expect(useDocStore.getState().past.length).toBe(pastLen)
+  })
+
+  it('same-position move still creates history entry (Immer sees new object ref)', () => {
+    const mod = makeClipModule('gain')
+    useDocStore.getState().pasteModules(instId, [mod], [])
+    const cur = getModular(instId).modules[mod.id].pos
+    const pastLen = useDocStore.getState().past.length
+
+    // Reassign the same coordinates as a new object — Immer sees the assignment as a change.
+    useDocStore.getState().moveModules(instId, [{ id: mod.id, pos: { ...cur } }])
+
+    expect(useDocStore.getState().past.length).toBe(pastLen + 1)
+    expect(getModular(instId).modules[mod.id].pos).toEqual(cur)
   })
 })

@@ -121,6 +121,8 @@ interface DocState {
   addModule: (instrumentId: Id, type: ModuleType, pos: { x: number; y: number }) => void
   removeModule: (instrumentId: Id, moduleId: Id) => void
   moveModule: (instrumentId: Id, moduleId: Id, pos: { x: number; y: number }) => void
+  /** Batch-move multiple modules in one undo step (multi-node drag stop). */
+  moveModules: (instrumentId: Id, moves: Array<{ id: Id; pos: { x: number; y: number } }>) => void
   setModuleParam: (instrumentId: Id, moduleId: Id, key: string, value: number) => void
   /** Update param ref immediately without triggering a recompile.
    *  Use during slider drags for smooth audio; call setModuleParamSilent
@@ -598,6 +600,16 @@ export const useDocStore = create<DocState>((set, get) => ({
       if (inst?.kind !== 'modular') return
       const mod = inst.modules[moduleId]
       if (mod) mod.pos = pos
+    }),
+
+  moveModules: (instrumentId, moves) =>
+    get().mutate((draft) => {
+      const inst = draft.entities.instruments[instrumentId]
+      if (inst?.kind !== 'modular') return
+      for (const { id, pos } of moves) {
+        const mod = inst.modules[id]
+        if (mod) mod.pos = pos
+      }
     }),
 
   setModuleParamFast: (_instrumentId, _moduleId, key, value) => {

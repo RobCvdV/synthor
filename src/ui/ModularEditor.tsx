@@ -21,8 +21,8 @@ import '@xyflow/react/dist/style.css'
 import { useDocStore } from '../state/docStore'
 import { useMidiStore } from '../state/midiStore'
 import { MODULE_DEFS } from '../domain/moduleDefs'
-import type { Connection, Id, Module, ModularInstrument, ModuleType } from '../domain/types'
-import { makeId } from '../domain/factory'
+import type { Id, ModuleType, ModularInstrument } from '../domain/types'
+import { collectClipboardModules, collectDeletableIds, preparePastedModules, type ModuleClipboard } from '../domain/clipboard'
 import type { AudioHost } from '../audio/host'
 
 /** Non-singleton module types the palette can drop into a patch. */
@@ -346,15 +346,11 @@ function isEditableTarget(target: EventTarget | null): boolean {
   return tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable
 }
 
-/** Clipboard for cut/copy of selected modules + their internal connections. */
-interface ModuleClipboard {
-  modules: Module[]
-  connections: Connection[]
-}
 
 function Editor({ inst, host }: { inst: ModularInstrument; host?: AudioHost }) {
   const addModule = useDocStore((s) => s.addModule)
-  const moveModule = useDocStore((s) => s.moveModule)
+  const _moveModule = useDocStore((s) => s.moveModule) // kept for hook count stability
+  void _moveModule
   const addConnection = useDocStore((s) => s.addConnection)
   const removeConnection = useDocStore((s) => s.removeConnection)
   const setConnectionGain = useDocStore((s) => s.setConnectionGain)
@@ -362,7 +358,7 @@ function Editor({ inst, host }: { inst: ModularInstrument; host?: AudioHost }) {
   const pasteModules = useDocStore((s) => s.pasteModules)
   const ensureModularSingletons = useDocStore((s) => s.ensureModularSingletons)
 
-  const { screenToFlowPosition } = useReactFlow()
+  const { screenToFlowPosition, getNodes } = useReactFlow()
 
   // Ensure required singleton source modules exist.
   useEffect(() => { ensureModularSingletons(inst.id) }, [inst.id, ensureModularSingletons])
@@ -380,7 +376,21 @@ function Editor({ inst, host }: { inst: ModularInstrument; host?: AudioHost }) {
     .sort()
     .join('|')
   const structuralKey = `${moduleKey}||${posKey}`
-  useEffect(() => setNodes(buildNodes(inst, host)), [structuralKey, inst.id, host, setNodes])
+  useEffect(() => {
+    // Preserve selection state across node rebuilds — otherwise React Flow
+    // clears the selection after any store change (drag stop, paste, delete).
+    const prevSelected = new Set(getNodes().filter((n) => n.selected).map((n) => n.id))
+    // Also auto-select nodes that were just pasted/cut (tracked via pendingSelectionRef).
+    const pending = pendingSelectionRef.current
+    pendingSelectionRef.current = []
+    for (const id of pending) prevSelected.add(id)
+    setNodes(
+      buildNodes(inst, host).map((n) => ({
+        ...n,
+        selected: prevSelected.has(n.id) || undefined,
+      })),
+    )
+  }, [structuralKey, inst.id, host, setNodes, getNodes])
 
   // Edges are cheap and fully controlled by the doc.
   const connectionKey = Object.keys(inst.connections).sort().join(',')
@@ -399,27 +409,23 @@ function Editor({ inst, host }: { inst: ModularInstrument; host?: AudioHost }) {
   // Clipboard (non-undoable, like the track clipboard).
   const clipboardRef = useRef<ModuleClipboard | null>(null)
 
+  // Track ids that should be selected after the next node rebuild — used
+  // to auto-select pasted nodes once they appear in the store.
+  const pendingSelectionRef = useRef<Id[]>([])
+
   // --- helpers for cut/copy/paste/delete --------------------------------
   // The "latest ref" pattern: update the ref body on every render so
   // keyboard handlers and button clicks always read the current store
   // state.  No useCallback, no stale-prop bugs, no eslint-disable.
 
-  const selectedIds = (): Id[] => [...selectedIdsRef.current]
+  const selectedIds = (): Id[] => getNodes().filter((n) => n.selected).map((n) => n.id)
 
   const doCopyRef = useRef<() => void>(() => {})
   doCopyRef.current = () => {
     const doc = useDocStore.getState().doc
     const current = doc.entities.instruments[inst.id]
     if (current?.kind !== 'modular') return
-    const ids = new Set(selectedIds())
-    const mods = Object.values(current.modules).filter(
-      (m) => ids.has(m.id) && !MODULE_DEFS[m.type].singleton,
-    )
-    if (mods.length === 0) return
-    const conns = Object.values(current.connections).filter(
-      (c) => ids.has(c.from.moduleId) && ids.has(c.to.moduleId),
-    )
-    clipboardRef.current = { modules: mods, connections: conns }
+    clipboardRef.current = collectClipboardModules(current, selectedIds())
   }
 
   const doCutRef = useRef<() => void>(() => {})
@@ -427,42 +433,21 @@ function Editor({ inst, host }: { inst: ModularInstrument; host?: AudioHost }) {
     const doc = useDocStore.getState().doc
     const current = doc.entities.instruments[inst.id]
     if (current?.kind !== 'modular') return
-    const ids = new Set(selectedIds())
-    const mods = Object.values(current.modules).filter(
-      (m) => ids.has(m.id) && !MODULE_DEFS[m.type].singleton,
-    )
-    if (mods.length === 0) return
-    const conns = Object.values(current.connections).filter(
-      (c) => ids.has(c.from.moduleId) && ids.has(c.to.moduleId),
-    )
-    clipboardRef.current = { modules: mods, connections: conns }
-    removeModules(inst.id, [...ids])
+    clipboardRef.current = collectClipboardModules(current, selectedIds())
+    if (clipboardRef.current) removeModules(inst.id, clipboardRef.current.modules.map((m) => m.id))
   }
 
   const doPasteRef = useRef<() => void>(() => {})
   doPasteRef.current = () => {
     const clip = clipboardRef.current
     if (!clip || clip.modules.length === 0) return
-
-    // Build id remap table; offset position so the pasted group is visible.
-    const idMap = new Map<Id, Id>()
-    const newMods: Module[] = clip.modules.map((m) => {
-      const newId = makeId('mod')
-      idMap.set(m.id, newId)
-      return { ...m, id: newId, params: { ...m.params }, pos: { x: m.pos.x + 44, y: m.pos.y + 44 } }
-    })
-
-    const newConns: Connection[] = clip.connections.map((c) => ({
-      id: makeId('con'),
-      from: { moduleId: idMap.get(c.from.moduleId) ?? c.from.moduleId, port: c.from.port },
-      to: { moduleId: idMap.get(c.to.moduleId) ?? c.to.moduleId, port: c.to.port },
-      gain: c.gain,
-    }))
-
     const doc = useDocStore.getState().doc
     const current = doc.entities.instruments[inst.id]
     if (current?.kind !== 'modular') return
-    pasteModules(inst.id, newMods, newConns)
+    const { modules, connections } = preparePastedModules(clip)
+    pasteModules(inst.id, modules, connections)
+    // Select the pasted nodes once they appear in the rebuilt node list.
+    pendingSelectionRef.current = modules.map((m) => m.id)
   }
 
   const doDeleteRef = useRef<() => void>(() => {})
@@ -470,18 +455,15 @@ function Editor({ inst, host }: { inst: ModularInstrument; host?: AudioHost }) {
     const doc = useDocStore.getState().doc
     const current = doc.entities.instruments[inst.id]
     if (current?.kind !== 'modular') return
-    const ids = new Set(selectedIds())
-    const mods = Object.values(current.modules).filter(
-      (m) => ids.has(m.id) && !MODULE_DEFS[m.type].singleton,
-    )
-    if (mods.length === 0) {
+    const ids = collectDeletableIds(current, selectedIds())
+    if (ids.length === 0) {
       if (selectedEdge) {
         removeConnection(inst.id, selectedEdge)
         setSelectedEdge(null)
       }
       return
     }
-    removeModules(inst.id, [...ids])
+    removeModules(inst.id, ids)
   }
 
   // --- keyboard shortcuts -----------------------------------------------
@@ -516,8 +498,13 @@ function Editor({ inst, host }: { inst: ModularInstrument; host?: AudioHost }) {
     [setNodes],
   )
   const onNodeDragStop = useCallback(
-    (_: unknown, node: Node) => moveModule(inst.id, node.id, node.position),
-    [moveModule, inst.id],
+    (_: unknown, _node: Node, nodes: Node[]) => {
+      useDocStore.getState().moveModules(
+        inst.id,
+        nodes.map((n) => ({ id: n.id, pos: n.position })),
+      )
+    },
+    [inst.id],
   )
   const onConnect = useCallback(
     (c: RFConnection) => {
@@ -562,19 +549,6 @@ function Editor({ inst, host }: { inst: ModularInstrument; host?: AudioHost }) {
   return (
     <div className="modular-editor">
       <div className="mod-palette">
-        <span className="mod-palette-label">Add:</span>
-        {PALETTE.map((type) => (
-          <button
-            key={type}
-            draggable
-            onDragStart={(e) => {
-              e.dataTransfer.setData('application/module-type', type)
-              e.dataTransfer.effectAllowed = 'move'
-            }}
-          >
-            {MODULE_DEFS[type].label}
-          </button>
-        ))}
         <span className="mod-palette-label" style={{ marginLeft: 12 }}>Selection:</span>
         <button onClick={() => doCopyRef.current()} title="Copy selected (⌘C / Ctrl+C)">Copy</button>
         <button onClick={() => doCutRef.current()} title="Cut selected (⌘X / Ctrl+X)">Cut</button>
@@ -594,6 +568,21 @@ function Editor({ inst, host }: { inst: ModularInstrument; host?: AudioHost }) {
             <button onClick={() => { removeConnection(inst.id, selected.id); setSelectedEdge(null) }}>remove</button>
           </span>
         )}
+      </div>
+      <div className="mod-palette">
+        <span className="mod-palette-label">Add:</span>
+        {PALETTE.map((type) => (
+          <button
+            key={type}
+            draggable
+            onDragStart={(e) => {
+              e.dataTransfer.setData('application/module-type', type)
+              e.dataTransfer.effectAllowed = 'move'
+            }}
+          >
+            {MODULE_DEFS[type].label}
+          </button>
+        ))}
       </div>
       <div className="mod-canvas" onDragOver={onDragOver} onDrop={onDrop}>
         <ReactFlow
