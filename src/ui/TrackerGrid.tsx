@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import type { Doc, Id, Pattern } from '../domain/types'
 import { midiToName } from '../domain/notes'
-import { isBuiltinLaneType, LANE_DEFS, readableLaneLabel, valueHex } from '../domain/effects'
+import { effInletNames, isBuiltinLaneType, LANE_DEFS, readableLaneLabel, valueHex } from '../domain/effects'
 import { useDocStore } from '../state/docStore'
 
 export interface Cursor {
@@ -75,17 +75,8 @@ export function TrackerGrid({ doc, pattern, cursor, playhead, muted, soloed, sel
 
   /** Get named inlet options from the instrument assigned to a track. */
   const getInletOptions = useMemo(() => {
-    const cache: Record<Id, { name: string }[]> = {}
-    for (const inst of instruments) {
-      if (inst.kind !== 'modular') { cache[inst.id] = []; continue }
-      const names: { name: string }[] = []
-      for (const m of Object.values(inst.modules)) {
-        if (m.type === 'eff' && m.name) {
-          names.push({ name: m.name })
-        }
-      }
-      cache[inst.id] = names
-    }
+    const cache: Record<Id, string[]> = {}
+    for (const inst of instruments) cache[inst.id] = effInletNames(inst)
     return cache
   }, [instruments])
 
@@ -165,7 +156,7 @@ export function TrackerGrid({ doc, pattern, cursor, playhead, muted, soloed, sel
               <div className="track-lanes">
                 {t.effectLanes.map((lane, _li) => {
                   const isAvailable = isBuiltinLaneType(lane.type) ||
-                    inletOptions.some((io) => io.name === lane.type)
+                    inletOptions.some((io) => io === lane.type)
                   return (
                     <span
                       key={lane.id}
@@ -201,7 +192,7 @@ export function TrackerGrid({ doc, pattern, cursor, playhead, muted, soloed, sel
                   {inletOptions.length > 0 && (
                     <optgroup label="Instrument Inlets">
                       {inletOptions.map((io) => (
-                        <option key={io.name} value={io.name}>{io.name}</option>
+                        <option key={io} value={io}>{io}</option>
                       ))}
                     </optgroup>
                   )}

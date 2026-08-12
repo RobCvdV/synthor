@@ -81,6 +81,19 @@ function newModule(type: ModuleType, x: number, y: number): Module {
   return { id: makeId('mod'), type, params: defaultParams(type), pos: { x, y } }
 }
 
+/**
+ * First free auto-name for a new `eff` inlet: "Eff In 01", "Eff In 02", …
+ * Scans the names already in use so numbering stays sequential and unique —
+ * the tracker matches lanes to inlets by name, so duplicates would collide.
+ */
+export function nextEffName(taken: Iterable<string>): string {
+  const used = new Set(taken)
+  for (let n = 1; ; n++) {
+    const name = `Eff In ${String(n).padStart(2, '0')}`
+    if (!used.has(name)) return name
+  }
+}
+
 function connect(from: Port, to: Port, gain = 1): Connection {
   return { id: makeId('con'), from, to, gain }
 }
@@ -95,9 +108,9 @@ export function newModularInstrument(name: string): ModularInstrument {
   const gate = newModule('gate', 40, 240)
   const volume = newModule('volume', 40, 440)
   const eff1 = newModule('eff', 40, 640)
-  eff1.name = 'Eff 01'
+  eff1.name = nextEffName([])
   const eff2 = newModule('eff', 40, 840)
-  eff2.name = 'Eff 02'
+  eff2.name = nextEffName([eff1.name ?? ''])
   const osc = newModule('osc', 260, 40)
   const filter = newModule('filter', 480, 40)
   const adsr = newModule('adsr', 260, 240)

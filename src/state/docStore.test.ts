@@ -535,7 +535,7 @@ function getModular(id: string): ModularInstrument {
 }
 
 /** Build a test module object (NOT in the store, like the component does). */
-function makeClipModule(type: 'gain' | 'filter' | 'osc' | 'crush', overrides: Partial<Module> = {}): Module {
+function makeClipModule(type: 'gain' | 'filter' | 'osc' | 'crush' | 'eff', overrides: Partial<Module> = {}): Module {
   return {
     id: makeId('mod'),
     type,
@@ -1034,5 +1034,130 @@ describe('docStore — moveModules', () => {
 
     expect(useDocStore.getState().past.length).toBe(pastLen + 1)
     expect(getModular(instId).modules[mod.id].pos).toEqual(cur)
+  })
+})
+
+describe('docStore — eff inlet naming', () => {
+  let instId: string
+
+  beforeEach(() => {
+    instId = setupModular()
+  })
+
+  const effModules = (id: string) =>
+    Object.values(getModular(id).modules).filter((m) => m.type === 'eff')
+
+  /** Add a track bound to `instId` to the current pattern, return its id. */
+  const addTrackUsing = (instrumentId: string): string => {
+    const store = useDocStore.getState()
+    const pat = store.doc.entities.patterns[store.doc.patternId]
+    store.addTrack(pat.trackIds.length, instrumentId)
+    const doc = useDocStore.getState().doc // fresh state — the old `store` ref is stale
+    return doc.entities.patterns[doc.patternId].trackIds[pat.trackIds.length]
+  }
+
+  it('addModule auto-names eff modules uniquely', () => {
+    const store = useDocStore.getState()
+    store.addModule(instId, 'eff', { x: 0, y: 0 })
+    store.addModule(instId, 'eff', { x: 0, y: 0 })
+    // Seeded with Eff In 01/02, so new ones continue at 03/04.
+    expect(effModules(instId).map((m) => m.name)).toEqual(['Eff In 01', 'Eff In 02', 'Eff In 03', 'Eff In 04'])
+  })
+
+  it('addModule reuses the lowest free eff name after deletion', () => {
+    const store = useDocStore.getState()
+    const eff1 = effModules(instId).find((m) => m.name === 'Eff In 01')!
+    store.removeModule(instId, eff1.id)
+    store.addModule(instId, 'eff', { x: 0, y: 0 })
+    expect(effModules(instId).map((m) => m.name)).toEqual(['Eff In 02', 'Eff In 01'])
+  })
+
+  it('addModule does not name non-eff modules', () => {
+    useDocStore.getState().addModule(instId, 'gain', { x: 0, y: 0 })
+    const gain = Object.values(getModular(instId).modules).find((m) => m.type === 'gain')
+    expect(gain?.name).toBeUndefined()
+  })
+
+  it('renameModule renames the inlet and remaps lanes on tracks using the instrument', () => {
+    const store = useDocStore.getState()
+    const trackId = addTrackUsing(instId)
+    store.addEffectLane(trackId, 'Eff In 01')
+    const laneId = useDocStore.getState().doc.entities.tracks[trackId].effectLanes[0].id
+    store.setCellEffectLane(trackId, 0, laneId, 0.75)
+
+    const eff1 = effModules(instId).find((m) => m.name === 'Eff In 01')!
+    store.renameModule(instId, eff1.id, 'Filter Cutoff')
+
+    expect(getModular(instId).modules[eff1.id].name).toBe('Filter Cutoff')
+    const track = useDocStore.getState().doc.entities.tracks[trackId]
+    expect(track.effectLanes[0].type).toBe('Filter Cutoff')
+    // Cell values keep their lane id — only the type string follows the name.
+    expect(track.cells[0].effectLanes[laneId]).toBe(0.75)
+  })
+
+  it('renameModule leaves lanes on tracks using other instruments alone', () => {
+    const store = useDocStore.getState()
+    const modTrack = addTrackUsing(instId)
+    const oscInst = Object.values(useDocStore.getState().doc.entities.instruments).find((i) => i.kind === 'osc')!
+    const oscTrack = addTrackUsing(oscInst.id)
+    for (const tid of [modTrack, oscTrack]) store.addEffectLane(tid, 'Eff In 01')
+
+    const eff1 = effModules(instId).find((m) => m.name === 'Eff In 01')!
+    store.renameModule(instId, eff1.id, 'Filter Cutoff')
+
+    const doc = useDocStore.getState().doc
+    expect(doc.entities.tracks[modTrack].effectLanes[0].type).toBe('Filter Cutoff')
+    expect(doc.entities.tracks[oscTrack].effectLanes[0].type).toBe('Eff In 01')
+  })
+
+  it('renameModule rejects empty and duplicate names', () => {
+    const store = useDocStore.getState()
+    const [eff1, eff2] = effModules(instId)
+
+    store.renameModule(instId, eff1.id, '   ')
+    expect(getModular(instId).modules[eff1.id].name).toBe('Eff In 01')
+
+    store.renameModule(instId, eff1.id, eff2.name!)
+    expect(getModular(instId).modules[eff1.id].name).toBe('Eff In 01')
+  })
+
+  it('renameModule renames a previously unnamed eff module', () => {
+    const store = useDocStore.getState()
+    // Insert an unnamed eff module the way old saves had them.
+    store.mutate((draft) => {
+      const inst = draft.entities.instruments[instId]
+      if (inst?.kind === 'modular') {
+        inst.modules.plain = { id: 'plain', type: 'eff', params: { cc: 0 }, pos: { x: 0, y: 0 } }
+      }
+    })
+
+    store.renameModule(instId, 'plain', 'My Inlet')
+    expect(getModular(instId).modules.plain.name).toBe('My Inlet')
+  })
+
+  it('pasteModules gives pasted eff modules fresh unique names', () => {
+    const m1 = makeClipModule('eff', { name: 'Eff In 01' })
+    const m2 = makeClipModule('eff', { name: 'Eff In 02' })
+    useDocStore.getState().pasteModules(instId, [m1, m2], [])
+
+    const inst = getModular(instId)
+    expect(inst.modules[m1.id].name).toBe('Eff In 03')
+    expect(inst.modules[m2.id].name).toBe('Eff In 04')
+    // All eff names in the instrument remain unique.
+    const names = effModules(instId).map((m) => m.name)
+    expect(new Set(names).size).toBe(names.length)
+  })
+
+  it('renameModule is undoable', () => {
+    const store = useDocStore.getState()
+    const eff1 = effModules(instId).find((m) => m.name === 'Eff In 01')!
+    store.renameModule(instId, eff1.id, 'Filter Cutoff')
+    expect(getModular(instId).modules[eff1.id].name).toBe('Filter Cutoff')
+
+    store.undo()
+    expect(getModular(instId).modules[eff1.id].name).toBe('Eff In 01')
+
+    store.redo()
+    expect(getModular(instId).modules[eff1.id].name).toBe('Filter Cutoff')
   })
 })

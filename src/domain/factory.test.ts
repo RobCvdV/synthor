@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { emptyCells, fitCells, makeId, newTrack, createDefaultDoc, createMasterChannel, createMixChannel, createChannelEffect, cloneInstrument, newOscInstrument, newModularInstrument, newDrumKitInstrument } from '../domain/factory'
+import { emptyCells, fitCells, makeId, newTrack, createDefaultDoc, createMasterChannel, createMixChannel, createChannelEffect, cloneInstrument, newOscInstrument, newModularInstrument, newDrumKitInstrument, nextEffName } from '../domain/factory'
+import { defaultParams } from '../domain/moduleDefs'
 import { MASTER_CHANNEL_ID } from '../domain/types'
 
 describe('emptyCells', () => {
@@ -39,6 +40,42 @@ describe('newTrack', () => {
     const track = newTrack(instId, 16)
     expect(track.effectLanes).toEqual([])
     expect(track.cells).toHaveLength(16)
+  })
+})
+
+describe('nextEffName', () => {
+  it('starts at Eff In 01 and increments', () => {
+    expect(nextEffName([])).toBe('Eff In 01')
+    expect(nextEffName(['Eff In 01'])).toBe('Eff In 02')
+    expect(nextEffName(['Eff In 01', 'Eff In 02'])).toBe('Eff In 03')
+  })
+
+  it('reuses the lowest free number', () => {
+    expect(nextEffName(['Eff In 02'])).toBe('Eff In 01')
+    expect(nextEffName(['Eff In 01', 'Eff In 03'])).toBe('Eff In 02')
+  })
+
+  it('zero-pads numbers so sorting stays lexical', () => {
+    const taken = Array.from({ length: 10 }, (_, i) => `Eff In ${String(i + 1).padStart(2, '0')}`)
+    expect(nextEffName(taken)).toBe('Eff In 11')
+  })
+
+  it('ignores unrelated names', () => {
+    expect(nextEffName(['Filter Cutoff', 'LFO Amount'])).toBe('Eff In 01')
+  })
+})
+
+describe('newModularInstrument', () => {
+  it('seeds two uniquely named eff inlets', () => {
+    const inst = newModularInstrument('Patch')
+    const effs = Object.values(inst.modules).filter((m) => m.type === 'eff')
+    expect(effs.map((m) => m.name)).toEqual(['Eff In 01', 'Eff In 02'])
+  })
+})
+
+describe('defaultParams', () => {
+  it('materializes the eff Default param from the registry', () => {
+    expect(defaultParams('eff')).toEqual({ cc: 0, default: 0 })
   })
 })
 

@@ -77,6 +77,8 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     outlets: ['val'],
     params: [
       { key: 'cc', label: 'CC', min: 0, max: 127, default: 0, step: 1 },
+      // Value when no effect lane (or MIDI CC) drives this inlet.
+      { key: 'default', label: 'Default', min: 0, max: 1, default: 0, step: 0.01 },
     ],
   },
   midicc: {

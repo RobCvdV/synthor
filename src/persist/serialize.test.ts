@@ -391,3 +391,85 @@ describe('migration portaUp/portaDown → portamento', () => {
     expect(track.cells[2].effectLanes.l1).toBeCloseTo(0.25) // 0.5 → 0.25
   })
 })
+
+describe('migration — eff inlet naming', () => {
+  /** A minimal current-version (v8) file with one modular instrument. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const makeV8 = (modules: Record<string, any>) => ({
+    schemaVersion: 8,
+    meta: META,
+    doc: {
+      patternId: 'p1',
+      sectionIds: [],
+      entities: {
+        instruments: {
+          i1: {
+            id: 'i1', kind: 'modular', name: 'Mod',
+            modules: {
+              ...modules,
+              vol: { id: 'vol', type: 'volume', params: {}, pos: { x: 0, y: 0 } },
+              out: { id: 'out', type: 'output', params: { gain: 1 }, pos: { x: 0, y: 0 } },
+            },
+            connections: {},
+            outputId: 'out',
+            channelId: 'master',
+            pan: 0,
+          },
+        },
+        tracks: {},
+        patterns: { p1: { id: 'p1', name: 'p', length: 1, trackIds: [] } },
+        sections: {},
+        samples: {},
+        mixChannels: {
+          master: { id: 'master', name: 'Master', kind: 'master', volume: 1, pan: 0, mute: false, solo: false, effects: [] },
+        },
+        mixerInstrumentOrder: ['i1'],
+      },
+    },
+  })
+
+  const effMods = (result: any) =>
+    Object.values((result.doc.entities.instruments as any).i1.modules as Record<string, any>)
+      .filter((m: any) => m.type === 'eff')
+      .map((m: any) => m.name)
+
+  it('backfills unique names on unnamed eff modules', () => {
+    const result = migrate(makeV8({
+      m1: { id: 'm1', type: 'eff', params: { cc: 0 }, pos: { x: 0, y: 0 } },
+      m2: { id: 'm2', type: 'eff', params: { cc: 0 }, pos: { x: 0, y: 0 } },
+    }))
+    expect(effMods(result)).toEqual(['Eff In 01', 'Eff In 02'])
+  })
+
+  it('renames duplicate names, keeping the first occurrence', () => {
+    const result = migrate(makeV8({
+      m1: { id: 'm1', type: 'eff', name: 'Filter Cutoff', params: { cc: 0 }, pos: { x: 0, y: 0 } },
+      m2: { id: 'm2', type: 'eff', name: 'Filter Cutoff', params: { cc: 0 }, pos: { x: 0, y: 0 } },
+    }))
+    expect(effMods(result)).toEqual(['Filter Cutoff', 'Eff In 01'])
+  })
+
+  it('skips taken names when backfilling unnamed modules', () => {
+    const result = migrate(makeV8({
+      m1: { id: 'm1', type: 'eff', name: 'Eff In 01', params: { cc: 0 }, pos: { x: 0, y: 0 } },
+      m2: { id: 'm2', type: 'eff', params: { cc: 0 }, pos: { x: 0, y: 0 } },
+    }))
+    expect(effMods(result)).toEqual(['Eff In 01', 'Eff In 02'])
+  })
+
+  it('leaves uniquely named eff modules untouched (identity preserved)', () => {
+    const file = makeV8({
+      m1: { id: 'm1', type: 'eff', name: 'Eff In 01', params: { cc: 0 }, pos: { x: 0, y: 0 } },
+      m2: { id: 'm2', type: 'eff', name: 'Eff In 02', params: { cc: 0 }, pos: { x: 0, y: 0 } },
+    })
+    expect(migrate(file)).toBe(file)
+  })
+
+  it('does not touch non-eff modules', () => {
+    const result = migrate(makeV8({
+      m1: { id: 'm1', type: 'osc', params: { waveform: 0 }, pos: { x: 0, y: 0 } },
+    }))
+    const mods = (result.doc.entities.instruments as any).i1.modules
+    expect(mods.m1.name).toBeUndefined()
+  })
+})

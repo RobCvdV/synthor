@@ -170,7 +170,10 @@ export function compileModular(
         const ccVal = cc > 0 ? (midiCcValues?.[cc] ?? 0) / 127 : 0
         const node = kconst(key('cc'), ccVal)
         ccBindings?.register(cc, refKey(key('cc')))
-        return el.add(laneSig ?? el.const({ value: 0 }), node)
+        // No lane bound → hold the module's Default param (a live ref, so the
+        // node slider applies without a recompile).
+        const fallback = kconst(key('default'), p.default ?? 0)
+        return el.add(laneSig ?? fallback, node)
       }
 
       case 'midicc': {

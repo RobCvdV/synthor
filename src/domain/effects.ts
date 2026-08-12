@@ -10,6 +10,8 @@
  * directly into the modular synth graph via `eff` source modules.
  */
 
+import type { Instrument } from './types'
+
 /** Built-in lane type constants. */
 export const BUILTIN_LANE_TYPES = [
   'vibratoRate',
@@ -45,6 +47,21 @@ export const LANE_DEFS: Record<BuiltinLaneType, LaneDef> = {
 /** Check whether a lane type string is a built-in type. */
 export function isBuiltinLaneType(type: string): type is BuiltinLaneType {
   return (BUILTIN_LANE_TYPES as readonly string[]).includes(type)
+}
+
+/**
+ * Named instrument inlets available as effect-lane types — the names of the
+ * instrument's `eff` modules. Unnamed eff modules aren't addressable by a
+ * lane, so they're excluded. Duplicate names are collapsed (two modules
+ * sharing a name are driven by the same lane).
+ */
+export function effInletNames(inst: Instrument | undefined): string[] {
+  if (!inst || inst.kind !== 'modular') return []
+  const names: string[] = []
+  for (const m of Object.values(inst.modules)) {
+    if (m.type === 'eff' && m.name && !names.includes(m.name)) names.push(m.name)
+  }
+  return names
 }
 
 /** Human-readable label for any lane type (built-in or named inlet). */

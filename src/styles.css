@@ -200,6 +200,15 @@ body {
 }
 .mod-del:hover { color: #e07a5f; }
 
+/* Eff inlet name — double-click to rename */
+.mod-name { cursor: text; border-bottom: 1px dashed transparent; }
+.mod-name:hover { border-bottom-color: var(--accent); }
+.mod-name-input {
+  background: var(--bg); border: 1px solid var(--accent); border-radius: 3px;
+  color: var(--fg); font: inherit; font-weight: bold; padding: 0 4px; width: 110px;
+}
+.mod-name-input:focus { outline: none; }
+
 /* Dim the whole node when bypassed — sliders remain interactive */
 .mod-node.bypassed { opacity: 0.4; }
 

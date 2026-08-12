@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { BUILTIN_LANE_TYPES, isBuiltinLaneType, LANE_DEFS, readableLaneLabel, valueHex } from '../domain/effects'
+import { BUILTIN_LANE_TYPES, effInletNames, isBuiltinLaneType, LANE_DEFS, readableLaneLabel, valueHex } from '../domain/effects'
+import { newDrumKitInstrument, newModularInstrument, newOscInstrument } from '../domain/factory'
+import type { Module } from '../domain/types'
 
 describe('LANE_DEFS', () => {
   it('has entries for all built-in lane types', () => {
@@ -28,5 +30,28 @@ describe('valueHex', () => {
     expect(valueHex(0)).toBe('00')
     expect(valueHex(1)).toBe('FF')
     expect(valueHex(0.5)).toBe('80')
+  })
+})
+
+describe('effInletNames', () => {
+  it('returns the names of eff modules on a modular instrument', () => {
+    const inst = newModularInstrument('Patch')
+    expect(effInletNames(inst)).toEqual(['Eff In 01', 'Eff In 02'])
+  })
+
+  it('returns [] for non-modular instruments', () => {
+    expect(effInletNames(newOscInstrument('Saw'))).toEqual([])
+    expect(effInletNames(newDrumKitInstrument('Kit'))).toEqual([])
+    expect(effInletNames(undefined)).toEqual([])
+  })
+
+  it('excludes unnamed eff modules and collapses duplicate names', () => {
+    const inst = newModularInstrument('Patch')
+    const unnamed: Module = { id: 'mod_u', type: 'eff', params: { cc: 0 }, pos: { x: 0, y: 0 } }
+    const dupe: Module = { id: 'mod_d', type: 'eff', params: { cc: 0 }, pos: { x: 0, y: 0 }, name: 'Eff In 01' }
+    inst.modules[unnamed.id] = unnamed
+    inst.modules[dupe.id] = dupe
+    // Unnamed module dropped; the second "Eff In 01" doesn't appear twice.
+    expect(effInletNames(inst)).toEqual(['Eff In 01', 'Eff In 02'])
   })
 })

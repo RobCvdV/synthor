@@ -15,6 +15,7 @@ import {
   newOscInstrument,
   newSection,
   newTrack,
+  nextEffName,
 } from '../domain/factory'
 import { defaultParams, isStereoEffect, MODULE_DEFS } from '../domain/moduleDefs'
 
@@ -119,6 +120,9 @@ interface DocState {
 
   // --- Modular graph editing (on a modular instrument) ---
   addModule: (instrumentId: Id, type: ModuleType, pos: { x: number; y: number }) => void
+  /** Rename an `eff` inlet. Lanes on tracks using this instrument that
+   *  referenced the old name follow the rename (name-based matching). */
+  renameModule: (instrumentId: Id, moduleId: Id, name: string) => void
   removeModule: (instrumentId: Id, moduleId: Id) => void
   moveModule: (instrumentId: Id, moduleId: Id, pos: { x: number; y: number }) => void
   /** Batch-move multiple modules in one undo step (multi-node drag stop). */
@@ -576,7 +580,35 @@ export const useDocStore = create<DocState>((set, get) => ({
       // Sources (note/gate) and the output sink are singletons — one per patch.
       if (MODULE_DEFS[type].singleton) return
       const id = makeId('mod')
-      inst.modules[id] = { id, type, params: defaultParams(type), pos }
+      const mod: Module = { id, type, params: defaultParams(type), pos }
+      // Named inlets need a unique name to be addressable from tracker lanes.
+      if (type === 'eff') {
+        mod.name = nextEffName(Object.values(inst.modules).map((m) => m.name ?? ''))
+      }
+      inst.modules[id] = mod
+    }),
+
+  renameModule: (instrumentId, moduleId, name) =>
+    get().mutate((draft) => {
+      const inst = draft.entities.instruments[instrumentId]
+      if (inst?.kind !== 'modular') return
+      const mod = inst.modules[moduleId]
+      if (!mod || mod.type !== 'eff') return
+      const trimmed = name.trim()
+      if (!trimmed || trimmed === mod.name) return
+      // Names must stay unique: two modules sharing a name share one lane.
+      for (const other of Object.values(inst.modules)) {
+        if (other.id !== moduleId && other.type === 'eff' && other.name === trimmed) return
+      }
+      const oldName = mod.name
+      mod.name = trimmed
+      // Follow renames through to lanes so existing automation keeps working.
+      for (const track of Object.values(draft.entities.tracks)) {
+        if (track.instrumentId !== instrumentId) continue
+        for (const lane of track.effectLanes) {
+          if (lane.type === oldName) lane.type = trimmed
+        }
+      }
     }),
 
   removeModule: (instrumentId, moduleId) =>
@@ -713,9 +745,18 @@ export const useDocStore = create<DocState>((set, get) => ({
     get().mutate((draft) => {
       const inst = draft.entities.instruments[instrumentId]
       if (inst?.kind !== 'modular') return
+      // Pasted eff modules get fresh names so they don't collide with the
+      // originals (lanes match inlets by name).
+      const taken = new Set(Object.values(inst.modules).map((m) => m.name ?? ''))
       for (const m of modules) {
         if (MODULE_DEFS[m.type].singleton) continue
-        inst.modules[m.id] = m
+        if (m.type === 'eff') {
+          const name = nextEffName(taken)
+          taken.add(name)
+          inst.modules[m.id] = { ...m, name }
+        } else {
+          inst.modules[m.id] = m
+        }
       }
       for (const c of connections) {
         if (inst.modules[c.from.moduleId] && inst.modules[c.to.moduleId]) {

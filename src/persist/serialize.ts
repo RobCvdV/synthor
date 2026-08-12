@@ -11,6 +11,7 @@
  */
 
 import type { Doc } from '../domain/types'
+import { nextEffName } from '../domain/factory'
 
 /**
  * Bump when the on-disk shape changes; add a matching `migrate` case.
@@ -111,6 +112,10 @@ export function migrate(raw: unknown): SongFile {
   // Convert old effect1/effect2 modules to `eff` modules. Runs on every load
   // (not version-gated) so patches created before the change get updated.
   raw = convertEffectModules(raw)
+  // Backfill unique names on eff modules (palette-created ones used to be
+  // unnamed and therefore unreachable from tracker lanes). Runs on every
+  // load so existing saves recover without a version bump.
+  raw = nameEffModules(raw)
   // Merge old portaUp / portaDown lanes into portamento.
   raw = convertPortaLanes(raw)
 
@@ -493,6 +498,55 @@ function convertEffectModules(raw: any): any {
     fixed[id] = changed
       ? { ...inst, modules: newMods, connections: newConns }
       : inst
+  }
+
+  if (!changed) return raw
+  return {
+    ...raw,
+    doc: { ...raw.doc, entities: { ...raw.doc.entities, instruments: fixed } },
+  }
+}
+
+/**
+ * Give every `eff` module a unique name. Palette-created eff modules were
+ * stored unnamed, which made them invisible to the tracker lane picker and
+ * the engine (lanes address inlets by name). Unnamed modules get the next
+ * free "Eff In NN" name; duplicate names are renamed the same way so the
+ * first occurrence keeps its name and keeps any lanes bound to it.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function nameEffModules(raw: any): any {
+  const insts = raw.doc?.entities?.instruments
+  if (!insts || !isRecord(insts)) return raw
+
+  let changed = false
+  const fixed: Record<string, unknown> = {}
+  for (const [id, inst] of Object.entries(insts)) {
+    if (!isRecord(inst) || inst.kind !== 'modular' || !isRecord(inst.modules)) {
+      fixed[id] = inst
+      continue
+    }
+    const mods = inst.modules as Record<string, unknown>
+    const seen = new Set<string>()
+    const named: Record<string, unknown> = {}
+    for (const [mid, m] of Object.entries(mods)) {
+      if (!isRecord(m) || m.type !== 'eff') {
+        named[mid] = m
+        continue
+      }
+      const name = typeof m.name === 'string' && m.name.trim() ? m.name.trim() : ''
+      if (name && !seen.has(name)) {
+        seen.add(name)
+        named[mid] = { ...m, name }
+        continue
+      }
+      const fresh = nextEffName(seen)
+      seen.add(fresh)
+      named[mid] = { ...m, name: fresh }
+      changed = true
+    }
+    if (changed) fixed[id] = { ...inst, modules: named }
+    else fixed[id] = inst
   }
 
   if (!changed) return raw
