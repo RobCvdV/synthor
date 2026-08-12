@@ -3,6 +3,9 @@
   --panel: #161a21;
   --fg: #d7dde5;
   --muted: #6b7480;
+  --input: #173c37;
+  --output: #321f19;
+  --highlight: #2c736b;
   --accent: #4fd1c5;
   --beat: #1b212b;
   --cursor: #2b3a55;
@@ -166,11 +169,16 @@ body {
   position: relative;
   width: 176px;
   background: #12161d;
-  border: 1px solid #2a3644;
+  border: 2px solid #353535;
   border-radius: 6px;
   color: var(--fg);
   font-size: 12px;
 }
+.mod-node:hover { border-color: var(--highlight); }
+
+.mod-node.input > .mod-node-head { background: var(--input); }
+.mod-node.output > .mod-node-head { background: var(--output); }
+
 .react-flow__node.selected .mod-node { border-color: var(--accent); }
 .mod-node-head {
   display: flex; align-items: center; gap: 4px;

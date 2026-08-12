@@ -1,7 +1,8 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 import { useDocStore } from '../state/docStore'
-import { createDefaultDoc } from '../domain/factory'
-import type { Doc } from '../domain/types'
+import { createDefaultDoc, makeId, newModularInstrument } from '../domain/factory'
+import type { Connection, Doc, Module, ModularInstrument } from '../domain/types'
+import { defaultParams } from '../domain/moduleDefs'
 
 /** Reset the store to a known fresh state before each test. */
 function resetStore(doc?: Doc) {
@@ -505,5 +506,332 @@ describe('docStore — mixer', () => {
     expect(useDocStore.getState().doc.entities.mixerInstrumentOrder).toContain(id)
     useDocStore.getState().removeInstrument(id)
     expect(useDocStore.getState().doc.entities.mixerInstrumentOrder).not.toContain(id)
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/*  Modular clipboard — pasteModules / removeModules                   */
+/* ------------------------------------------------------------------ */
+
+/** Build a fresh modular instrument, add it to the store, return its id. */
+function setupModular(): string {
+  resetStore()
+  const store = useDocStore.getState()
+  const inst = newModularInstrument('Test Synth')
+  store.mutate((draft) => {
+    draft.entities.instruments[inst.id] = inst
+  })
+  return inst.id
+}
+
+/** Get the modular instrument from the store, raw (no selector). */
+function getModular(id: string): ModularInstrument {
+  const doc = useDocStore.getState().doc
+  // Read fresh from the store — the id doesn't change, but the state might have
+  const inst = doc.entities.instruments[id]
+  if (!inst || inst.kind !== 'modular') throw new Error('not found')
+  return inst
+}
+
+/** Build a test module object (NOT in the store, like the component does). */
+function makeClipModule(type: 'gain' | 'filter' | 'osc' | 'crush', overrides: Partial<Module> = {}): Module {
+  return {
+    id: makeId('mod'),
+    type,
+    params: { ...defaultParams(type) },
+    pos: { x: 100, y: 100 },
+    ...overrides,
+  }
+}
+
+/** Build a test connection between two modules. */
+function makeClipConnection(fromId: string, toId: string, fromPort: string, toPort: string, gain = 1): Connection {
+  return {
+    id: makeId('con'),
+    from: { moduleId: fromId, port: fromPort },
+    to: { moduleId: toId, port: toPort },
+    gain,
+  }
+}
+
+describe('docStore — modular clipboard', () => {
+  let instId: string
+
+  beforeEach(() => {
+    instId = setupModular()
+  })
+
+  /* ---- pasteModules ---- */
+
+  it('pasteModules adds a single module', () => {
+    const m = makeClipModule('gain')
+    useDocStore.getState().pasteModules(instId, [m], [])
+
+    const inst = getModular(instId)
+    expect(inst.modules[m.id]).toBeDefined()
+    expect(inst.modules[m.id]!.type).toBe('gain')
+    expect(inst.modules[m.id]!.params).toEqual(defaultParams('gain'))
+  })
+
+  it('pasteModules adds multiple modules', () => {
+    const m1 = makeClipModule('gain')
+    const m2 = makeClipModule('filter')
+    useDocStore.getState().pasteModules(instId, [m1, m2], [])
+
+    const inst = getModular(instId)
+    expect(Object.keys(inst.modules)).toContain(m1.id)
+    expect(Object.keys(inst.modules)).toContain(m2.id)
+  })
+
+  it('pasteModules adds modules and their internal connections', () => {
+    const m1 = makeClipModule('osc')
+    const m2 = makeClipModule('gain')
+    const conn = makeClipConnection(m1.id, m2.id, 'out', 'in')
+    useDocStore.getState().pasteModules(instId, [m1, m2], [conn])
+
+    const inst = getModular(instId)
+    expect(inst.modules[m1.id]).toBeDefined()
+    expect(inst.modules[m2.id]).toBeDefined()
+    expect(inst.connections[conn.id]).toBeDefined()
+    expect(inst.connections[conn.id]!.from.moduleId).toBe(m1.id)
+    expect(inst.connections[conn.id]!.to.moduleId).toBe(m2.id)
+  })
+
+  it('pasteModules skips singleton modules', () => {
+    const mod = makeClipModule('gain')
+    // Try to paste a 'note' module (which is singleton)
+    const singleton: Module = {
+      id: makeId('mod'),
+      type: 'note',
+      params: { ...defaultParams('note') },
+      pos: { x: 0, y: 0 },
+    }
+    useDocStore.getState().pasteModules(instId, [mod, singleton], [])
+
+    const inst = getModular(instId)
+    expect(inst.modules[mod.id]).toBeDefined()
+    expect(inst.modules[singleton.id]).toBeUndefined()
+  })
+
+  it('pasteModules skips connections whose endpoints do not exist in the target', () => {
+    const m1 = makeClipModule('gain')
+    const dangling = makeClipConnection('nonexistent1', 'nonexistent2', 'out', 'in')
+    useDocStore.getState().pasteModules(instId, [m1], [dangling])
+
+    const inst = getModular(instId)
+    expect(inst.modules[m1.id]).toBeDefined()
+    expect(inst.connections[dangling.id]).toBeUndefined()
+  })
+
+  it('pasteModules is one undo step', () => {
+    const m1 = makeClipModule('gain')
+    const m2 = makeClipModule('filter')
+    const before = Object.keys(getModular(instId).modules).length
+
+    useDocStore.getState().pasteModules(instId, [m1, m2], [])
+    expect(Object.keys(getModular(instId).modules).length).toBe(before + 2)
+
+    useDocStore.getState().undo()
+    expect(Object.keys(getModular(instId).modules).length).toBe(before)
+  })
+
+  /* ---- removeModules ---- */
+
+  it('removeModules removes a single module', () => {
+    const m = makeClipModule('gain')
+    useDocStore.getState().pasteModules(instId, [m], [])
+    expect(getModular(instId).modules[m.id]).toBeDefined()
+
+    useDocStore.getState().removeModules(instId, [m.id])
+    expect(getModular(instId).modules[m.id]).toBeUndefined()
+  })
+
+  it('removeModules removes multiple modules', () => {
+    const m1 = makeClipModule('gain')
+    const m2 = makeClipModule('filter')
+    useDocStore.getState().pasteModules(instId, [m1, m2], [])
+
+    useDocStore.getState().removeModules(instId, [m1.id, m2.id])
+    const inst = getModular(instId)
+    expect(inst.modules[m1.id]).toBeUndefined()
+    expect(inst.modules[m2.id]).toBeUndefined()
+  })
+
+  it('removeModules also removes incident connections', () => {
+    const m1 = makeClipModule('osc')
+    const m2 = makeClipModule('gain')
+    const conn = makeClipConnection(m1.id, m2.id, 'out', 'in')
+    useDocStore.getState().pasteModules(instId, [m1, m2], [conn])
+    expect(getModular(instId).connections[conn.id]).toBeDefined()
+
+    // Remove only m1 — the connection should also be removed.
+    useDocStore.getState().removeModules(instId, [m1.id])
+    const inst2 = getModular(instId)
+    expect(inst2.modules[m1.id]).toBeUndefined()
+    expect(inst2.connections[conn.id]).toBeUndefined()
+  })
+
+  it('removeModules does not remove singleton modules', () => {
+    const inst = getModular(instId)
+    const noteId = Object.values(inst.modules).find((m) => m.type === 'note')!.id
+
+    useDocStore.getState().removeModules(instId, [noteId])
+    expect(getModular(instId).modules[noteId]).toBeDefined()
+  })
+
+  it('removeModules is one undo step (multiple modules)', () => {
+    const m1 = makeClipModule('gain')
+    const m2 = makeClipModule('filter')
+    useDocStore.getState().pasteModules(instId, [m1, m2], [])
+    const before = Object.keys(getModular(instId).modules).length
+
+    useDocStore.getState().removeModules(instId, [m1.id, m2.id])
+    expect(getModular(instId).modules[m1.id]).toBeUndefined()
+    expect(getModular(instId).modules[m2.id]).toBeUndefined()
+
+    useDocStore.getState().undo()
+    expect(getModular(instId).modules[m1.id]).toBeDefined()
+    expect(getModular(instId).modules[m2.id]).toBeDefined()
+    expect(Object.keys(getModular(instId).modules).length).toBe(before)
+  })
+
+  it('redo after removeModules restores the removal', () => {
+    const m1 = makeClipModule('gain')
+    useDocStore.getState().pasteModules(instId, [m1], [])
+    useDocStore.getState().removeModules(instId, [m1.id])
+    useDocStore.getState().undo()
+    useDocStore.getState().redo()
+    expect(getModular(instId).modules[m1.id]).toBeUndefined()
+  })
+
+  /* ---- combined cut + paste (simulated component flow) ---- */
+
+  it('cut then paste duplicates modules with fresh ids (simulated)', () => {
+    const m1 = makeClipModule('gain')
+    const m2 = makeClipModule('filter')
+    const conn = makeClipConnection(m1.id, m2.id, 'out', 'in')
+    useDocStore.getState().pasteModules(instId, [m1, m2], [conn])
+
+    // Build a new module set with fresh ids (mimics the component's id remap).
+    const idMap = new Map<string, string>()
+    const clipModules = [getModular(instId).modules[m1.id]!, getModular(instId).modules[m2.id]!]
+    const clipConns = [getModular(instId).connections[conn.id]!]
+
+    const newMods = clipModules.map((m) => {
+      const id = makeId('mod')
+      idMap.set(m.id, id)
+      return { ...m, id, params: { ...m.params }, pos: { x: m.pos.x + 44, y: m.pos.y + 44 } }
+    })
+    const newConns = clipConns.map((c) => ({
+      id: makeId('con'),
+      from: { moduleId: idMap.get(c.from.moduleId) ?? c.from.moduleId, port: c.from.port },
+      to: { moduleId: idMap.get(c.to.moduleId) ?? c.to.moduleId, port: c.to.port },
+      gain: c.gain,
+    }))
+
+    // Paste new ones
+    useDocStore.getState().pasteModules(instId, newMods, newConns)
+
+    const inst = getModular(instId)
+    expect(inst.modules[newMods[0].id]).toBeDefined()
+    expect(inst.modules[newMods[1].id]).toBeDefined()
+    expect(inst.connections[newConns[0].id]).toBeDefined()
+    // The connection should bridge the NEW ids, not the old ones.
+    expect(inst.connections[newConns[0].id]!.from.moduleId).toBe(newMods[0].id)
+    expect(inst.connections[newConns[0].id]!.to.moduleId).toBe(newMods[1].id)
+  })
+
+  it('cut then paste preserves module params', () => {
+    const m = makeClipModule('filter', { params: { cutoff: 500, resonance: 0.3, envAmount: 0, keyTrack: 0, mode: 0 } })
+    useDocStore.getState().pasteModules(instId, [m], [])
+
+    const clip = getModular(instId).modules[m.id]!
+    const id = makeId('mod')
+    const pasted = { ...clip, id, params: { ...clip.params }, pos: { x: clip.pos.x + 44, y: clip.pos.y + 44 } }
+    useDocStore.getState().pasteModules(instId, [pasted], [])
+
+    const inst = getModular(instId)
+    expect(inst.modules[id]!.params.cutoff).toBe(500)
+  })
+
+  it('paste after cut restores connections between the pasted modules', () => {
+    // Full component simulation: add 2 connected modules, cut them, paste back.
+    const m1 = makeClipModule('osc')
+    const m2 = makeClipModule('gain')
+    const conn = makeClipConnection(m1.id, m2.id, 'out', 'in')
+    useDocStore.getState().pasteModules(instId, [m1, m2], [conn])
+
+    // Grab the modules + connections (simulate clipboard storage)
+    const d1 = getModular(instId)
+    const clipMods = [d1.modules[m1.id]!, d1.modules[m2.id]!]
+    const clipConns = [d1.connections[conn.id]!]
+
+    // Cut: remove them
+    useDocStore.getState().removeModules(instId, [m1.id, m2.id])
+
+    // Paste: remap ids
+    const idMap = new Map<string, string>()
+    const newMods = clipMods.map((m) => {
+      const id = makeId('mod')
+      idMap.set(m.id, id)
+      return { ...m, id, params: { ...m.params }, pos: { x: m.pos.x + 44, y: m.pos.y + 44 } }
+    })
+    const newConns = clipConns.map((c) => ({
+      id: makeId('con'),
+      from: { moduleId: idMap.get(c.from.moduleId)!, port: c.from.port },
+      to: { moduleId: idMap.get(c.to.moduleId)!, port: c.to.port },
+      gain: c.gain,
+    }))
+    useDocStore.getState().pasteModules(instId, newMods, newConns)
+
+    const d2 = getModular(instId)
+    expect(d2.modules[newMods[0].id]).toBeDefined()
+    expect(d2.modules[newMods[1].id]).toBeDefined()
+    expect(d2.connections[newConns[0].id]).toBeDefined()
+  })
+
+  it('multiple pastes produce independent copies', () => {
+    const m = makeClipModule('gain', { params: { level: 0.5 } })
+    useDocStore.getState().pasteModules(instId, [m], [])
+
+    const clip = getModular(instId).modules[m.id]!
+
+    // Paste first copy
+    const id1 = makeId('mod')
+    const pasted1 = { ...clip, id: id1, params: { ...clip.params }, pos: { x: 150, y: 150 } }
+    useDocStore.getState().pasteModules(instId, [pasted1], [])
+
+    // Paste second copy
+    const id2 = makeId('mod')
+    const pasted2 = { ...clip, id: id2, params: { ...clip.params }, pos: { x: 200, y: 200 } }
+    useDocStore.getState().pasteModules(instId, [pasted2], [])
+
+    const inst = getModular(instId)
+    expect(inst.modules[id1]).toBeDefined()
+    expect(inst.modules[id2]).toBeDefined()
+    // Both copies should have the original params, independent.
+    expect(inst.modules[id1]!.params.level).toBe(0.5)
+    expect(inst.modules[id2]!.params.level).toBe(0.5)
+  })
+
+  it('pasting into a different instrument works', () => {
+    const m = makeClipModule('gain')
+    useDocStore.getState().pasteModules(instId, [m], [])
+
+    // Create a second instrument and paste into it
+    const store = useDocStore.getState()
+    const inst2 = newModularInstrument('Target Synth')
+    store.mutate((draft) => {
+      draft.entities.instruments[inst2.id] = inst2
+    })
+
+    const clip = getModular(instId).modules[m.id]!
+    const id = makeId('mod')
+    const pasted = { ...clip, id, params: { ...clip.params }, pos: { x: 150, y: 150 } }
+    store.pasteModules(inst2.id, [pasted], [])
+
+    expect(getModular(inst2.id).modules[id]).toBeDefined()
+    // Original instrument is unchanged.
+    expect(getModular(instId).modules[m.id]).toBeDefined()
   })
 })

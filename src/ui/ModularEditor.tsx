@@ -78,6 +78,7 @@ function ModuleNode({ data }: NodeProps) {
 
   const def = module ? MODULE_DEFS[module.type] : undefined
   const isOutput = module?.type === 'output'
+  const isInput = def?.inlets.length === 0 && def?.outlets.length > 0
   const hasBypass = def?.params.some((p) => p.key === 'bypass') ?? false
   const bypassed = hasBypass && (module?.params.bypass ?? 0) === 1
   const sampleEntities = useDocStore((s) => s.doc.entities.samples)
@@ -137,7 +138,7 @@ function ModuleNode({ data }: NodeProps) {
   const clip = levelRef.current > CLIP_THRESHOLD
 
   return (
-    <div className={'mod-node' + (bypassed ? ' bypassed' : '')}>
+    <div className={'mod-node' + (bypassed ? ' bypassed' : '' + (isInput ? ' input' : '') + (isOutput ? ' output' : ''))}>
       <div className="mod-node-head">
         {isOutput && (
           <span
@@ -399,39 +400,47 @@ function Editor({ inst, host }: { inst: ModularInstrument; host?: AudioHost }) {
   const clipboardRef = useRef<ModuleClipboard | null>(null)
 
   // --- helpers for cut/copy/paste/delete --------------------------------
+  // The "latest ref" pattern: update the ref body on every render so
+  // keyboard handlers and button clicks always read the current store
+  // state.  No useCallback, no stale-prop bugs, no eslint-disable.
 
   const selectedIds = (): Id[] => [...selectedIdsRef.current]
 
-  /** Connections whose BOTH endpoints are in `ids`. */
-  function internalConns(ids: Set<Id>): Connection[] {
-    return Object.values(inst.connections).filter(
-      (c) => ids.has(c.from.moduleId) && ids.has(c.to.moduleId),
-    )
-  }
-
-  /** Modules that are safe to delete (non-singleton, in the set). */
-  function deletableModules(ids: Set<Id>): Module[] {
-    return Object.values(inst.modules).filter(
+  const doCopyRef = useRef<() => void>(() => {})
+  doCopyRef.current = () => {
+    const doc = useDocStore.getState().doc
+    const current = doc.entities.instruments[inst.id]
+    if (current?.kind !== 'modular') return
+    const ids = new Set(selectedIds())
+    const mods = Object.values(current.modules).filter(
       (m) => ids.has(m.id) && !MODULE_DEFS[m.type].singleton,
     )
+    if (mods.length === 0) return
+    const conns = Object.values(current.connections).filter(
+      (c) => ids.has(c.from.moduleId) && ids.has(c.to.moduleId),
+    )
+    clipboardRef.current = { modules: mods, connections: conns }
   }
 
-  const doCopy = useCallback(() => {
+  const doCutRef = useRef<() => void>(() => {})
+  doCutRef.current = () => {
+    const doc = useDocStore.getState().doc
+    const current = doc.entities.instruments[inst.id]
+    if (current?.kind !== 'modular') return
     const ids = new Set(selectedIds())
-    const mods = deletableModules(ids)
+    const mods = Object.values(current.modules).filter(
+      (m) => ids.has(m.id) && !MODULE_DEFS[m.type].singleton,
+    )
     if (mods.length === 0) return
-    clipboardRef.current = { modules: mods, connections: internalConns(ids) }
-  }, [inst])
-
-  const doCut = useCallback(() => {
-    const ids = new Set(selectedIds())
-    const mods = deletableModules(ids)
-    if (mods.length === 0) return
-    clipboardRef.current = { modules: mods, connections: internalConns(ids) }
+    const conns = Object.values(current.connections).filter(
+      (c) => ids.has(c.from.moduleId) && ids.has(c.to.moduleId),
+    )
+    clipboardRef.current = { modules: mods, connections: conns }
     removeModules(inst.id, [...ids])
-  }, [inst, removeModules])
+  }
 
-  const doPaste = useCallback(() => {
+  const doPasteRef = useRef<() => void>(() => {})
+  doPasteRef.current = () => {
     const clip = clipboardRef.current
     if (!clip || clip.modules.length === 0) return
 
@@ -450,14 +459,22 @@ function Editor({ inst, host }: { inst: ModularInstrument; host?: AudioHost }) {
       gain: c.gain,
     }))
 
+    const doc = useDocStore.getState().doc
+    const current = doc.entities.instruments[inst.id]
+    if (current?.kind !== 'modular') return
     pasteModules(inst.id, newMods, newConns)
-  }, [inst.id, pasteModules])
+  }
 
-  const doDelete = useCallback(() => {
+  const doDeleteRef = useRef<() => void>(() => {})
+  doDeleteRef.current = () => {
+    const doc = useDocStore.getState().doc
+    const current = doc.entities.instruments[inst.id]
+    if (current?.kind !== 'modular') return
     const ids = new Set(selectedIds())
-    const mods = deletableModules(ids)
+    const mods = Object.values(current.modules).filter(
+      (m) => ids.has(m.id) && !MODULE_DEFS[m.type].singleton,
+    )
     if (mods.length === 0) {
-      // No module selected — check for a selected edge.
       if (selectedEdge) {
         removeConnection(inst.id, selectedEdge)
         setSelectedEdge(null)
@@ -465,9 +482,10 @@ function Editor({ inst, host }: { inst: ModularInstrument; host?: AudioHost }) {
       return
     }
     removeModules(inst.id, [...ids])
-  }, [inst.id, selectedEdge, removeModules, removeConnection])
+  }
 
   // --- keyboard shortcuts -----------------------------------------------
+  // Stable effect with empty deps — refs are always current.
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -481,15 +499,15 @@ function Editor({ inst, host }: { inst: ModularInstrument; host?: AudioHost }) {
       if (isEditableTarget(e.target)) return
 
       e.preventDefault()
-      if (isCopy) doCopy()
-      else if (isCut) doCut()
-      else if (isPaste) doPaste()
-      else if (isDel) doDelete()
+      if (isCopy) doCopyRef.current()
+      else if (isCut) doCutRef.current()
+      else if (isPaste) doPasteRef.current()
+      else if (isDel) doDeleteRef.current()
     }
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [doCopy, doCut, doPaste, doDelete])
+  }, [])
 
   // --- React Flow callbacks ---------------------------------------------
 
@@ -558,10 +576,10 @@ function Editor({ inst, host }: { inst: ModularInstrument; host?: AudioHost }) {
           </button>
         ))}
         <span className="mod-palette-label" style={{ marginLeft: 12 }}>Selection:</span>
-        <button onClick={doCopy} title="Copy selected (⌘C / Ctrl+C)">Copy</button>
-        <button onClick={doCut} title="Cut selected (⌘X / Ctrl+X)">Cut</button>
-        <button onClick={doPaste} title="Paste (⌘V / Ctrl+V)">Paste</button>
-        <button onClick={doDelete} title="Delete selected (Del)">Del</button>
+        <button onClick={() => doCopyRef.current()} title="Copy selected (⌘C / Ctrl+C)">Copy</button>
+        <button onClick={() => doCutRef.current()} title="Cut selected (⌘X / Ctrl+X)">Cut</button>
+        <button onClick={() => doPasteRef.current()} title="Paste (⌘V / Ctrl+V)">Paste</button>
+        <button onClick={() => doDeleteRef.current()} title="Delete selected (Del)">Del</button>
         {selected && (
           <span className="mod-edge-inspector">
             <span>cord ×{round(selected.gain)}</span>
