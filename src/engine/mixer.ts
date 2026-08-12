@@ -8,12 +8,12 @@
 
 import { el, type NodeRepr_t } from '@elemaudio/core'
 import type { ChannelEffect } from '../domain/types'
-import type { StereoOut } from './modular'
+import { TICK_DELAY_SIZE, tickTimeSamps, type StereoOut } from './modular'
 import type { ParamRefRegistry } from '../audio/paramRefs'
 
 type Node = NodeRepr_t | number
 
-/** Maximum delay buffer in samples — 4 seconds at 44.1 kHz (matches modular.ts). */
+/** Maximum reverb comb buffer in samples — 4 seconds at 44.1 kHz. */
 const DELAY_SIZE = 176400
 
 /** Build a param ref key for a channel effect parameter. */
@@ -38,10 +38,12 @@ export function compileChannelEffects(
   input: StereoOut,
   channelId: string,
   paramRefs?: ParamRefRegistry,
+  /** Live rows-per-second node for tempo-synced delay/echo times. */
+  rowHzNode: NodeRepr_t | number = 8,
 ): StereoOut {
   let out = input
   for (const fx of effects) {
-    out = compileOneEffect(fx, out, channelId, paramRefs)
+    out = compileOneEffect(fx, out, channelId, paramRefs, rowHzNode)
   }
   return out
 }
@@ -53,6 +55,7 @@ function compileOneEffect(
   input: StereoOut,
   channelId: string,
   paramRefs?: ParamRefRegistry,
+  rowHzNode: NodeRepr_t | number = 8,
 ): StereoOut {
   const p = fx.params
   const key = (name: string) => chanRefKey(channelId, fx.id, name)
@@ -169,11 +172,11 @@ function compileOneEffect(
 
     // ── Single-tap Delay ────────────────────────────────────
     case 'delay': {
-      const timeSamps = el.ms2samps(k('time', p.time ?? 150))
+      const timeSamps = tickTimeSamps(p.time ?? 1.25, rowHzNode)
       const mix = k('mix', p.mix ?? 0.5)
       const dry = el.sub(el.const({ value: 1 }), mix)
-      const wetL = el.delay({ key: `${channelId}:${fx.id}:L`, size: DELAY_SIZE }, timeSamps, 0, input.left)
-      const wetR = el.delay({ key: `${channelId}:${fx.id}:R`, size: DELAY_SIZE }, timeSamps, 0, input.right)
+      const wetL = el.delay({ key: `${channelId}:${fx.id}:L`, size: TICK_DELAY_SIZE }, timeSamps, 0, input.left)
+      const wetR = el.delay({ key: `${channelId}:${fx.id}:R`, size: TICK_DELAY_SIZE }, timeSamps, 0, input.right)
       const effected: StereoOut = {
         left: el.add(el.mul(input.left, dry), el.mul(wetL, mix)),
         right: el.add(el.mul(input.right, dry), el.mul(wetR, mix)),
@@ -183,12 +186,12 @@ function compileOneEffect(
 
     // ── Echo (delay + feedback) ─────────────────────────────
     case 'echo': {
-      const timeSamps = el.ms2samps(k('time', p.time ?? 150))
+      const timeSamps = tickTimeSamps(p.time ?? 1.25, rowHzNode)
       const fb = k('feedback', p.feedback ?? 0.25)
       const mix = k('mix', p.mix ?? 0.5)
       const dry = el.sub(el.const({ value: 1 }), mix)
-      const wetL = el.delay({ key: `${channelId}:${fx.id}:L`, size: DELAY_SIZE }, timeSamps, fb, input.left)
-      const wetR = el.delay({ key: `${channelId}:${fx.id}:R`, size: DELAY_SIZE }, timeSamps, fb, input.right)
+      const wetL = el.delay({ key: `${channelId}:${fx.id}:L`, size: TICK_DELAY_SIZE }, timeSamps, fb, input.left)
+      const wetR = el.delay({ key: `${channelId}:${fx.id}:R`, size: TICK_DELAY_SIZE }, timeSamps, fb, input.right)
       const effected: StereoOut = {
         left: el.add(el.mul(input.left, dry), el.mul(wetL, mix)),
         right: el.add(el.mul(input.right, dry), el.mul(wetR, mix)),

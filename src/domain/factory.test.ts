@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { emptyCells, fitCells, makeId, newTrack, createDefaultDoc, createMasterChannel, createMixChannel, createChannelEffect, cloneInstrument, newOscInstrument, newModularInstrument, newDrumKitInstrument, nextEffName } from '../domain/factory'
-import { defaultParams } from '../domain/moduleDefs'
+import { defaultParams, MODULE_DEFS } from '../domain/moduleDefs'
 import { MASTER_CHANNEL_ID } from '../domain/types'
 
 describe('emptyCells', () => {
@@ -76,6 +76,20 @@ describe('newModularInstrument', () => {
 describe('defaultParams', () => {
   it('materializes the eff Default param from the registry', () => {
     expect(defaultParams('eff')).toEqual({ cc: 0, default: 0 })
+  })
+
+  it('delay/echo time defaults to ticks (tempo-synced)', () => {
+    expect(defaultParams('delay').time).toBe(1.25)
+    expect(defaultParams('echo').time).toBe(1.25)
+  })
+
+  it('delay/echo time is a quarter-tick grid up to 16', () => {
+    for (const type of ['delay', 'echo'] as const) {
+      const time = MODULE_DEFS[type].params.find((p) => p.key === 'time')!
+      expect(time.min).toBe(0.25)
+      expect(time.max).toBe(16)
+      expect(time.step).toBe(0.25)
+    }
   })
 })
 

@@ -214,7 +214,8 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     outlets: ['out'],
     params: [
       { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'] },
-      { key: 'time', label: 'Time (ms)', min: 1, max: 2000, default: 150, step: 1 },
+      // Tempo-synced: ticks (rows), live with BPM changes.
+      { key: 'time', label: 'Time (ticks)', min: 0.25, max: 16, default: 1.25, step: 0.25 },
       { key: 'mix', label: 'Mix', min: 0, max: 1, default: 0.5, step: 0.01 },
     ],
   },
@@ -225,7 +226,8 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     outlets: ['out'],
     params: [
       { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'] },
-      { key: 'time', label: 'Time (ms)', min: 1, max: 2000, default: 150, step: 1 },
+      // Tempo-synced: ticks (rows), live with BPM changes.
+      { key: 'time', label: 'Time (ticks)', min: 0.25, max: 16, default: 1.25, step: 0.25 },
       { key: 'feedback', label: 'Feedback', min: 0, max: 0.95, default: 0.25, step: 0.01 },
       { key: 'mix', label: 'Mix', min: 0, max: 1, default: 0.5, step: 0.01 },
     ],

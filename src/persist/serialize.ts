@@ -21,7 +21,7 @@ import { nextEffName } from '../domain/factory'
  * (osc-only) and new files with modular instruments both satisfy the same
  * schema. A bump is only needed for a *breaking* shape change (e.g. sections).
  */
-export const CURRENT_SCHEMA_VERSION = 8
+export const CURRENT_SCHEMA_VERSION = 9
 
 export interface SongMeta {
   name: string
@@ -97,6 +97,9 @@ export function migrate(raw: unknown): SongFile {
 
   // v7→v8: drumkit slots: pitchOffset→baseNote, gain→volume; sample node centerNote→playRate+finetune.
   if (version < 8) raw = upgradeV7toV8(raw)
+
+  // v8→v9: delay/echo `time` param changed from milliseconds to tempo ticks.
+  if (version < 9) raw = upgradeV8toV9(raw)
 
   // v1→v1 migration: when the stereo output was added (commit b3917fc), the
   // output module's inlet changed from 'in' to 'inL'. Old modular instruments
@@ -433,6 +436,75 @@ function upgradeV7toV8(raw: any): any {
   }
 
   return { ...raw, schemaVersion: 8, doc: { ...raw.doc, entities: ee } }
+}
+
+/** Row duration at the default tempo (120 BPM, 4 rows/beat) — used to convert
+ *  legacy millisecond delay times to ticks. */
+const LEGACY_ROW_MS = 125
+
+/** Convert a legacy ms delay time to ticks: nearest quarter tick, 0.25..16. */
+function msToTicks(ms: number): number {
+  const q = Math.round(ms / LEGACY_ROW_MS / 0.25) * 0.25
+  return Math.min(16, Math.max(0.25, q))
+}
+
+/** v8→v9: convert delay/echo `time` params from milliseconds to tempo ticks,
+ *  on both modular instrument modules and mix-channel effects. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function upgradeV8toV9(raw: any): any {
+  const entities = raw.doc?.entities
+  if (!entities || !isRecord(entities)) return raw
+
+  const ee = { ...entities }
+  let changed = false
+
+  if (isRecord(ee.instruments)) {
+    const insts = ee.instruments as Record<string, unknown>
+    const fixedInsts: Record<string, unknown> = {}
+    for (const [iid, inst] of Object.entries(insts)) {
+      if (isRecord(inst) && inst.kind === 'modular' && isRecord(inst.modules)) {
+        const mods = inst.modules as Record<string, unknown>
+        const fixedMods: Record<string, unknown> = {}
+        for (const [mid, mod] of Object.entries(mods)) {
+          if (isRecord(mod) && (mod.type === 'delay' || mod.type === 'echo')
+            && isRecord(mod.params) && typeof mod.params.time === 'number') {
+            fixedMods[mid] = { ...mod, params: { ...mod.params, time: msToTicks(mod.params.time) } }
+            changed = true
+          } else {
+            fixedMods[mid] = mod
+          }
+        }
+        fixedInsts[iid] = { ...inst, modules: fixedMods }
+      } else {
+        fixedInsts[iid] = inst
+      }
+    }
+    ee.instruments = fixedInsts
+  }
+
+  if (isRecord(ee.mixChannels)) {
+    const chans = ee.mixChannels as Record<string, unknown>
+    const fixedChans: Record<string, unknown> = {}
+    for (const [cid, chan] of Object.entries(chans)) {
+      if (isRecord(chan) && Array.isArray(chan.effects)) {
+        const fx = (chan.effects as unknown[]).map((f) => {
+          if (isRecord(f) && (f.type === 'delay' || f.type === 'echo')
+            && isRecord(f.params) && typeof f.params.time === 'number') {
+            changed = true
+            return { ...f, params: { ...f.params, time: msToTicks(f.params.time) } }
+          }
+          return f
+        })
+        fixedChans[cid] = { ...chan, effects: fx }
+      } else {
+        fixedChans[cid] = chan
+      }
+    }
+    ee.mixChannels = fixedChans
+  }
+
+  if (!changed) return { ...raw, schemaVersion: 9 }
+  return { ...raw, schemaVersion: 9, doc: { ...raw.doc, entities: ee } }
 }
 
 /**

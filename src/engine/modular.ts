@@ -56,8 +56,20 @@ export function makeAdsr(
   return el.smooth(el.tau2pole(tau), targetValue)
 }
 
-/** Maximum delay buffer in samples — 4 seconds at 44.1 kHz. */
+/** Maximum delay buffer in samples — 4 seconds at 44.1 kHz (reverb combs). */
 const DELAY_SIZE = 176400
+
+/** Maximum delay/echo buffer: 16 ticks at 20 BPM, 4 rows/beat, 48 kHz. */
+export const TICK_DELAY_SIZE = 576000
+
+/**
+ * Delay time in samples from a tick (row) count. Uses a live rowHz node
+ * (a 'transport:rowHz' ref) so tempo changes retune the delay without a
+ * graph recompile: samples = ticks * sampleRate / rowHz.
+ */
+export function tickTimeSamps(ticks: number, rowHzNode: NodeRepr_t | number): NodeRepr_t {
+  return el.div(el.mul(el.const({ value: ticks }), el.sr()), rowHzNode)
+}
 
 /**
  * Compile a modular instrument's block graph into a stereo pair. Modules are
@@ -92,6 +104,9 @@ export function compileModular(
   /** CC binding table — populated during graph build so MIDI CC changes
    *  can update the right refs without a recompile. */
   ccBindings?: import('../audio/ccBindings').CcBindings,
+  /** Live rows-per-second node (a 'transport:rowHz' ref) for tempo-synced
+   *  delay/echo times. Defaults to 8 (120 BPM, 4 rows/beat). */
+  rowHzNode: NodeRepr_t | number = 8,
 ): StereoOut {
   const memo = new Map<string, Node>()
   const visiting = new Set<string>()
@@ -387,9 +402,9 @@ export function compileModular(
       case 'delay': {
         const input = inlet(m.id, 'in') ?? SILENCE
         if (p.bypass) return input
-        // Single-tap delay — no feedback, one repeat at the given time.
-        const timeSamps = el.ms2samps(kconst(key('time'), p.time ?? 150))
-        const wet = el.delay({ key: `${keyPrefix}:${m.id}`, size: DELAY_SIZE }, timeSamps, 0, input)
+        // Single-tap delay — no feedback, one repeat at the given tick time.
+        const timeSamps = tickTimeSamps(p.time ?? 1.25, rowHzNode)
+        const wet = el.delay({ key: `${keyPrefix}:${m.id}`, size: TICK_DELAY_SIZE }, timeSamps, 0, input)
         const dryMix = kconst(key('mix'), p.mix ?? 0.5)
         return el.add(el.mul(input, el.sub(el.const({ value: 1 }), dryMix)), el.mul(wet, dryMix))
       }
@@ -398,9 +413,9 @@ export function compileModular(
         const input = inlet(m.id, 'in') ?? SILENCE
         if (p.bypass) return input
         // Repeating echo — delay line with feedback for multiple repeats.
-        const timeSamps = el.ms2samps(kconst(key('time'), p.time ?? 150))
+        const timeSamps = tickTimeSamps(p.time ?? 1.25, rowHzNode)
         const fb = kconst(key('feedback'), p.feedback ?? 0.25)
-        const wet = el.delay({ key: `${keyPrefix}:${m.id}`, size: DELAY_SIZE }, timeSamps, fb, input)
+        const wet = el.delay({ key: `${keyPrefix}:${m.id}`, size: TICK_DELAY_SIZE }, timeSamps, fb, input)
         const dryMix = kconst(key('mix'), p.mix ?? 0.5)
         return el.add(el.mul(input, el.sub(el.const({ value: 1 }), dryMix)), el.mul(wet, dryMix))
       }

@@ -40,10 +40,12 @@ export function renderInstrument(
   paramRefs?: import('../audio/paramRefs').ParamRefRegistry,
   /** CC binding table — populated during compile so MIDI CC changes update refs. */
   ccBindings?: import('../audio/ccBindings').CcBindings,
+  /** Live rows-per-second node for tempo-synced delay/echo times. */
+  rowHzNode: NodeRepr_t | number = 8,
 ): StereoOut {
   switch (inst.kind) {
     case 'osc': {
-      void voiceKey; void note; void inletSignals; void midiCcValues; void ccBindings
+      void voiceKey; void note; void inletSignals; void midiCcValues; void ccBindings; void rowHzNode
       const env = makeAdsr(0.005, 0.12, 0.7, 0.25, gate)
       const tone = el.blepsaw(freq)
       // Use createRef when available so slider changes take effect without recompile.
@@ -55,7 +57,7 @@ export function renderInstrument(
     }
     case 'modular': {
       void note
-      return compileModular(inst, freq, gate, voiceKey, sampleMeta, volume, inletSignals, midiCcValues, paramRefs, ccBindings)
+      return compileModular(inst, freq, gate, voiceKey, sampleMeta, volume, inletSignals, midiCcValues, paramRefs, ccBindings, rowHzNode)
     }
     case 'drumkit': {
       // Drumkit rendering is handled at the compile level via renderDrumKitSlot,
@@ -91,6 +93,8 @@ export function renderDrumKitSlot(
   kitInstId?: string,
   /** Instrument-level pan (-1..+1). Combined with slot pan via addition. */
   instPan: NodeRepr_t | number = 0,
+  /** Live rows-per-second node for tempo-synced delay/echo times. */
+  rowHzNode: NodeRepr_t | number = 8,
 ): StereoOut {
   const zero = el.const({ value: 0 })
   let rawL: NodeRepr_t = zero
@@ -138,6 +142,7 @@ export function renderDrumKitSlot(
         midiCcValues,
         paramRefs,
         ccBindings,
+        rowHzNode,
       )
       rawL = voice.left
       rawR = voice.right

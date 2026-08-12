@@ -393,10 +393,10 @@ describe('migration portaUp/portaDown → portamento', () => {
 })
 
 describe('migration — eff inlet naming', () => {
-  /** A minimal current-version (v8) file with one modular instrument. */
+  /** A minimal current-version file with one modular instrument. */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const makeV8 = (modules: Record<string, any>) => ({
-    schemaVersion: 8,
+  const makeCurrent = (modules: Record<string, any>) => ({
+    schemaVersion: CURRENT_SCHEMA_VERSION,
     meta: META,
     doc: {
       patternId: 'p1',
@@ -434,7 +434,7 @@ describe('migration — eff inlet naming', () => {
       .map((m: any) => m.name)
 
   it('backfills unique names on unnamed eff modules', () => {
-    const result = migrate(makeV8({
+    const result = migrate(makeCurrent({
       m1: { id: 'm1', type: 'eff', params: { cc: 0 }, pos: { x: 0, y: 0 } },
       m2: { id: 'm2', type: 'eff', params: { cc: 0 }, pos: { x: 0, y: 0 } },
     }))
@@ -442,7 +442,7 @@ describe('migration — eff inlet naming', () => {
   })
 
   it('renames duplicate names, keeping the first occurrence', () => {
-    const result = migrate(makeV8({
+    const result = migrate(makeCurrent({
       m1: { id: 'm1', type: 'eff', name: 'Filter Cutoff', params: { cc: 0 }, pos: { x: 0, y: 0 } },
       m2: { id: 'm2', type: 'eff', name: 'Filter Cutoff', params: { cc: 0 }, pos: { x: 0, y: 0 } },
     }))
@@ -450,7 +450,7 @@ describe('migration — eff inlet naming', () => {
   })
 
   it('skips taken names when backfilling unnamed modules', () => {
-    const result = migrate(makeV8({
+    const result = migrate(makeCurrent({
       m1: { id: 'm1', type: 'eff', name: 'Eff In 01', params: { cc: 0 }, pos: { x: 0, y: 0 } },
       m2: { id: 'm2', type: 'eff', params: { cc: 0 }, pos: { x: 0, y: 0 } },
     }))
@@ -458,7 +458,7 @@ describe('migration — eff inlet naming', () => {
   })
 
   it('leaves uniquely named eff modules untouched (identity preserved)', () => {
-    const file = makeV8({
+    const file = makeCurrent({
       m1: { id: 'm1', type: 'eff', name: 'Eff In 01', params: { cc: 0 }, pos: { x: 0, y: 0 } },
       m2: { id: 'm2', type: 'eff', name: 'Eff In 02', params: { cc: 0 }, pos: { x: 0, y: 0 } },
     })
@@ -466,10 +466,94 @@ describe('migration — eff inlet naming', () => {
   })
 
   it('does not touch non-eff modules', () => {
-    const result = migrate(makeV8({
+    const result = migrate(makeCurrent({
       m1: { id: 'm1', type: 'osc', params: { waveform: 0 }, pos: { x: 0, y: 0 } },
     }))
     const mods = (result.doc.entities.instruments as any).i1.modules
     expect(mods.m1.name).toBeUndefined()
+  })
+})
+
+describe('migration v8→v9 — delay/echo time to ticks', () => {
+  /** A minimal v8 file with one modular instrument + one mix channel. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const makeV8 = (modules: Record<string, any>, channelEffects: any[] = []) => ({
+    schemaVersion: 8,
+    meta: META,
+    doc: {
+      patternId: 'p1',
+      sectionIds: [],
+      entities: {
+        instruments: {
+          i1: {
+            id: 'i1', kind: 'modular', name: 'Mod',
+            modules: {
+              ...modules,
+              vol: { id: 'vol', type: 'volume', params: {}, pos: { x: 0, y: 0 } },
+              out: { id: 'out', type: 'output', params: { gain: 1 }, pos: { x: 0, y: 0 } },
+            },
+            connections: {},
+            outputId: 'out',
+            channelId: 'master',
+            pan: 0,
+          },
+        },
+        tracks: {},
+        patterns: { p1: { id: 'p1', name: 'p', length: 1, trackIds: [] } },
+        sections: {},
+        samples: {},
+        mixChannels: {
+          master: { id: 'master', name: 'Master', kind: 'master', volume: 1, pan: 0, mute: false, solo: false, effects: channelEffects },
+        },
+        mixerInstrumentOrder: ['i1'],
+      },
+    },
+  })
+
+  const moduleTime = (result: any, mid: string) =>
+    (result.doc.entities.instruments as any).i1.modules[mid].params.time
+
+  it('converts modular delay/echo module time from ms to ticks', () => {
+    const result = migrate(makeV8({
+      m1: { id: 'm1', type: 'delay', params: { bypass: 0, time: 150, mix: 0.5 }, pos: { x: 0, y: 0 } },
+      m2: { id: 'm2', type: 'echo', params: { bypass: 0, time: 300, feedback: 0.25, mix: 0.5 }, pos: { x: 0, y: 0 } },
+    }))
+    // 150 ms ≈ 1.2 ticks → 1.25; 300 ms ≈ 2.4 ticks → 2.5 (125 ms/row at default tempo).
+    expect(moduleTime(result, 'm1')).toBe(1.25)
+    expect(moduleTime(result, 'm2')).toBe(2.5)
+  })
+
+  it('quantizes to quarter ticks and clamps to 0.25..16', () => {
+    const result = migrate(makeV8({
+      m1: { id: 'm1', type: 'delay', params: { time: 5000, mix: 0.5 }, pos: { x: 0, y: 0 } },
+      m2: { id: 'm2', type: 'delay', params: { time: 1, mix: 0.5 }, pos: { x: 0, y: 0 } },
+    }))
+    expect(moduleTime(result, 'm1')).toBe(16)
+    expect(moduleTime(result, 'm2')).toBe(0.25)
+  })
+
+  it('converts mix-channel effect times too', () => {
+    const result = migrate(makeV8({}, [
+      { id: 'fx1', type: 'echo', params: { time: 250, feedback: 0.3, mix: 0.4 } },
+      { id: 'fx2', type: 'filter', params: { cutoff: 1000 } },
+    ]))
+    const fx = (result.doc.entities.mixChannels as any).master.effects
+    expect(fx[0].params.time).toBe(2)
+    expect(fx[1].params).toEqual({ cutoff: 1000 })
+  })
+
+  it('leaves other modules and non-time params untouched', () => {
+    const result = migrate(makeV8({
+      m1: { id: 'm1', type: 'delay', params: { time: 150, mix: 0.8 }, pos: { x: 0, y: 0 } },
+      m2: { id: 'm2', type: 'reverb', params: { roomSize: 0.6 }, pos: { x: 0, y: 0 } },
+    }))
+    expect(moduleTime(result, 'm1')).toBe(1.25)
+    expect((result.doc.entities.instruments as any).i1.modules.m1.params.mix).toBe(0.8)
+    expect((result.doc.entities.instruments as any).i1.modules.m2.params.roomSize).toBe(0.6)
+  })
+
+  it('stamps v9 even when nothing changes', () => {
+    const result = migrate(makeV8({}))
+    expect(result.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
   })
 })

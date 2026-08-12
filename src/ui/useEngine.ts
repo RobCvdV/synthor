@@ -267,8 +267,12 @@ export function useEngine(): AudioHost {
         return
       }
 
-      if (state.playing && state.bpm !== prev.bpm && host.schedulerNodes.length > 0) {
-        for (const sch of host.schedulerNodes) sch.setTempo(state.bpm, state.linesPerBeat)
+      if (state.bpm !== prev.bpm || state.linesPerBeat !== prev.linesPerBeat) {
+        // Keep tempo-synced delay/echo times live without a recompile.
+        host.paramRefs.setValue('transport:rowHz', rowHz(state.bpm, state.linesPerBeat))
+        if (state.playing && host.schedulerNodes.length > 0) {
+          for (const sch of host.schedulerNodes) sch.setTempo(state.bpm, state.linesPerBeat)
+        }
       }
     })
 

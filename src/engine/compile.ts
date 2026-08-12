@@ -100,6 +100,7 @@ function compileAllVoiceSlots(
   sampleHashById: Record<Id, string>,
   midiCcValues?: Record<number, number>,
   ccBindings?: RenderContext['ccBindings'],
+  rowHzNode: NodeRepr_t = el.const({ value: 8 }),
 ): StereoOut | null {
   if (!paramRefs) return null
 
@@ -123,7 +124,7 @@ function compileAllVoiceSlots(
           const velRef = paramRefs.getOrCreate(`${voiceKey}:vel`, 1)
           const voice = renderDrumKitSlot(
             inst.slots[si], doc.entities.instruments, gate, freq, voiceKey,
-            sampleMeta, sampleHashById, midiCcValues, paramRefs, ccBindings, {}, inst.id, inst.pan ?? 0,
+            sampleMeta, sampleHashById, midiCcValues, paramRefs, ccBindings, {}, inst.id, inst.pan ?? 0, rowHzNode,
           )
           kitL = el.add(kitL, el.mul(voice.left, velRef))
           kitR = el.add(kitR, el.mul(voice.right, velRef))
@@ -139,7 +140,7 @@ function compileAllVoiceSlots(
         const freq = paramRefs.getOrCreate(`${voiceKey}:freq`, defaultFreq)
         const gate = paramRefs.getOrCreate(`${voiceKey}:gate`, 0)
         const velRef = paramRefs.getOrCreate(`${voiceKey}:vel`, 1)
-        slotVoices.push(renderInstrument(inst, freq, gate, voiceKey, sampleMeta, 0, sampleHashById, velRef, {}, midiCcValues, paramRefs, ccBindings))
+        slotVoices.push(renderInstrument(inst, freq, gate, voiceKey, sampleMeta, 0, sampleHashById, velRef, {}, midiCcValues, paramRefs, ccBindings, rowHzNode))
       }
       allLeft = el.add(allLeft, el.mul(slotVoices.reduce((a, v) => el.add(a, v.left), lvZero), 0.3))
       allRight = el.add(allRight, el.mul(slotVoices.reduce((a, v) => el.add(a, v.right), lvZero), 0.3))
@@ -165,6 +166,7 @@ function compileTrackerVoiceSlots(
   ctx: RenderContext,
   sampleMeta: ReturnType<typeof buildSampleMeta>,
   sampleHashById: Record<Id, string>,
+  rowHzNode: NodeRepr_t,
 ): Map<Id, StereoOut[]> {
   const zero = el.const({ value: 0 })
   const one = el.const({ value: 1 })
@@ -251,7 +253,7 @@ function compileTrackerVoiceSlots(
             dkSlot, doc.entities.instruments, drumGates[d], slotFreq,
             trackerKey, sampleMeta, sampleHashById,
             ctx.midiCcValues, ctx.paramRefs, ctx.ccBindings,
-            inletSignals, inst.id, instPanRef,
+            inletSignals, inst.id, instPanRef, rowHzNode,
           )
           mixL = el.add(mixL, voice.left)
           mixR = el.add(mixR, voice.right)
@@ -300,6 +302,7 @@ function compileTrackerVoiceSlots(
           sampleMeta, 0, sampleHashById,
           effVol, inletSignals,
           ctx.midiCcValues, ctx.paramRefs, ctx.ccBindings,
+          rowHzNode,
         )
 
         // Apply pan, vol, staccato (staccato is handled by the scheduler;
@@ -334,11 +337,17 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
   const sampleMeta = buildSampleMeta(doc.entities.samples, ctx.vfsLoadedHashes)
   const sampleHashById = buildSampleHashById(doc.entities.samples)
 
+  // Live rows-per-second ref — updated on tempo changes so tempo-synced
+  // delay/echo times retune without a recompile (same as transport:playing).
+  const rowHzNode: NodeRepr_t = ctx.paramRefs
+    ? ctx.paramRefs.getOrCreate('transport:rowHz', ctx.rowHz)
+    : el.const({ value: ctx.rowHz })
+
   // Live voice slots for every instrument — keyboard, MIDI and tracker
   // all write to VoicePool refs. No recompile for any note event.
   const liveOut = compileAllVoiceSlots(
     doc, ctx.paramRefs, sampleMeta, sampleHashById,
-    ctx.midiCcValues, ctx.ccBindings,
+    ctx.midiCcValues, ctx.ccBindings, rowHzNode,
   )
 
   // Compute slot layouts from the document.  This determines how many
@@ -348,7 +357,7 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
   // Tracker voice slots — one slot per concurrent track, with fixed
   // el.in channel positions.  Data flows from scheduler → el.in → voice.
   const channelVoices = slotLayouts.length > 0
-    ? compileTrackerVoiceSlots(doc, slotLayouts, ctx, sampleMeta, sampleHashById)
+    ? compileTrackerVoiceSlots(doc, slotLayouts, ctx, sampleMeta, sampleHashById, rowHzNode)
     : new Map<Id, StereoOut[]>()
 
   if (slotLayouts.length > 0) {
@@ -380,7 +389,7 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
     }
 
     const processed = channel.kind === 'sub' || channel.kind === 'master'
-      ? compileChannelEffects(channel.effects, chanSum, chanId, ctx.paramRefs)
+      ? compileChannelEffects(channel.effects, chanSum, chanId, ctx.paramRefs, rowHzNode)
       : chanSum
 
     const mixed = applyChannelMix(processed, channel.volume, channel.pan, chanId, ctx.paramRefs)
@@ -393,7 +402,7 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
   const masterChannel = doc.entities.mixChannels[MASTER_CHANNEL_ID]
   let masterOut: StereoOut = { left: masterLeft, right: masterRight }
   if (masterChannel) {
-    masterOut = compileChannelEffects(masterChannel.effects, masterOut, MASTER_CHANNEL_ID, ctx.paramRefs)
+    masterOut = compileChannelEffects(masterChannel.effects, masterOut, MASTER_CHANNEL_ID, ctx.paramRefs, rowHzNode)
     masterOut = applyChannelMix(masterOut, masterChannel.volume, masterChannel.pan, MASTER_CHANNEL_ID, ctx.paramRefs)
   }
 
