@@ -993,11 +993,6 @@ export const useDocStore = create<DocState>((set, get) => ({
         trackIds: newTrackIds,
       }
       draft.entities.patterns[newId] = newPattern
-      // Add the new pattern to the first section if one exists.
-      const firstSecId = draft.sectionIds[0]
-      if (firstSecId && draft.entities.sections[firstSecId]) {
-        draft.entities.sections[firstSecId].patternIds.push(newId)
-      }
     })
     return newId
   },

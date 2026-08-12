@@ -388,6 +388,7 @@ body {
   background: var(--bg); border: 1px solid #2a2f38; border-radius: 4px;
   overflow: hidden;
 }
+.arrange-section.selected { border-color: rgba(79, 209, 197, 0.55); }
 .arrange-section-head {
   display: flex; align-items: center; gap: 4px;
   padding: 4px 6px; background: #1a1e26; border-bottom: 1px solid #2a2f38;

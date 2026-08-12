@@ -226,6 +226,10 @@ describe('docStore — pattern & section ops', () => {
     expect(pat.length).toBe(64)
     // New patterns start with no tracks — tracks are added on first note entry
     expect(Array.isArray(pat.trackIds)).toBe(true)
+    // New patterns are not added to any section — the user arranges manually.
+    for (const section of Object.values(useDocStore.getState().doc.entities.sections)) {
+      expect(section.patternIds).not.toContain(id)
+    }
   })
 
   it('duplicates a pattern', () => {
@@ -236,9 +240,10 @@ describe('docStore — pattern & section ops', () => {
     expect(dupId).not.toBe(pid)
     const dup = useDocStore.getState().doc.entities.patterns[dupId]
     expect(dup.name).toContain('(copy)')
-    // Duplicated pattern should appear in the first section
-    const firstSec = useDocStore.getState().doc.entities.sections[firstSectionId()]
-    expect(firstSec.patternIds).toContain(dupId)
+    // Duplicates are not added to any section — the user arranges manually.
+    for (const section of Object.values(useDocStore.getState().doc.entities.sections)) {
+      expect(section.patternIds).not.toContain(dupId)
+    }
   })
 
   it('removes a pattern and cleans up sections', () => {

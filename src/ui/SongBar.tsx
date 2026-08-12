@@ -156,12 +156,7 @@ export function SongBar({ doc }: Props) {
       })}
       <div className="songbar-section songbar-actions">
         <button className="octbtn" onClick={() => addSection()}>+ Section</button>
-        <button className="octbtn" onClick={() => {
-          const id = addPattern()
-          // Add to first section if one exists.
-          const firstSecId = doc.sectionIds[0]
-          if (firstSecId) addPatternToSection(firstSecId, id)
-        }}>
+        <button className="octbtn" onClick={() => addPattern()}>
           + Pattern
         </button>
         <button

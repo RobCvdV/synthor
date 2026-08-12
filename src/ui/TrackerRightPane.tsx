@@ -361,11 +361,7 @@ function ArrangeTab({ doc }: { doc: Doc }) {
       <div className="arrange-palette">
         <div className="arrange-palette-head">
           <span className="arrange-palette-title">Patterns</span>
-          <button className="octbtn" onClick={() => {
-            const id = addPattern()
-            const firstSecId = doc.sectionIds[0]
-            if (firstSecId) addPatternToSection(firstSecId, id)
-          }}>+ New</button>
+          <button className="octbtn" onClick={() => addPattern()}>+ New</button>
         </div>
         <div className="arrange-palette-list">
           {allPatterns.map((p) => {
@@ -428,13 +424,15 @@ function ArrangeTab({ doc }: { doc: Doc }) {
         const isEditing = editingSection === secId
         const above = secLine?.idx === si && secLine?.edge === 'above'
         const below = secLine?.idx === si && secLine?.edge === 'below'
+        // Selected = contains the current pattern (same rule as the pattern highlight).
+        const isSelected = section.patternIds.includes(doc.patternId)
 
         return (
           <div key={secId}>
             {above && <div className="arrange-drop-line" />}
 
             <div
-              className="arrange-section"
+              className={'arrange-section' + (isSelected ? ' selected' : '')}
               ref={(el) => { if (el) sectionEls.current.set(secId, el); else sectionEls.current.delete(secId) }}
             >
               <div
