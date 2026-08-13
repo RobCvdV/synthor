@@ -2,6 +2,7 @@ import { createNode, el, resolve, unpack, type NodeRepr_t } from '@elemaudio/cor
 import type { Connection, Module, ModularInstrument } from '../domain/types'
 import { midiToFreq } from '../domain/notes'
 import { WAVEFORM_MAX_LENGTH_SECONDS } from '../domain/moduleDefs'
+import { makeFdnReverb } from './reverbFdn'
 import type { SampleMeta } from './instruments'
 
 type Node = NodeRepr_t | number
@@ -56,9 +57,6 @@ export function makeAdsr(
 
   return el.smooth(el.tau2pole(tau), targetValue)
 }
-
-/** Maximum delay buffer in samples — 4 seconds at 44.1 kHz (reverb combs). */
-const DELAY_SIZE = 176400
 
 /** Maximum delay/echo buffer: 16 ticks at 20 BPM, 4 rows/beat, 48 kHz. */
 export const TICK_DELAY_SIZE = 576000
@@ -470,66 +468,11 @@ export function compileModular(
         const stereoWidth = kconst(key('stereoWidth'), p.stereoWidth ?? 0.6)
         const wetMix = kconst(key('mix'), p.mix ?? 0.35)
 
-        // Prime-number comb delay times (ms) for density, plus stereo offsets.
-        const baseTimes = [29.7, 37.1, 41.3, 43.7]
-        const stereoOff = [1.3, 2.1, 0.9, 1.7]
-
-        // Build one stereo channel: 4 filtered-feedback combs → sum → tone lowpass.
-        function buildChannel(side: 'L' | 'R', sig: Node): Node {
-          const offsetMul = side === 'R' ? stereoWidth : el.const({ value: 0 })
-
-          const combs = baseTimes.map((base, i) => {
-            // Delay time = (base + offset * width) * room size.
-            const off = el.mul(el.const({ value: stereoOff[i] }), offsetMul)
-            const timeMs = el.mul(el.add(el.const({ value: base }), off), roomSize)
-            const timeSamps = el.ms2samps(timeMs)
-
-            // Damping lowpass before the comb: bright (~15 kHz) → dark (~400 Hz).
-            // The filter is placed *before* the delay input so each recirculation
-            // passes through it once (= progressive high-frequency roll-off).
-            const dampHi = el.const({ value: 16000 })
-            const dampLo = el.const({ value: 400 })
-            const dampFreq = el.add(dampLo, el.mul(el.sub(el.const({ value: 1 }), damping), el.sub(dampHi, dampLo)))
-            const damped = el.svf(
-              { key: `${keyPrefix}:${m.id}:damp${side}${i}`, mode: 'lowpass' },
-              dampFreq,
-              el.const({ value: 0.5 }),
-              sig,
-            )
-
-            return el.delay(
-              { key: `${keyPrefix}:${m.id}:comb${side}${i}`, size: DELAY_SIZE },
-              timeSamps,
-              feedback,
-              damped,
-            )
-          })
-
-          // Sum combs, scale down to avoid clipping.
-          const combSum = el.mul(
-            combs.reduce((a, b) => el.add(a, b), el.const({ value: 0 })),
-            el.const({ value: 0.35 }),
-          )
-
-          // Overall tone shaping — same damping curve brightens or darkens the tail.
-          const toneHi = el.const({ value: 14000 })
-          const toneLo = el.const({ value: 800 })
-          const toneFreq = el.add(toneLo, el.mul(el.sub(el.const({ value: 1 }), damping), el.sub(toneHi, toneLo)))
-          return el.svf(
-            { key: `${keyPrefix}:${m.id}:tone${side}`, mode: 'lowpass' },
-            toneFreq,
-            el.const({ value: 0.5 }),
-            combSum,
-          )
-        }
-
-        const wetL = buildChannel('L', inputL)
-        const wetR = buildChannel('R', hasStereoIn ? inputR : inputL)
-
-        // Dry/wet mix — separate dry paths for true stereo when inR is connected.
-        const dryGain = el.sub(el.const({ value: 1 }), wetMix)
-        const outL = el.add(el.mul(inputL, dryGain), el.mul(wetL, wetMix))
-        const outR = el.add(el.mul(hasStereoIn ? inputR : inputL, dryGain), el.mul(wetR, wetMix))
+        const { left: outL, right: outR } = makeFdnReverb(
+          `${keyPrefix}:${m.id}`,
+          roomSize, feedback, damping, stereoWidth, wetMix,
+          inputL, hasStereoIn ? (inputR as Node) : inputL,
+        )
 
         // Store the right channel so connections from outR can pick it up later.
         memo.set(`${m.id}:outR`, outR)

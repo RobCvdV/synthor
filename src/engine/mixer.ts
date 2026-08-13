@@ -10,12 +10,8 @@ import { el, type NodeRepr_t } from '@elemaudio/core'
 import type { ChannelEffect } from '../domain/types'
 import { isStereoEffect } from '../domain/moduleDefs'
 import { TICK_DELAY_SIZE, tickTimeSamps, type StereoOut } from './modular'
+import { makeFdnReverb } from './reverbFdn'
 import type { ParamRefRegistry } from '../audio/paramRefs'
-
-type Node = NodeRepr_t | number
-
-/** Maximum reverb comb buffer in samples — 4 seconds at 44.1 kHz. */
-const DELAY_SIZE = 176400
 
 /** Build a param ref key for a channel effect parameter. */
 function chanRefKey(channelId: string, effectId: string, paramKey: string): string {
@@ -200,7 +196,7 @@ function compileOneEffect(
       return bypassable(effected)
     }
 
-    // ── Stereo Reverb ───────────────────────────────────────
+    // ── FDN Reverb (Jot-style, srvb port) ───────────────────
     case 'reverb': {
       const roomSize = k('roomSize', p.roomSize ?? 0.5)
       const feedback = k('feedback', p.feedback ?? 0.45)
@@ -208,58 +204,11 @@ function compileOneEffect(
       const stereoWidth = k('stereoWidth', p.stereoWidth ?? 0.6)
       const wetMix = k('mix', p.mix ?? 0.35)
 
-      const baseTimes = [29.7, 37.1, 41.3, 43.7]
-      const stereoOff = [1.3, 2.1, 0.9, 1.7]
-
-      function buildChannel(side: 'L' | 'R', sig: NodeRepr_t): Node {
-        const offsetMul = side === 'R' ? stereoWidth : el.const({ value: 0 })
-
-        const combs = baseTimes.map((base, i) => {
-          const off = el.mul(el.const({ value: stereoOff[i] }), offsetMul)
-          const timeMs = el.mul(el.add(el.const({ value: base }), off), roomSize)
-          const timeSamps = el.ms2samps(timeMs)
-
-          const dampHi = el.const({ value: 16000 })
-          const dampLo = el.const({ value: 400 })
-          const dampFreq = el.add(dampLo, el.mul(el.sub(el.const({ value: 1 }), damping), el.sub(dampHi, dampLo)))
-          const damped = el.svf(
-            { key: `${channelId}:${fx.id}:damp${side}${i}`, mode: 'lowpass' },
-            dampFreq,
-            el.const({ value: 0.5 }),
-            sig,
-          )
-          return el.delay(
-            { key: `${channelId}:${fx.id}:comb${side}${i}`, size: DELAY_SIZE },
-            timeSamps,
-            feedback,
-            damped,
-          )
-        })
-
-        const combSum = el.mul(
-          combs.reduce((a, b) => el.add(a, b), el.const({ value: 0 })),
-          el.const({ value: 0.35 }),
-        )
-
-        const toneHi = el.const({ value: 14000 })
-        const toneLo = el.const({ value: 800 })
-        const toneFreq = el.add(toneLo, el.mul(el.sub(el.const({ value: 1 }), damping), el.sub(toneHi, toneLo)))
-        return el.svf(
-          { key: `${channelId}:${fx.id}:tone${side}`, mode: 'lowpass' },
-          toneFreq,
-          el.const({ value: 0.5 }),
-          combSum,
-        )
-      }
-
-      const wetL = buildChannel('L', input.left)
-      const wetR = buildChannel('R', input.right)
-      const dryGain = el.sub(el.const({ value: 1 }), wetMix)
-
-      const effected: StereoOut = {
-        left: el.add(el.mul(input.left, dryGain), el.mul(wetL, wetMix)),
-        right: el.add(el.mul(input.right, dryGain), el.mul(wetR, wetMix)),
-      }
+      const effected = makeFdnReverb(
+        `chan:${channelId}:${fx.id}`,
+        roomSize, feedback, damping, stereoWidth, wetMix,
+        input.left, input.right,
+      )
       return bypassable(effected)
     }
 
