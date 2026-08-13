@@ -12,16 +12,12 @@
 
 import type { Doc } from '../domain/types'
 import { nextEffName } from '../domain/factory'
+import { defaultParams } from '../domain/moduleDefs'
 
 /**
  * Bump when the on-disk shape changes; add a matching `migrate` case.
- *
- * Note: modular instruments (`kind:'modular'` with a module graph) were added
- * without a bump — `Instrument` is a discriminated union, so old v1 files
- * (osc-only) and new files with modular instruments both satisfy the same
- * schema. A bump is only needed for a *breaking* shape change (e.g. sections).
  */
-export const CURRENT_SCHEMA_VERSION = 9
+export const CURRENT_SCHEMA_VERSION = 10
 
 export interface SongMeta {
   name: string
@@ -100,6 +96,9 @@ export function migrate(raw: unknown): SongFile {
 
   // v8→v9: delay/echo `time` param changed from milliseconds to tempo ticks.
   if (version < 9) raw = upgradeV8toV9(raw)
+
+  // v9→v10: osc instruments removed — converted to minimal modular synths.
+  if (version < 10) raw = upgradeV9toV10(raw)
 
   // v1→v1 migration: when the stereo output was added (commit b3917fc), the
   // output module's inlet changed from 'in' to 'inL'. Old modular instruments
@@ -505,6 +504,77 @@ function upgradeV8toV9(raw: any): any {
 
   if (!changed) return { ...raw, schemaVersion: 9 }
   return { ...raw, schemaVersion: 9, doc: { ...raw.doc, entities: ee } }
+}
+
+/**
+ * Build the minimal modular patch an osc instrument is converted to — a saw
+ * osc through an ADSR-shaped gain, matching the old built-in voice. The old
+ * instrument-level gain lands on the output module.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function oscToModular(inst: any): any {
+  const id = (prefix: string) => `${prefix}_${crypto.randomUUID()}`
+  const noteId = id('note')
+  const gateId = id('gate')
+  const oscId = id('osc')
+  const adsrId = id('adsr')
+  const gainId = id('gain')
+  const outId = id('out')
+
+  const modules: Record<string, unknown> = {
+    [noteId]: { id: noteId, type: 'note', params: {}, pos: { x: 40, y: 40 } },
+    [gateId]: { id: gateId, type: 'gate', params: {}, pos: { x: 40, y: 240 } },
+    [oscId]: { id: oscId, type: 'osc', params: defaultParams('osc'), pos: { x: 260, y: 40 } },
+    [adsrId]: { id: adsrId, type: 'adsr', params: defaultParams('adsr'), pos: { x: 260, y: 240 } },
+    [gainId]: { id: gainId, type: 'gain', params: defaultParams('gain'), pos: { x: 480, y: 140 } },
+    [outId]: { id: outId, type: 'output', params: { ...defaultParams('output'), gain: inst.params?.gain ?? 1 }, pos: { x: 700, y: 160 } },
+  }
+  const con = (from: string, fromPort: string, to: string, toPort: string): [string, Record<string, unknown>] => {
+    const cid = id('con')
+    return [cid, { id: cid, from: { moduleId: from, port: fromPort }, to: { moduleId: to, port: toPort }, gain: 1 }]
+  }
+  const connections = Object.fromEntries([
+    con(noteId, 'freq', oscId, 'freq'),
+    con(oscId, 'out', gainId, 'in'),
+    con(gateId, 'gate', adsrId, 'gate'),
+    con(adsrId, 'env', gainId, 'mod'),
+    con(gainId, 'out', outId, 'inL'),
+  ])
+
+  return {
+    id: inst.id,
+    kind: 'modular',
+    name: inst.name,
+    modules,
+    connections,
+    outputId: outId,
+    effectSettings: inst.effectSettings,
+    channelId: typeof inst.channelId === 'string' ? inst.channelId : 'master',
+    pan: typeof inst.pan === 'number' ? inst.pan : 0,
+    midiChannel: inst.midiChannel,
+  }
+}
+
+/** v9→v10: the built-in osc instrument is gone — convert any remaining osc
+ *  instruments into minimal modular synths so old songs keep playing. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function upgradeV9toV10(raw: any): any {
+  const insts = raw.doc?.entities?.instruments
+  if (!insts || !isRecord(insts)) return { ...raw, schemaVersion: 10 }
+
+  let changed = false
+  const fixed: Record<string, unknown> = {}
+  for (const [iid, inst] of Object.entries(insts)) {
+    if (isRecord(inst) && inst.kind === 'osc') {
+      fixed[iid] = oscToModular(inst)
+      changed = true
+    } else {
+      fixed[iid] = inst
+    }
+  }
+
+  if (!changed) return { ...raw, schemaVersion: 10 }
+  return { ...raw, schemaVersion: 10, doc: { ...raw.doc, entities: { ...raw.doc.entities, instruments: fixed } } }
 }
 
 /**

@@ -51,30 +51,10 @@ export type EffectSettingKey = keyof typeof DEFAULT_EFFECT_SETTINGS
 /** Per-instrument effect range overrides. Missing keys fall back to defaults. */
 export type EffectSettings = Partial<Record<string, number>>
 
-/** The original built-in instrument: a simple saw oscillator through an ADSR. */
-export interface OscInstrument {
-  id: Id
-  kind: 'osc'
-  name: string
-  params: {
-    /** Output gain, 0..1. */
-    gain: number
-  }
-  /** Per-instrument effect range overrides. Missing on older save files. */
-  effectSettings?: EffectSettings
-  /** Which mix channel this instrument routes to. Default "master". */
-  channelId: Id
-  /** Stereo pan/balance, -1 (left) .. +1 (right), 0 = center. */
-  pan: number
-  /** MIDI channel (1-16) for external MIDI routing.  undefined = follow
-   *  cursor-track instrument.  Drumkits default to channel 10. */
-  midiChannel?: number
-}
-
 /**
- * A modular instrument: a graph of `modules` wired by `connections`. Compiles
- * to an Elementary node exactly like an osc instrument, so the tracker never
- * needs to know the difference. Kept fully serializable (plain data + numbers).
+ * A modular synth instrument: a graph of `modules` wired by `connections`.
+ * Compiles to an Elementary node; the tracker only needs to know it's an
+ * instrument. Kept fully serializable (plain data + numbers).
  */
 export type ModuleType =
   | 'note' // source: the track's per-row frequency (Hz)
@@ -216,7 +196,7 @@ export function getSlotForNote(kit: DrumKitInstrument, note: number): DrumKitSlo
   return best
 }
 
-export type Instrument = OscInstrument | ModularInstrument | DrumKitInstrument
+export type Instrument = ModularInstrument | DrumKitInstrument
 
 export interface Track {
   id: Id

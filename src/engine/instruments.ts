@@ -1,12 +1,11 @@
 import { el, type NodeRepr_t } from '@elemaudio/core'
 import type { DrumKitSlot, Id, Instrument } from '../domain/types'
 import { midiToFreq } from '../domain/notes'
-import { compileModular, makeAdsr, type StereoOut } from './modular'
+import { compileModular, type StereoOut } from './modular'
 
 /**
  * An instrument is a node factory: given the control signals a track drives
- * (frequency + gate), it returns a stereo audio pair. Mono instruments (osc)
- * duplicate the same signal to both channels; modular instruments can route
+ * (frequency + gate), it returns a stereo audio pair. Modular synths can route
  * different signals to the output module's L/R inlets for true stereo.
  */
 /** Sample metadata needed by the compile pipeline. */
@@ -44,17 +43,6 @@ export function renderInstrument(
   rowHzNode: NodeRepr_t | number = 8,
 ): StereoOut {
   switch (inst.kind) {
-    case 'osc': {
-      void voiceKey; void note; void inletSignals; void midiCcValues; void ccBindings; void rowHzNode
-      const env = makeAdsr(0.005, 0.12, 0.7, 0.25, gate)
-      const tone = el.blepsaw(freq)
-      // Use createRef when available so slider changes take effect without recompile.
-      const gain = paramRefs
-        ? paramRefs.getOrCreate(`${inst.id}:gain`, inst.params.gain)
-        : el.const({ value: inst.params.gain })
-      const out = el.mul(tone, env, gain, volume)
-      return { left: out, right: out }
-    }
     case 'modular': {
       void note
       return compileModular(inst, freq, gate, voiceKey, sampleMeta, volume, inletSignals, midiCcValues, paramRefs, ccBindings, rowHzNode)

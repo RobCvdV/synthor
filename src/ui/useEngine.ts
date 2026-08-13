@@ -59,9 +59,7 @@ export function useEngine(): AudioHost {
       // Instruments — any change that alters the signal chain.
       for (const [id, inst] of Object.entries(doc.entities.instruments)) {
         const chan = `ch${inst.channelId}:pan${inst.pan}`
-        if (inst.kind === 'osc') {
-          parts.push(`osc:${id}:${chan}:${JSON.stringify(inst.params)}`)
-        } else if (inst.kind === 'drumkit') {
+        if (inst.kind === 'drumkit') {
           const slots = inst.slots.map((s) =>
             `${s.note}:${s.baseNote}:${s.instrumentId ?? ''}:${s.sampleId ?? ''}`,
           ).join(',')

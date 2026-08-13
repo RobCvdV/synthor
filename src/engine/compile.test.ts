@@ -3,7 +3,7 @@ import { el } from '@elemaudio/core'
 import { compileGraph } from '../engine/compile'
 import type { RenderContext } from '../engine/compile'
 import { buildArrangement } from '../engine/arrangement'
-import { newTrack, newOscInstrument, createMasterChannel, newDrumKitInstrument } from '../domain/factory'
+import { newTrack, newModularInstrument, createMasterChannel, newDrumKitInstrument } from '../domain/factory'
 import { MASTER_CHANNEL_ID } from '../domain/types'
 import type { Doc, Pattern, Id } from '../domain/types'
 
@@ -16,14 +16,14 @@ function makeDoc(patterns: { id: Id; name: string; length: number }[]): {
   trackIds: Id[]
 } {
   const master = createMasterChannel()
-  const insts: Record<Id, ReturnType<typeof newOscInstrument>> = {}
+  const insts: Record<Id, ReturnType<typeof newModularInstrument>> = {}
   const tracks: Record<Id, ReturnType<typeof newTrack>> = {}
   const pats: Record<Id, Pattern> = {}
   const instIds: Id[] = []
   const trackIds: Id[] = []
 
   for (const p of patterns) {
-    const inst = newOscInstrument(`Inst-${p.id}`)
+    const inst = newModularInstrument(`Inst-${p.id}`)
     insts[inst.id] = inst
     instIds.push(inst.id)
     const track = newTrack(inst.id, p.length)
@@ -203,10 +203,10 @@ function mockParamRefs() {
  *  compileLiveVoices from the pattern compilation path. */
 function makeInstrumentsDoc(instrumentCount: number): Doc {
   const master = createMasterChannel()
-  const insts: Record<Id, ReturnType<typeof newOscInstrument>> = {}
+  const insts: Record<Id, ReturnType<typeof newModularInstrument>> = {}
   const instIds: Id[] = []
   for (let i = 0; i < instrumentCount; i++) {
-    const inst = newOscInstrument(`Inst-${i}`)
+    const inst = newModularInstrument(`Inst-${i}`)
     insts[inst.id] = inst
     instIds.push(inst.id)
   }

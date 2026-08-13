@@ -557,3 +557,86 @@ describe('migration v8→v9 — delay/echo time to ticks', () => {
     expect(result.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
   })
 })
+
+describe('migration v9→v10 — osc instruments become modular synths', () => {
+  /** A minimal v9 file with one osc instrument + one track pointing at it. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const makeV9 = (instruments: Record<string, any>) => ({
+    schemaVersion: 9,
+    meta: META,
+    doc: {
+      patternId: 'p1',
+      sectionIds: [],
+      entities: {
+        instruments,
+        tracks: {
+          t1: { id: 't1', instrumentId: 'i1', cells: [{ note: 60, volume: null, noteOff: false, hold: false, effectLanes: {} }], effectLanes: [] },
+        },
+        patterns: { p1: { id: 'p1', name: 'p', length: 1, trackIds: ['t1'] } },
+        sections: {},
+        samples: {},
+        mixChannels: {
+          master: { id: 'master', name: 'Master', kind: 'master', volume: 1, pan: 0, mute: false, solo: false, effects: [] },
+        },
+        mixerInstrumentOrder: ['i1'],
+      },
+    },
+  })
+
+  const oscInst = {
+    id: 'i1', kind: 'osc', name: 'Old Saw', params: { gain: 0.6 },
+    effectSettings: { portamento: 12 }, channelId: 'master', pan: -0.3, midiChannel: 4,
+  }
+
+  it('converts an osc instrument to a minimal modular synth in place', () => {
+    const result = migrate(makeV9({ i1: oscInst }))
+    const inst: any = (result.doc.entities.instruments as any).i1
+    expect(inst.kind).toBe('modular')
+    expect(inst.id).toBe('i1')
+    expect(inst.name).toBe('Old Saw')
+    expect(inst.channelId).toBe('master')
+    expect(inst.pan).toBe(-0.3)
+    expect(inst.midiChannel).toBe(4)
+    expect(inst.effectSettings).toEqual({ portamento: 12 })
+    // The track keeps pointing at the same id.
+    expect((result.doc.entities.tracks as any).t1.instrumentId).toBe('i1')
+    // The old gain lands on the output module.
+    const mods: any = inst.modules
+    const out = Object.values(mods).find((m: any) => m.type === 'output') as any
+    expect(out.params.gain).toBe(0.6)
+  })
+
+  it('wires the classic saw voice: note→osc, gate→adsr, env→gain, gain→output', () => {
+    const result = migrate(makeV9({ i1: oscInst }))
+    const inst: any = (result.doc.entities.instruments as any).i1
+    const mods: any = inst.modules
+    const byType = (t: string) => Object.values(mods).filter((m: any) => m.type === t)
+    expect(byType('note')).toHaveLength(1)
+    expect(byType('gate')).toHaveLength(1)
+    expect(byType('osc')).toHaveLength(1)
+    expect(byType('adsr')).toHaveLength(1)
+    expect(byType('gain')).toHaveLength(1)
+    expect(byType('output')).toHaveLength(1)
+    expect(inst.outputId).toBe((byType('output')[0] as any).id)
+    const conns: any = inst.connections
+    const pairs = Object.values(conns).map((c: any) => `${c.from.port}→${(mods[c.to.moduleId] as any).type}.${c.to.port}`)
+    expect(pairs).toContain('freq→osc.freq')
+    expect(pairs).toContain('out→gain.in')
+    expect(pairs).toContain('gate→adsr.gate')
+    expect(pairs).toContain('env→gain.mod')
+    expect(pairs).toContain('out→output.inL')
+  })
+
+  it('leaves non-osc instruments untouched and stamps v10', () => {
+    const synth = newModularInstrument('Synth')
+    synth.id = 'i1'
+    const result = migrate(makeV9({ i1: synth }))
+    expect((result.doc.entities.instruments as any).i1).toBe(synth)
+    expect(result.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
+  })
+
+  it('stamps v10 even when nothing changes', () => {
+    const result = migrate(makeV9({}))
+    expect(result.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
+  })
+})

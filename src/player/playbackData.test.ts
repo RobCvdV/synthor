@@ -1,9 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import { buildPlaybackData } from '../player/playbackData'
-import { newOscInstrument, newDrumKitInstrument, newTrack } from '../domain/factory'
+import { newModularInstrument, newDrumKitInstrument, newTrack } from '../domain/factory'
 import type { Doc, Id, Pattern, Track } from '../domain/types'
 import { MASTER_CHANNEL_ID } from '../domain/types'
 import { REGULAR_CH } from '../engine/voiceSlotLayout'
+
+/** A plain modular synth with its seeded eff inlets removed — keeps the
+ *  11-channel layout the old osc instrument had. */
+function newSynth(name: string) {
+  const inst = newModularInstrument(name)
+  for (const m of Object.values(inst.modules)) {
+    if (m.type === 'eff') delete inst.modules[m.id]
+  }
+  return inst
+}
 
 /** Build a minimal doc for testing. */
 function makeDoc(
@@ -34,7 +44,7 @@ function setNote(track: Track, row: number, note: number): void {
 
 describe('buildPlaybackData', () => {
   it('builds slot data for a single pattern with one instrument', () => {
-    const inst = newOscInstrument('Bass')
+    const inst = newSynth('Bass')
     const track = newTrack(inst.id, 4)
     setNote(track, 0, 60)
     const pattern: Pattern = { id: 'pat_1', name: 'P1', length: 4, trackIds: [track.id] }
@@ -65,7 +75,7 @@ describe('buildPlaybackData', () => {
   })
 
   it('builds slot data for two tracks using same instrument (2 slots)', () => {
-    const inst = newOscInstrument('Lead')
+    const inst = newSynth('Lead')
     const t1 = newTrack(inst.id, 4)
     const t2 = newTrack(inst.id, 4)
     setNote(t1, 0, 60)
@@ -91,7 +101,7 @@ describe('buildPlaybackData', () => {
   })
 
   it('reuses slots across non-overlapping pattern windows', () => {
-    const inst = newOscInstrument('Bass')
+    const inst = newSynth('Bass')
     const t1 = newTrack(inst.id, 32)
     const t2 = newTrack(inst.id, 32)
     setNote(t1, 0, 60)
@@ -125,7 +135,7 @@ describe('buildPlaybackData', () => {
   })
 
   it('maps effect lane values to correct channel positions', () => {
-    const inst = newOscInstrument('Synth')
+    const inst = newSynth('Synth')
     const track = newTrack(inst.id, 4)
     setNote(track, 0, 60)
     // Add a panning effect lane.
@@ -144,7 +154,7 @@ describe('buildPlaybackData', () => {
   })
 
   it('maps named inlet values to correct positions', () => {
-    const inst = newOscInstrument('Synth')
+    const inst = newSynth('Synth')
     const track = newTrack(inst.id, 4)
     setNote(track, 0, 60)
     const inletName = 'cutoffFilter'
@@ -196,7 +206,7 @@ describe('buildPlaybackData', () => {
   })
 
   it('effect lane defaults are applied to all slot channels', () => {
-    const inst = newOscInstrument('Bass')
+    const inst = newSynth('Bass')
     const track = newTrack(inst.id, 4)
     setNote(track, 0, 60)
     const pattern: Pattern = { id: 'pat_1', name: 'P1', length: 4, trackIds: [track.id] }
@@ -221,7 +231,7 @@ describe('buildPlaybackData', () => {
   })
 
   it('staccato value is populated from buildSequences', () => {
-    const inst = newOscInstrument('Bass')
+    const inst = newSynth('Bass')
     const track = newTrack(inst.id, 4)
     setNote(track, 0, 60)
     setNote(track, 1, 64) // immediately after (gap=0) → auto-retrigger staccato
@@ -236,7 +246,7 @@ describe('buildPlaybackData', () => {
   })
 
   it('totalRows equals sum of pattern lengths', () => {
-    const inst = newOscInstrument('Bass')
+    const inst = newSynth('Bass')
     const t = newTrack(inst.id, 16)
     const p1: Pattern = { id: 'pat_1', name: 'P1', length: 16, trackIds: [t.id] }
     const p2: Pattern = { id: 'pat_2', name: 'P2', length: 32, trackIds: [t.id] }

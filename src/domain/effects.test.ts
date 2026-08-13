@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { BUILTIN_LANE_TYPES, effInletNames, isBuiltinLaneType, LANE_DEFS, readableLaneLabel, valueHex } from '../domain/effects'
-import { newDrumKitInstrument, newModularInstrument, newOscInstrument } from '../domain/factory'
+import { newDrumKitInstrument, newModularInstrument } from '../domain/factory'
 import type { Module } from '../domain/types'
 
 describe('LANE_DEFS', () => {
@@ -40,7 +40,6 @@ describe('effInletNames', () => {
   })
 
   it('returns [] for non-modular instruments', () => {
-    expect(effInletNames(newOscInstrument('Saw'))).toEqual([])
     expect(effInletNames(newDrumKitInstrument('Kit'))).toEqual([])
     expect(effInletNames(undefined)).toEqual([])
   })

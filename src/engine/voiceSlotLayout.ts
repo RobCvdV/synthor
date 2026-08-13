@@ -11,7 +11,7 @@
 import type { Doc, Id } from '../domain/types'
 import { isBuiltinLaneType } from '../domain/effects'
 
-/** Fixed layout per slot for a regular (osc/modular) instrument.
+/** Fixed layout per slot for a regular (modular) instrument.
  *  Channels: gate, freq, vol, portamento, volumeSlide, panning,
  *  vibratoRate, vibratoDepth, tremoloRate, tremoloDepth, staccato = 11 base. */
 const REGULAR_BASE_CHANNELS = 11

@@ -1,8 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import { computeSlotLayouts, totalChannels, getSlotChannelOffset } from '../engine/voiceSlotLayout'
-import { newOscInstrument, newDrumKitInstrument, newTrack } from '../domain/factory'
+import { newModularInstrument, newDrumKitInstrument, newTrack } from '../domain/factory'
 import type { Doc, Id, Pattern } from '../domain/types'
 import { MASTER_CHANNEL_ID } from '../domain/types'
+
+/** A plain modular synth with its seeded eff inlets removed — keeps the
+ *  11-channel layout the old osc instrument had. */
+function newSynth(name: string) {
+  const inst = newModularInstrument(name)
+  for (const m of Object.values(inst.modules)) {
+    if (m.type === 'eff') delete inst.modules[m.id]
+  }
+  return inst
+}
 
 /** Build a minimal doc for slot layout testing. */
 function makeDoc(
@@ -27,13 +37,13 @@ function makeDoc(
 
 describe('computeSlotLayouts', () => {
   it('returns empty for doc with no patterns', () => {
-    const inst = newOscInstrument('Bass')
+    const inst = newSynth('Bass')
     const doc = makeDoc({ [inst.id]: inst }, {}, {})
     expect(computeSlotLayouts(doc)).toEqual([])
   })
 
   it('computes 1 slot for an instrument used once in one pattern', () => {
-    const inst = newOscInstrument('Bass')
+    const inst = newSynth('Bass')
     const track = newTrack(inst.id, 64)
     const pattern: Pattern = { id: 'pat_1', name: 'P1', length: 64, trackIds: [track.id] }
     const doc = makeDoc({ [inst.id]: inst }, { [track.id]: track }, { [pattern.id]: pattern })
@@ -49,7 +59,7 @@ describe('computeSlotLayouts', () => {
   })
 
   it('computes 2 slots when two tracks use the same instrument in one pattern', () => {
-    const inst = newOscInstrument('Lead')
+    const inst = newSynth('Lead')
     const t1 = newTrack(inst.id, 64)
     const t2 = newTrack(inst.id, 64)
     const pattern: Pattern = { id: 'pat_1', name: 'P1', length: 64, trackIds: [t1.id, t2.id] }
@@ -63,7 +73,7 @@ describe('computeSlotLayouts', () => {
   })
 
   it('takes max concurrent tracks across multiple patterns', () => {
-    const inst = newOscInstrument('Lead')
+    const inst = newSynth('Lead')
     const t1 = newTrack(inst.id, 64)
     const t2 = newTrack(inst.id, 64)
     const t3 = newTrack(inst.id, 64)
@@ -81,8 +91,8 @@ describe('computeSlotLayouts', () => {
   })
 
   it('handles multiple instruments with different concurrency', () => {
-    const bass = newOscInstrument('Bass')
-    const lead = newOscInstrument('Lead')
+    const bass = newSynth('Bass')
+    const lead = newSynth('Lead')
     const drums = newDrumKitInstrument('Drums')
     // Add 4 drum slots to ensure channel count is non-trivial.
     drums.slots = [
@@ -132,7 +142,7 @@ describe('computeSlotLayouts', () => {
   })
 
   it('includes named inlets from effect lanes', () => {
-    const inst = newOscInstrument('Synth')
+    const inst = newSynth('Synth')
     const track = newTrack(inst.id, 64)
     // Add a named inlet lane (not a built-in type).
     track.effectLanes = [
@@ -150,7 +160,7 @@ describe('computeSlotLayouts', () => {
   })
 
   it('named inlets are unioned across all tracks of the instrument', () => {
-    const inst = newOscInstrument('Synth')
+    const inst = newSynth('Synth')
     const t1 = newTrack(inst.id, 64)
     t1.effectLanes = [{ id: 'lan_a', type: 'cutoff' }]
     const t2 = newTrack(inst.id, 64)
@@ -173,7 +183,7 @@ describe('computeSlotLayouts', () => {
   })
 
   it('skips tracks with no instrument', () => {
-    const inst = newOscInstrument('Bass')
+    const inst = newSynth('Bass')
     const track = newTrack(inst.id, 64)
     // Break the instrument reference — track points to missing instrument.
     track.instrumentId = 'nonexistent'
@@ -188,7 +198,7 @@ describe('computeSlotLayouts', () => {
 
 describe('getSlotChannelOffset', () => {
   it('returns the correct global offset for a slot', () => {
-    const inst = newOscInstrument('Lead')
+    const inst = newSynth('Lead')
     const t1 = newTrack(inst.id, 64)
     const t2 = newTrack(inst.id, 64)
     const pattern: Pattern = { id: 'pat_1', name: 'P1', length: 64, trackIds: [t1.id, t2.id] }

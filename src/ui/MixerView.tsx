@@ -24,7 +24,6 @@ export function MixerView({ host: _host }: MixerViewProps) {
   const hiddenInstruments = Object.values(instruments).filter((inst) => !orders.includes(inst.id))
 
   const getInstGain = (inst: Instrument): number => {
-    if (inst.kind === 'osc') return inst.params.gain
     if (inst.kind === 'drumkit') return inst.params.gain
     return inst.modules[inst.outputId]?.params.gain ?? 1
   }
@@ -43,15 +42,13 @@ export function MixerView({ host: _host }: MixerViewProps) {
               gain={getInstGain(inst)}
               onVolumeSilent={(v) => {
                 const vol = Math.max(0, Math.min(2, v))
-                if (inst.kind === 'osc') store().setOscParamSilent(inst.id, 'gain', vol)
-                else if (inst.kind === 'drumkit') store().setDrumKitParamSilent(inst.id, 'gain', vol)
-                else if (inst.kind === 'modular') store().setModuleParamSilent(inst.id, inst.outputId, 'gain', vol)
+                if (inst.kind === 'drumkit') store().setDrumKitParamSilent(inst.id, 'gain', vol)
+                else store().setModuleParamSilent(inst.id, inst.outputId, 'gain', vol)
               }}
               onVolumeCommit={(v) => {
                 const vol = Math.max(0, Math.min(2, v))
-                if (inst.kind === 'osc') store().setOscParam(inst.id, 'gain', vol)
-                else if (inst.kind === 'drumkit') store().setDrumKitParam(inst.id, 'gain', vol)
-                else if (inst.kind === 'modular') store().setModuleParam(inst.id, inst.outputId, 'gain', vol)
+                if (inst.kind === 'drumkit') store().setDrumKitParam(inst.id, 'gain', vol)
+                else store().setModuleParam(inst.id, inst.outputId, 'gain', vol)
               }}
               onPanSilent={(pan) => store().setInstrumentPanSilent(inst.id, Math.max(-1, Math.min(1, pan)))}
               onPanCommit={(pan) => store().setInstrumentPan(inst.id, Math.max(-1, Math.min(1, pan)))}
@@ -139,7 +136,7 @@ function InstrumentStrip({
   onRoute: (channelId: Id) => void; onHide: () => void
   onMoveUp?: () => void; onMoveDown?: () => void
 }) {
-  const kindLabel = inst.kind === 'osc' ? 'OSC' : inst.kind === 'modular' ? 'MOD' : 'DK'
+  const kindLabel = inst.kind === 'modular' ? 'SYN' : 'DK'
   const subChannels = Object.values(channels).filter((c) => c.kind === 'sub')
 
   return (

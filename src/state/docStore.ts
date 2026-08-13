@@ -8,11 +8,11 @@ import {
   createChannelEffect,
   createDefaultDoc,
   createMixChannel,
+  emptyCells,
   fitCells,
   makeId,
   newDrumKitInstrument,
   newModularInstrument,
-  newOscInstrument,
   newSection,
   newTrack,
   nextEffName,
@@ -28,7 +28,7 @@ interface HistoryEntry {
 }
 
 /** A detached copy of a track + its instrument, for copy/paste. Stores the full
- *  instrument (osc or modular); paste clones it with fresh ids. */
+ *  instrument; paste clones it with fresh ids. */
 interface TrackSnapshot {
   instrument: Instrument
   cells: Cell[]
@@ -112,10 +112,6 @@ interface DocState {
   renameInstrument: (instrumentId: Id, name: string) => void
   /** Set an effect range max value on an instrument. */
   setEffectSetting: (instrumentId: Id, key: string, value: number) => void
-  /** Set a top-level param on an osc instrument (e.g. gain). */
-  setOscParam: (instrumentId: Id, key: string, value: number) => void
-  setOscParamFast: (instrumentId: Id, key: string, value: number) => void
-  setOscParamSilent: (instrumentId: Id, key: string, value: number) => void
   setTrackInstrument: (trackId: Id, instrumentId: Id) => void
 
   // --- Modular graph editing (on a modular instrument) ---
@@ -499,10 +495,8 @@ export const useDocStore = create<DocState>((set, get) => ({
   },
 
   addInstrument: (kind) => {
-    let inst: Instrument
-    if (kind === 'modular') inst = newModularInstrument('Modular')
-    else if (kind === 'drumkit') inst = newDrumKitInstrument('Drum Kit')
-    else inst = newOscInstrument('Instrument')
+    const inst: Instrument =
+      kind === 'drumkit' ? newDrumKitInstrument('Drum Kit') : newModularInstrument('Synth')
     get().mutate((draft) => {
       draft.entities.instruments[inst.id] = inst
       if (!draft.entities.mixerInstrumentOrder.includes(inst.id)) {
@@ -533,39 +527,11 @@ export const useDocStore = create<DocState>((set, get) => ({
   setEffectSetting: (instrumentId, key, value) =>
     get().mutate((draft) => {
       const inst = draft.entities.instruments[instrumentId]
-      if (inst && (inst.kind === 'modular' || inst.kind === 'osc')) {
+      if (inst?.kind === 'modular') {
         if (!inst.effectSettings) inst.effectSettings = {}
         inst.effectSettings[key] = value
       }
     }),
-
-  setOscParam: (instrumentId, key, value) => {
-    get().mutate((draft) => {
-      const inst = draft.entities.instruments[instrumentId]
-      if (inst?.kind === 'osc' && key in inst.params) {
-        ;(inst.params as Record<string, number>)[key] = value
-      }
-    })
-    // Direct ref update so slider changes take effect without waiting for recompile.
-    updateParamRef(`${instrumentId}:${key}`, value)
-  },
-  /** Update osc param ref immediately without triggering a recompile.
-   *  Use during slider drags; call setOscParam on drag-end to persist. */
-  setOscParamFast: (instrumentId: Id, key: string, value: number) => {
-    updateParamRef(`${instrumentId}:${key}`, value)
-  },
-
-	  /** Like setOscParam but uses mutateSilent — persists to store + undo
-	   *  without triggering a graph recompile. Use during slider drags. */
-	  setOscParamSilent: (instrumentId: Id, key: string, value: number) => {
-	    get().mutateSilent((draft) => {
-	      const inst = draft.entities.instruments[instrumentId];
-	      if (inst?.kind === 'osc' && key in inst.params) {
-	        ;(inst.params as Record<string, number>)[key] = value;
-	      }
-	    });
-	    updateParamRef(`${instrumentId}:${key}`, value);
-	  },
 
   setTrackInstrument: (trackId, instrumentId) =>
     get().mutate((draft) => {
@@ -935,12 +901,30 @@ export const useDocStore = create<DocState>((set, get) => ({
     }),
 
   addPattern: (name, length) => {
+    const src = get().doc.entities.patterns[get().doc.patternId]
     const patName = name ?? `Pattern ${String(Object.keys(get().doc.entities.patterns).length + 1).padStart(2, '0')}`
-    const patLen = length ?? 64
     const patternId = makeId('pat')
     get().mutate((draft) => {
-      const pattern: Pattern = { id: patternId, name: patName, length: patLen, trackIds: [] }
-      draft.entities.patterns[patternId] = pattern
+      // Nothing to base on → a bare 32-row pattern.
+      if (!src) {
+        draft.entities.patterns[patternId] = { id: patternId, name: patName, length: length ?? 32, trackIds: [] }
+        return
+      }
+      // A pattern is selected → same structure and length, all lanes cleared.
+      const newTrackIds: Id[] = []
+      for (const tid of src.trackIds) {
+        const srcTrack = draft.entities.tracks[tid]
+        if (!srcTrack) continue
+        const newTrackId = makeId('trk')
+        draft.entities.tracks[newTrackId] = {
+          id: newTrackId,
+          instrumentId: srcTrack.instrumentId,
+          cells: emptyCells(src.length),
+          effectLanes: [...srcTrack.effectLanes],
+        }
+        newTrackIds.push(newTrackId)
+      }
+      draft.entities.patterns[patternId] = { id: patternId, name: patName, length: src.length, trackIds: newTrackIds }
     })
     return patternId
   },

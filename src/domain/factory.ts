@@ -10,7 +10,6 @@ import type {
   Module,
   ModularInstrument,
   ModuleType,
-  OscInstrument,
   Pattern,
   Port,
   SampleEntity,
@@ -53,11 +52,6 @@ export function createMixChannel(name: string): MixChannel {
 /** A new channel effect instance. Mono effects should be created per-side (L+R). */
 export function createChannelEffect(type: ModuleType, side?: 'L' | 'R'): ChannelEffect {
   return { id: makeId('chef'), type, params: { ...defaultParams(type) }, ...(side ? { side } : {}) }
-}
-
-/** A fresh saw instrument. */
-export function newOscInstrument(name: string): OscInstrument {
-  return { id: makeId('inst'), kind: 'osc', name, params: { gain: 0.8 }, effectSettings: { ...DEFAULT_EFFECT_SETTINGS }, channelId: MASTER_CHANNEL_ID, pan: 0 }
 }
 
 /** A fresh empty drum kit with a default key range of C-2 to C-4. */
@@ -146,10 +140,6 @@ export function newModularInstrument(name: string): ModularInstrument {
  * `outputId`) are remapped, so the copy is fully independent of the original.
  */
 export function cloneInstrument(inst: Instrument, name: string): Instrument {
-  if (inst.kind === 'osc') {
-    return { id: makeId('inst'), kind: 'osc', name, params: { ...inst.params }, effectSettings: { ...inst.effectSettings }, channelId: inst.channelId ?? MASTER_CHANNEL_ID, pan: inst.pan ?? 0 }
-  }
-
   if (inst.kind === 'drumkit') {
     const slots: DrumKitSlot[] = inst.slots.map((s) => ({
       id: makeId('slot'),
@@ -201,35 +191,31 @@ export function newSection(name: string): Section {
 }
 
 /**
- * A minimal starter document: one 64-row pattern, two saw tracks, with a few
- * notes already placed so playback makes sound the moment you hit play.
- * This is the INITIAL state before any saved song loads; once a song loads,
- * `loadDoc` replaces this entirely.
+ * A minimal starter document: one 32-row pattern with a synth arpeggio and an
+ * empty drum kit, so playback makes sound the moment you hit play. This is the
+ * INITIAL state before any saved song loads; once a song loads, `loadDoc`
+ * replaces this entirely.
  */
 export function createDefaultDoc(): Doc {
   const master = createMasterChannel()
-  const instA: Instrument = { id: makeId('inst'), kind: 'osc', name: 'Saw Lead', params: { gain: 0.8 }, effectSettings: { ...DEFAULT_EFFECT_SETTINGS }, channelId: MASTER_CHANNEL_ID, pan: 0 }
-  const instB: Instrument = { id: makeId('inst'), kind: 'osc', name: 'Saw Bass', params: { gain: 0.8 }, effectSettings: { ...DEFAULT_EFFECT_SETTINGS }, channelId: MASTER_CHANNEL_ID, pan: 0 }
+  const lead = newModularInstrument('Lead Synth')
+  const kit = newDrumKitInstrument('Drum Kit')
 
-  const length = 16
+  const length = 32
 
-  const trackA: Track = { id: makeId('trk'), instrumentId: instA.id, cells: emptyCells(length), effectLanes: [] }
-  const trackB: Track = { id: makeId('trk'), instrumentId: instB.id, cells: emptyCells(length), effectLanes: [] }
+  const trackA: Track = { id: makeId('trk'), instrumentId: lead.id, cells: emptyCells(length), effectLanes: [] }
 
-  // A simple arpeggio on track A (C4 E4 G4 C5 pattern every 4 rows).
+  // A simple arpeggio (C4 E4 G4 C5 every 4 rows).
   const arp = [60, 64, 67, 72]
   for (let row = 0; row < length; row += 4) {
     trackA.cells[row].note = arp[(row / 4) % arp.length]
   }
-  // A root-note bass on track B every 8 rows (C2 / G2).
-  trackB.cells[0].note = 36
-  trackB.cells[8].note = 43
 
   const pattern: Pattern = {
     id: makeId('pat'),
     name: 'Pattern 01',
     length,
-    trackIds: [trackA.id, trackB.id],
+    trackIds: [trackA.id],
   }
 
   const section = newSection('Intro')
@@ -237,13 +223,13 @@ export function createDefaultDoc(): Doc {
 
   return {
     entities: {
-      instruments: { [instA.id]: instA, [instB.id]: instB },
-      tracks: { [trackA.id]: trackA, [trackB.id]: trackB },
+      instruments: { [lead.id]: lead, [kit.id]: kit },
+      tracks: { [trackA.id]: trackA },
       patterns: { [pattern.id]: pattern },
       sections: { [section.id]: section },
       samples: {},
       mixChannels: { [MASTER_CHANNEL_ID]: master },
-      mixerInstrumentOrder: [instA.id, instB.id],
+      mixerInstrumentOrder: [lead.id, kit.id],
     },
     patternId: pattern.id,
     sectionIds: [section.id],

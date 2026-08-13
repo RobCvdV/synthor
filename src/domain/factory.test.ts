@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { emptyCells, fitCells, makeId, newTrack, createDefaultDoc, createMasterChannel, createMixChannel, createChannelEffect, cloneInstrument, newOscInstrument, newModularInstrument, newDrumKitInstrument, nextEffName } from '../domain/factory'
+import { emptyCells, fitCells, makeId, newTrack, createDefaultDoc, createMasterChannel, createMixChannel, createChannelEffect, cloneInstrument, newModularInstrument, newDrumKitInstrument, nextEffName } from '../domain/factory'
 import { defaultParams, MODULE_DEFS } from '../domain/moduleDefs'
 import { MASTER_CHANNEL_ID } from '../domain/types'
 
@@ -125,9 +125,6 @@ describe('mixer factories', () => {
   })
 
   it('new instruments default to master channel and center pan', () => {
-    const osc = newOscInstrument('Test')
-    expect(osc.channelId).toBe(MASTER_CHANNEL_ID)
-    expect(osc.pan).toBe(0)
     const mod = newModularInstrument('Test')
     expect(mod.channelId).toBe(MASTER_CHANNEL_ID)
     expect(mod.pan).toBe(0)
@@ -136,13 +133,20 @@ describe('mixer factories', () => {
     expect(dk.pan).toBe(0)
   })
 
+  it('default doc contains only synth and drum kit instruments', () => {
+    const doc = createDefaultDoc()
+    for (const inst of Object.values(doc.entities.instruments)) {
+      expect(['modular', 'drumkit']).toContain(inst.kind)
+    }
+  })
+
   it('clone preserves channelId and pan', () => {
-    const orig = newOscInstrument('Orig')
+    const orig = newModularInstrument('Orig')
     orig.channelId = 'some-chan'
     orig.pan = 0.5
     const copy = cloneInstrument(orig, 'Copy')
-    expect(copy.kind).toBe('osc')
-    if (copy.kind === 'osc') {
+    expect(copy.kind).toBe('modular')
+    if (copy.kind === 'modular') {
       expect(copy.channelId).toBe('some-chan')
       expect(copy.pan).toBe(0.5)
     }

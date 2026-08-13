@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildArrangement } from '../engine/arrangement'
-import { newTrack, newSection, newOscInstrument, createMasterChannel } from '../domain/factory'
+import { newTrack, newSection, newModularInstrument, createMasterChannel } from '../domain/factory'
 import { MASTER_CHANNEL_ID } from '../domain/types'
 import type { Doc, Pattern, Section } from '../domain/types'
 
@@ -11,7 +11,7 @@ function makeDoc(opts: {
   sections?: Record<string, Section>
   sectionIds?: string[]
 }): Doc {
-  const inst = newOscInstrument('Test')
+  const inst = newModularInstrument('Test')
   const track = newTrack(inst.id, 64)
   const master = createMasterChannel()
   return {
@@ -30,7 +30,7 @@ function makeDoc(opts: {
 }
 
 function makePattern(id: string, length = 64, name = 'Test'): Pattern {
-  const inst = newOscInstrument('Inst')
+  const inst = newModularInstrument('Inst')
   const track = newTrack(inst.id, length)
   return { id, name, length, trackIds: [track.id] }
 }

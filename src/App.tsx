@@ -525,7 +525,7 @@ export default function App() {
           case 'ArrowDown': e.preventDefault(); if (trackId) shiftTrack(trackId, 'down'); return
           case 'Equal': {
             e.preventDefault()
-            const inheritId = useDocStore.getState().doc.entities.tracks[trackId]?.instrumentId ?? Object.keys(useDocStore.getState().doc.entities.instruments)[0] ?? useDocStore.getState().addInstrument('osc')
+            const inheritId = useDocStore.getState().doc.entities.tracks[trackId]?.instrumentId ?? Object.keys(useDocStore.getState().doc.entities.instruments)[0] ?? useDocStore.getState().addInstrument('modular')
             addTrack(cur.track + 1, inheritId)
             setCursor((c) => ({ ...c, track: cur.track + 1 }))
             return

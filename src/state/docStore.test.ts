@@ -121,7 +121,7 @@ describe('docStore — effect lanes', () => {
     useDocStore.getState().duplicateTrack(tid, 2)
     const doc = useDocStore.getState().doc
     const pat = doc.entities.patterns[doc.patternId]
-    const newTid = pat.trackIds[2]
+    const newTid = pat.trackIds.at(-1)!
     const newTrack = doc.entities.tracks[newTid]
     expect(newTrack.effectLanes).toHaveLength(1)
     expect(newTrack.effectLanes[0].type).toBe('panning')
@@ -217,19 +217,51 @@ describe('docStore — pattern & section ops', () => {
 
   /* ---- patterns ---- */
 
-  it('creates a pattern with a default name and length', () => {
+  it('creates a new pattern from the selected one with all lanes cleared', () => {
     const store = useDocStore.getState()
+    const srcId = firstPatternId()
+    const src = useDocStore.getState().doc.entities.patterns[srcId]
+    // Give the source some data so the clearing is observable.
+    store.addEffectLane(src.trackIds[0], 'panning')
+    const laneId = useDocStore.getState().doc.entities.tracks[src.trackIds[0]].effectLanes[0].id
+    store.setCellEffectLane(src.trackIds[0], 0, laneId, 0.5)
+
     const id = store.addPattern()
     expect(id).toMatch(/^pat_/)
-    const pat = useDocStore.getState().doc.entities.patterns[id]
+    const doc = useDocStore.getState().doc
+    const pat = doc.entities.patterns[id]
     expect(pat.name).toMatch(/^Pattern \d+$/)
-    expect(pat.length).toBe(64)
-    // New patterns start with no tracks — tracks are added on first note entry
-    expect(Array.isArray(pat.trackIds)).toBe(true)
+    // Same structure and length as the selected pattern…
+    expect(pat.length).toBe(src.length)
+    expect(pat.trackIds).toHaveLength(src.trackIds.length)
+    for (let i = 0; i < src.trackIds.length; i++) {
+      const srcTrack = doc.entities.tracks[src.trackIds[i]]
+      const newTrack = doc.entities.tracks[pat.trackIds[i]]
+      expect(newTrack.instrumentId).toBe(srcTrack.instrumentId)
+      // Lane definitions follow the track, but every cell is cleared.
+      expect(newTrack.effectLanes).toEqual(srcTrack.effectLanes)
+      for (const cell of newTrack.cells) {
+        expect(cell.note).toBeNull()
+        expect(cell.volume).toBeNull()
+        expect(cell.effectLanes).toEqual({})
+      }
+    }
     // New patterns are not added to any section — the user arranges manually.
-    for (const section of Object.values(useDocStore.getState().doc.entities.sections)) {
+    for (const section of Object.values(doc.entities.sections)) {
       expect(section.patternIds).not.toContain(id)
     }
+  })
+
+  it('creates a bare 32-row pattern when there is no pattern to base it on', () => {
+    const doc = createDefaultDoc()
+    doc.entities.patterns = {}
+    doc.patternId = 'none'
+    useDocStore.getState().loadDoc(doc)
+
+    const id = useDocStore.getState().addPattern()
+    const pat = useDocStore.getState().doc.entities.patterns[id]
+    expect(pat.length).toBe(32)
+    expect(pat.trackIds).toEqual([])
   })
 
   it('duplicates a pattern', () => {
@@ -502,13 +534,13 @@ describe('docStore — mixer', () => {
 
   it('new instruments are added to mixer order', () => {
     const before = useDocStore.getState().doc.entities.mixerInstrumentOrder.length
-    useDocStore.getState().addInstrument('osc')
+    useDocStore.getState().addInstrument('modular')
     const after = useDocStore.getState().doc.entities.mixerInstrumentOrder.length
     expect(after).toBe(before + 1)
   })
 
   it('removing instrument also removes from mixer order', () => {
-    const id = useDocStore.getState().addInstrument('osc')
+    const id = useDocStore.getState().addInstrument('modular')
     expect(useDocStore.getState().doc.entities.mixerInstrumentOrder).toContain(id)
     useDocStore.getState().removeInstrument(id)
     expect(useDocStore.getState().doc.entities.mixerInstrumentOrder).not.toContain(id)
@@ -1103,16 +1135,16 @@ describe('docStore — eff inlet naming', () => {
   it('renameModule leaves lanes on tracks using other instruments alone', () => {
     const store = useDocStore.getState()
     const modTrack = addTrackUsing(instId)
-    const oscInst = Object.values(useDocStore.getState().doc.entities.instruments).find((i) => i.kind === 'osc')!
-    const oscTrack = addTrackUsing(oscInst.id)
-    for (const tid of [modTrack, oscTrack]) store.addEffectLane(tid, 'Eff In 01')
+    const kitInst = Object.values(useDocStore.getState().doc.entities.instruments).find((i) => i.kind === 'drumkit')!
+    const kitTrack = addTrackUsing(kitInst.id)
+    for (const tid of [modTrack, kitTrack]) store.addEffectLane(tid, 'Eff In 01')
 
     const eff1 = effModules(instId).find((m) => m.name === 'Eff In 01')!
     store.renameModule(instId, eff1.id, 'Filter Cutoff')
 
     const doc = useDocStore.getState().doc
     expect(doc.entities.tracks[modTrack].effectLanes[0].type).toBe('Filter Cutoff')
-    expect(doc.entities.tracks[oscTrack].effectLanes[0].type).toBe('Eff In 01')
+    expect(doc.entities.tracks[kitTrack].effectLanes[0].type).toBe('Eff In 01')
   })
 
   it('renameModule rejects empty and duplicate names', () => {

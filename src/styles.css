@@ -124,8 +124,6 @@ body {
 }
 .inst-name-input:focus { outline: none; border-color: var(--accent); }
 
-.osc-strip { padding: 20px; max-width: 320px; }
-
 .preview-bar {
   display: flex; align-items: center; gap: 12px;
   padding: 6px 16px; background: var(--bg); border-bottom: 1px solid #000;

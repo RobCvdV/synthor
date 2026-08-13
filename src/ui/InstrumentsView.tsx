@@ -23,8 +23,8 @@ function isEditableTarget(target: EventTarget | null): boolean {
 }
 
 /** Full-screen instruments view: a list rail on the left, the selected
- *  instrument's editor on the right (knob strip for osc, node graph for
- *  modular). All edits go through docStore, so undo/redo + autosave apply.
+ *  instrument's editor on the right (node graph for synths, key map for drum
+ *  kits). All edits go through docStore, so undo/redo + autosave apply.
  *
  *  The note keys audition the selected instrument live (held = gate open); the
  *  tracker keymap is inert here (App guards it). Octave keys and a panic control
@@ -34,7 +34,6 @@ export function InstrumentsView({ host }: { host: AudioHost }) {
   const addInstrument = useDocStore((s) => s.addInstrument)
   const removeInstrument = useDocStore((s) => s.removeInstrument)
   const duplicateInstrument = useDocStore((s) => s.duplicateInstrument)
-  const setOscParamSilent = useDocStore((s) => s.setOscParamSilent)
 
   const noteOn = usePreviewStore((s) => s.noteOn)
   const noteOff = usePreviewStore((s) => s.noteOff)
@@ -166,7 +165,7 @@ export function InstrumentsView({ host }: { host: AudioHost }) {
       const raw = JSON.parse(await f.text())
       if (!raw || typeof raw !== 'object' || !raw.instrument) throw new Error('Not a valid instrument file')
       const inst = raw.instrument as Instrument
-      if (inst.kind !== 'modular' && inst.kind !== 'osc' && inst.kind !== 'drumkit') throw new Error('Unknown instrument kind')
+      if (inst.kind !== 'modular' && inst.kind !== 'drumkit') throw new Error('Unknown instrument kind')
       // Deep-clone with fresh ids so it never collides with existing instruments.
       const cloned = cloneInstrument(inst, inst.name)
       useDocStore.getState().mutate((draft) => {
@@ -182,9 +181,8 @@ export function InstrumentsView({ host }: { host: AudioHost }) {
     <div className="instruments-view">
       <aside className="inst-rail">
         <div className="inst-rail-actions">
-          <button onClick={() => setSelectedId(addInstrument('modular'))}>+ Modular</button>
-          <button onClick={() => setSelectedId(addInstrument('osc'))}>+ Osc</button>
-          <button onClick={() => setSelectedId(addInstrument('drumkit'))}>+ Kit</button>
+          <button onClick={() => setSelectedId(addInstrument('modular'))}>+ Synth</button>
+          <button onClick={() => setSelectedId(addInstrument('drumkit'))}>+ Drum Kit</button>
           <button onClick={() => fileInput.current?.click()}>Import</button>
         </div>
         <ul className="inst-list">
@@ -196,7 +194,7 @@ export function InstrumentsView({ host }: { host: AudioHost }) {
                 className={'inst-item' + (inst.id === selectedId ? ' selected' : '')}
                 onClick={() => setSelectedId(inst.id)}
               >
-                <span className="inst-kind">{inst.kind === 'modular' ? '▦' : inst.kind === 'drumkit' ? '◆' : '∿'}</span>
+                <span className="inst-kind">{inst.kind === 'modular' ? '▦' : '◆'}</span>
                 <span className="inst-name" title={inst.name}>{inst.name}</span>
                 <span className="inst-uses" title={`${uses} track(s) use this`}>{uses}</span>
               </li>
@@ -229,25 +227,8 @@ export function InstrumentsView({ host }: { host: AudioHost }) {
 
             {selected.kind === 'modular' ? (
               <ModularEditor inst={selected} host={host} />
-            ) : selected.kind === 'drumkit' ? (
-              <DrumKitEditor inst={selected} />
             ) : (
-              <div className="osc-strip">
-                <label className="mod-param">
-                  <span className="mod-param-label">
-                    Gain<span className="mod-param-value">{selected.params.gain.toFixed(2)}</span>
-                  </span>
-                  <input
-                    type="range"
-                    min={0}
-                    max={1}
-                    step={0.01}
-                    value={selected.params.gain}
-                    onChange={(e) => setOscParamSilent(selected.id, 'gain', Number(e.target.value))}
-                  />
-                </label>
-                <p className="muted">A built-in saw voice. Convert to modular by adding a new modular instrument.</p>
-              </div>
+              <DrumKitEditor inst={selected} />
             )}
           </>
         )}

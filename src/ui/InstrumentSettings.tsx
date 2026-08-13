@@ -35,7 +35,7 @@ export function InstrumentSettings({ inst, usage, onDuplicate, onExport, onDelet
           value={inst.name}
           onChange={(e) => renameInstrument(inst.id, e.target.value)}
         />
-        <span className="muted">{inst.kind}</span>
+        <span className="muted">{inst.kind === 'drumkit' ? 'Drum Kit' : 'Synth'}</span>
         <div className="inst-settings-actions">
           <button title="Duplicate this instrument" onClick={onDuplicate}>
             Duplicate
