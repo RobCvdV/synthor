@@ -231,6 +231,8 @@ describe('docStore — pattern & section ops', () => {
     const doc = useDocStore.getState().doc
     const pat = doc.entities.patterns[id]
     expect(pat.name).toMatch(/^Pattern \d+$/)
+    // The new pattern is selected immediately.
+    expect(doc.patternId).toBe(id)
     // Same structure and length as the selected pattern…
     expect(pat.length).toBe(src.length)
     expect(pat.trackIds).toHaveLength(src.trackIds.length)
@@ -259,9 +261,11 @@ describe('docStore — pattern & section ops', () => {
     useDocStore.getState().loadDoc(doc)
 
     const id = useDocStore.getState().addPattern()
-    const pat = useDocStore.getState().doc.entities.patterns[id]
+    const loaded = useDocStore.getState().doc
+    const pat = loaded.entities.patterns[id]
     expect(pat.length).toBe(32)
     expect(pat.trackIds).toEqual([])
+    expect(loaded.patternId).toBe(id)
   })
 
   it('duplicates a pattern', () => {

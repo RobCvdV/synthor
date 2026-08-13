@@ -74,6 +74,23 @@ function ArrangeTab({ doc }: { doc: Doc }) {
   // Refs to section DOM elements for container-level hit testing
   const sectionEls = useRef<Map<Id, HTMLDivElement>>(new Map())
 
+  // The pattern palette's scroll container, so the current pattern can be
+  // scrolled into view when the selection changes.
+  const paletteListRef = useRef<HTMLDivElement>(null)
+
+  // Keep the current pattern visible in the palette (e.g. right after adding).
+  useEffect(() => {
+    const list = paletteListRef.current
+    if (!list) return
+    const item = list.querySelector<HTMLElement>('.arrange-palette-item.current')
+    if (!item) return
+    const listRect = list.getBoundingClientRect()
+    const itemRect = item.getBoundingClientRect()
+    if (itemRect.top < listRect.top || itemRect.bottom > listRect.bottom) {
+      list.scrollTop += itemRect.top - listRect.top - (list.clientHeight - itemRect.height) / 2
+    }
+  }, [doc.patternId])
+
   // Drag state — persisted in refs for synchronous access during onDragOver
   const dragRef = useRef<{
     kind: 'pattern' | 'section' | null
@@ -363,7 +380,7 @@ function ArrangeTab({ doc }: { doc: Doc }) {
           <span className="arrange-palette-title">Patterns</span>
           <button className="octbtn" onClick={() => addPattern()}>+ New</button>
         </div>
-        <div className="arrange-palette-list">
+        <div className="arrange-palette-list" ref={paletteListRef}>
           {allPatterns.map((p) => {
             const isPalEditing = editingPalettePat === p.id
             return (

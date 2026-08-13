@@ -908,23 +908,25 @@ export const useDocStore = create<DocState>((set, get) => ({
       // Nothing to base on → a bare 32-row pattern.
       if (!src) {
         draft.entities.patterns[patternId] = { id: patternId, name: patName, length: length ?? 32, trackIds: [] }
-        return
-      }
-      // A pattern is selected → same structure and length, all lanes cleared.
-      const newTrackIds: Id[] = []
-      for (const tid of src.trackIds) {
-        const srcTrack = draft.entities.tracks[tid]
-        if (!srcTrack) continue
-        const newTrackId = makeId('trk')
-        draft.entities.tracks[newTrackId] = {
-          id: newTrackId,
-          instrumentId: srcTrack.instrumentId,
-          cells: emptyCells(src.length),
-          effectLanes: [...srcTrack.effectLanes],
+      } else {
+        // A pattern is selected → same structure and length, all lanes cleared.
+        const newTrackIds: Id[] = []
+        for (const tid of src.trackIds) {
+          const srcTrack = draft.entities.tracks[tid]
+          if (!srcTrack) continue
+          const newTrackId = makeId('trk')
+          draft.entities.tracks[newTrackId] = {
+            id: newTrackId,
+            instrumentId: srcTrack.instrumentId,
+            cells: emptyCells(src.length),
+            effectLanes: [...srcTrack.effectLanes],
+          }
+          newTrackIds.push(newTrackId)
         }
-        newTrackIds.push(newTrackId)
+        draft.entities.patterns[patternId] = { id: patternId, name: patName, length: src.length, trackIds: newTrackIds }
       }
-      draft.entities.patterns[patternId] = { id: patternId, name: patName, length: src.length, trackIds: newTrackIds }
+      // The new pattern becomes the current one immediately.
+      draft.patternId = patternId
     })
     return patternId
   },
