@@ -151,12 +151,6 @@ body {
   display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
   padding: 8px 16px; background: var(--panel); border-bottom: 1px solid #000;
 }
-.mod-palette.selection-palette {
-  /*position: absolute;*/
-  /*top: -10%;*/
-  /*left: 50%;*/
-  /*z-index: 10;*/
-}
 .mod-palette-label { color: var(--muted); font-size: 12px; }
 .mod-palette button {
   background: #222; color: var(--fg); border: 1px solid #333;
