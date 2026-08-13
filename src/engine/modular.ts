@@ -1,6 +1,7 @@
 import { createNode, el, resolve, unpack, type NodeRepr_t } from '@elemaudio/core'
 import type { Connection, Module, ModularInstrument } from '../domain/types'
 import { midiToFreq } from '../domain/notes'
+import { WAVEFORM_MAX_LENGTH_SECONDS } from '../domain/moduleDefs'
 import type { SampleMeta } from './instruments'
 
 type Node = NodeRepr_t | number
@@ -232,6 +233,18 @@ export function compileModular(
         return el.mul(el.dcblock(oscOut), gain)
       }
 
+      case 'noise': {
+        const mode = kconst(key('mode'), p.mode ?? 0)
+        const level = kconst(key('level'), p.level ?? 1)
+        // Both generators run in the graph; the mode ref picks. Explicit
+        // voice-scoped keys: an unkeyed rand has no inputs, so every voice
+        // would hash identically and share one RNG stream.
+        const normal = el.noise({ key: `${keyPrefix}:${m.id}:noise` })
+        const pink = el.pinknoise({ key: `${keyPrefix}:${m.id}:pink` })
+        const src = el.select(el.le(mode, el.const({ value: 0.5 })), normal, pink)
+        return el.mul(el.dcblock(src), level)
+      }
+
       case 'filter': {
         const input = inlet(m.id, 'in') ?? SILENCE
         if (p.bypass) return input
@@ -284,6 +297,28 @@ export function compileModular(
         if (p.bypass) return input
         const mod = inlet(m.id, 'mod') ?? 1
         return el.mul(input, kconst(key('level'), p.level ?? 0.8), mod)
+      }
+
+      case 'comp': {
+        const input = inlet(m.id, 'in') ?? SILENCE
+        if (p.bypass) return input
+        const mode = kconst(key('mode'), p.mode ?? 1)
+        const threshold = kconst(key('threshold'), p.threshold ?? -20)
+        const ratio = kconst(key('ratio'), p.ratio ?? 4)
+        const attack = kconst(key('attack'), p.attack ?? 10)
+        const release = kconst(key('release'), p.release ?? 100)
+        const knee = kconst(key('knee'), p.knee ?? 6)
+        const makeup = kconst(key('makeup'), p.makeup ?? 0)
+
+        // Both compressors run in the graph; the mode ref picks. Self-keyed:
+        // sidechain = xn = input. Elementary has no makeup gain — add it after.
+        const hard = el.compress(attack, release, threshold, ratio, input, input)
+        // knee=0 → /0 inside skcompress (kneeWidth = 2·knee); NaN would
+        // propagate through el.select (g·a + (1−g)·b) even in hard mode.
+        const kneeSafe = el.max(knee, el.const({ value: 0.01 }))
+        const soft = el.skcompress(attack, release, threshold, ratio, kneeSafe, input, input)
+        const comp = el.select(el.le(mode, el.const({ value: 0.5 })), hard, soft)
+        return el.mul(el.db2gain(makeup), comp)
       }
 
       case 'mix': {
@@ -559,6 +594,38 @@ export function compileModular(
         if (meta.channels === 2) memo.set(`${m.id}:outR`, el.mul(ch[1], gain))
         else memo.set(`${m.id}:outR`, out)
         return out
+      }
+
+      case 'wave': {
+        const freqIn = inlet(m.id, 'freq')
+        // The whole sample is one cycle, so the phasor runs directly at the
+        // requested frequency — the sample's native rate/length is irrelevant.
+        // Only samples ≤ WAVEFORM_MAX_LENGTH_SECONDS are eligible; same filter
+        // the UI dropdown applies over the name-sorted sample list.
+        const waveMeta = sampleMeta.filter((meta) => meta.frames / meta.sampleRate <= WAVEFORM_MAX_LENGTH_SECONDS)
+        const idx = Math.round(p.sampleIndex ?? 0)
+        const meta = idx >= 0 && idx < waveMeta.length ? waveMeta[idx] : null
+        // Also covers stale patches whose sample no longer qualifies.
+        if (!meta?.hash) return SILENCE
+
+        const gain = kconst(key('gain'), p.gain ?? 1)
+        const finetuneRef = kconst(key('finetune'), p.finetune ?? 0)
+        const ln2 = el.const({ value: Math.LN2 })
+        const ratio = el.exp(el.mul(ln2, el.div(finetuneRef, 1200)))
+        const f = freqIn ?? 440
+        // The table index is normalized 0..1, so the raw phasor sweeps the
+        // whole buffer once per cycle — one full sample = one waveform cycle.
+        const phase = el.phasor(el.mul(f, ratio))
+        const tbl = createNode('table', {
+          key: `${keyPrefix}:${m.id}:tbl:${meta.hash}`,
+          path: meta.hash,
+          channels: meta.channels,
+        }, [phase])
+        const ch = unpack(tbl as NodeRepr_t, meta.channels)
+        const outL = el.mul(ch[0], gain)
+        if (meta.channels === 2) memo.set(`${m.id}:outR`, el.mul(ch[1], gain))
+        else memo.set(`${m.id}:outR`, outL)
+        return outL
       }
 
       // output is evaluated per-channel at the top level — render() for the

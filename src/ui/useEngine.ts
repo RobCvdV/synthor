@@ -69,7 +69,7 @@ export function useEngine(): AudioHost {
             const mod = inst.modules[mid]
             let key = `${mid}:${mod.type}`
             // Sample index changes are structural (different hash → different table key).
-            if (mod.type === 'sample') key += `:s${mod.params.sampleIndex ?? 0}`
+            if (mod.type === 'sample' || mod.type === 'wave') key += `:s${mod.params.sampleIndex ?? 0}`
             return key
           }).join(',')
           const conns = Object.values(inst.connections)

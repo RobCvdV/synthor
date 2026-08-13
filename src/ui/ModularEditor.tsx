@@ -20,7 +20,7 @@ import {
 import '@xyflow/react/dist/style.css'
 import { useDocStore } from '../state/docStore'
 import { useMidiStore } from '../state/midiStore'
-import { MODULE_DEFS, type ModuleGroup } from '../domain/moduleDefs'
+import { MODULE_DEFS, WAVEFORM_MAX_LENGTH_SECONDS, type ModuleGroup } from '../domain/moduleDefs'
 import type { Id, ModuleType, ModularInstrument } from '../domain/types'
 import { collectClipboardModules, collectDeletableIds, preparePastedModules, type ModuleClipboard } from '../domain/clipboard'
 import type { AudioHost } from '../audio/host'
@@ -102,16 +102,24 @@ function ModuleNode({ data }: NodeProps) {
     [sampleEntities],
   )
   const sampleLabels = samples.map((s) => s.name)
-  // Dynamically override the sampleIndex param when samples exist.
-  const paramOverrides =
+  // Dynamically override the sampleIndex param when samples exist. The wave
+  // module only lists samples ≤ WAVEFORM_MAX_LENGTH_SECONDS — the same filter
+  // the engine applies, over the same name-sorted order.
+  const moduleLabels =
     module?.type === 'sample'
-      ? new Map<string, { max?: number; enumLabels?: string[] }>([
+      ? sampleLabels
+      : module?.type === 'wave'
+        ? samples.filter((s) => s.frames / s.sampleRate <= WAVEFORM_MAX_LENGTH_SECONDS).map((s) => s.name)
+        : undefined
+  const paramOverrides =
+    moduleLabels === undefined
+      ? undefined
+      : new Map<string, { max?: number; enumLabels?: string[] }>([
           [
             'sampleIndex',
-            { max: Math.max(0, sampleLabels.length - 1), enumLabels: sampleLabels.length ? sampleLabels : ['(none)'] },
+            { max: Math.max(0, moduleLabels.length - 1), enumLabels: moduleLabels.length ? moduleLabels : ['(none)'] },
           ],
         ])
-      : undefined
 
   // --- oscilloscope / clip LED for the output node --------------------
   const canvasRef = useRef<HTMLCanvasElement>(null)

@@ -76,6 +76,9 @@ export type ModuleType =
   | 'echo' // repeating echo with feedback
   | 'reverb' // multi-comb stereo reverb with damping
   | 'sample' // audio sample playback
+  | 'noise' // noise generator (normal/pink)
+  | 'wave' // sample-waveform oscillator (whole sample = one cycle)
+  | 'comp' // compressor (hard/soft knee), also a channel effect
   | 'output' // the voice's final output tap
 
 /** An address into a module's inlet or outlet, by name. */

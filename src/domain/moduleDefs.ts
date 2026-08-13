@@ -50,6 +50,8 @@ export const LFO_WAVEFORMS = ['sine', 'triangle', 'saw', 'square', 'pulse'] as c
 export const FILTER_MODES = ['lowpass', 'highpass', 'bandpass'] as const
 /** Mix combine modes. */
 export const MIX_MODES = ['add', 'multiply'] as const
+/** Max sample length usable as a single-cycle waveform. One full sample = one cycle. */
+export const WAVEFORM_MAX_LENGTH_SECONDS = 0.25
 
 export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
   note: {
@@ -110,6 +112,17 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
       { key: 'gain', label: 'Level', min: 0, max: 2, default: 1, step: 0.01 },
     ],
   },
+  noise: {
+    type: 'noise',
+    group: 'generators',
+    label: 'Noise',
+    inlets: [],
+    outlets: ['out'],
+    params: [
+      { key: 'mode', label: 'Mode', min: 0, max: 1, default: 0, step: 1, enumLabels: ['normal', 'pink'] },
+      { key: 'level', label: 'Level', min: 0, max: 2, default: 1, step: 0.01 },
+    ],
+  },
   filter: {
     type: 'filter',
     group: 'shaping',
@@ -147,6 +160,23 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     params: [
       { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'] },
       { key: 'level', label: 'Level', min: 0, max: 2, default: 0.8, step: 0.01 },
+    ],
+  },
+  comp: {
+    type: 'comp',
+    group: 'shaping',
+    label: 'Compressor',
+    inlets: ['in'],
+    outlets: ['out'],
+    params: [
+      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'] },
+      { key: 'mode', label: 'Mode', min: 0, max: 1, default: 1, step: 1, enumLabels: ['hard', 'soft'] },
+      { key: 'threshold', label: 'Thresh (dB)', min: -60, max: 0, default: -20, step: 1 },
+      { key: 'ratio', label: 'Ratio', min: 1, max: 20, default: 4, step: 1 },
+      { key: 'attack', label: 'Attack (ms)', min: 1, max: 100, default: 10, step: 1 },
+      { key: 'release', label: 'Release (ms)', min: 10, max: 1000, default: 100, step: 1 },
+      { key: 'knee', label: 'Knee (dB)', min: 0, max: 24, default: 6, step: 1 },
+      { key: 'makeup', label: 'Makeup (dB)', min: 0, max: 24, default: 0, step: 1 },
     ],
   },
   mix: {
@@ -285,6 +315,20 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
       { key: 'gain', label: 'Level', min: 0, max: 2, default: 1, step: 0.01 },
     ],
   },
+  wave: {
+    type: 'wave',
+    group: 'generators',
+    label: 'Sample Waveform',
+    inlets: ['freq'],
+    outlets: ['out', 'outR'],
+    params: [
+      { key: 'sampleIndex', label: 'Sample', min: 0, max: 0, default: 0, step: 1 },
+      // max and enumLabels are populated dynamically from entities.samples,
+      // filtered to samples ≤ WAVEFORM_MAX_LENGTH_SECONDS.
+      { key: 'finetune', label: 'Fine (ct)', min: -100, max: 100, default: 0, step: 1 },
+      { key: 'gain', label: 'Level', min: 0, max: 2, default: 1, step: 0.01 },
+    ],
+  },
   output: {
     type: 'output',
     label: 'Output',
@@ -308,6 +352,7 @@ export const EFFECT_MODULE_TYPES: ModuleType[] = [
   'fold',
   'crush',
   'gain',
+  'comp',
 ]
 
 /** Check whether a module type can be used as a channel effect. */
@@ -316,7 +361,7 @@ export function isEffectModule(type: ModuleType): boolean {
 }
 
 /** Mono effects process one channel at a time — they get instantiated twice (L+R) on stereo channels. */
-const STEREO_EFFECT_TYPES: ModuleType[] = ['reverb', 'delay', 'echo']
+const STEREO_EFFECT_TYPES: ModuleType[] = ['reverb', 'delay', 'echo', 'comp']
 
 export function isStereoEffect(type: ModuleType): boolean {
   return (STEREO_EFFECT_TYPES as readonly string[]).includes(type)

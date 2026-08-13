@@ -8,6 +8,7 @@
 
 import { el, type NodeRepr_t } from '@elemaudio/core'
 import type { ChannelEffect } from '../domain/types'
+import { isStereoEffect } from '../domain/moduleDefs'
 import { TICK_DELAY_SIZE, tickTimeSamps, type StereoOut } from './modular'
 import type { ParamRefRegistry } from '../audio/paramRefs'
 
@@ -66,7 +67,7 @@ function compileOneEffect(
 
   // Stereo effects (or unsided) process both channels.
   // Mono effects with a side only process that channel.
-  const isStereo = fx.type === 'reverb' || fx.type === 'delay' || fx.type === 'echo'
+  const isStereo = isStereoEffect(fx.type)
   const side = fx.side
 
   /** Wrap a per-channel processor — only applies to fx.side if set. */
@@ -258,6 +259,40 @@ function compileOneEffect(
       const effected: StereoOut = {
         left: el.add(el.mul(input.left, dryGain), el.mul(wetL, wetMix)),
         right: el.add(el.mul(input.right, dryGain), el.mul(wetR, wetMix)),
+      }
+      return bypassable(effected)
+    }
+
+    // ── Compressor (stereo-linked) ─────────────────────────
+    case 'comp': {
+      const mode = k('mode', p.mode ?? 1)
+      const threshold = k('threshold', p.threshold ?? -20)
+      const ratio = k('ratio', p.ratio ?? 4)
+      const attack = k('attack', p.attack ?? 10)
+      const release = k('release', p.release ?? 100)
+      const knee = k('knee', p.knee ?? 6)
+      const makeup = k('makeup', p.makeup ?? 0)
+
+      // Shared detection: both channels feed one sidechain (mono sum × ½, so
+      // a centered mono source still reads 0 dB) and get identical gain
+      // reduction. Detection is BEFORE makeup gain.
+      const sidechain = el.mul(el.add(input.left, input.right), el.const({ value: 0.5 }))
+      // knee=0 → /0 inside skcompress; NaN propagates through el.select.
+      const kneeSafe = el.max(knee, el.const({ value: 0.01 }))
+      const modeSel = el.le(mode, el.const({ value: 0.5 }))
+      const compL = el.select(
+        modeSel,
+        el.compress(attack, release, threshold, ratio, sidechain, input.left),
+        el.skcompress(attack, release, threshold, ratio, kneeSafe, sidechain, input.left),
+      )
+      const compR = el.select(
+        modeSel,
+        el.compress(attack, release, threshold, ratio, sidechain, input.right),
+        el.skcompress(attack, release, threshold, ratio, kneeSafe, sidechain, input.right),
+      )
+      const effected: StereoOut = {
+        left: el.mul(el.db2gain(makeup), compL),
+        right: el.mul(el.db2gain(makeup), compR),
       }
       return bypassable(effected)
     }

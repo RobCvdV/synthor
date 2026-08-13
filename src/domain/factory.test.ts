@@ -99,6 +99,20 @@ describe('defaultParams', () => {
       }
     }
   })
+
+  it('noise defaults to normal mode at full level', () => {
+    expect(defaultParams('noise')).toEqual({ mode: 0, level: 1 })
+  })
+
+  it('wave defaults to the first sample, no finetune', () => {
+    expect(defaultParams('wave')).toEqual({ sampleIndex: 0, finetune: 0, gain: 1 })
+  })
+
+  it('comp defaults to soft knee, −20 dB, 4:1', () => {
+    expect(defaultParams('comp')).toEqual({
+      bypass: 0, mode: 1, threshold: -20, ratio: 4, attack: 10, release: 100, knee: 6, makeup: 0,
+    })
+  })
 })
 
 describe('mixer factories', () => {
@@ -123,6 +137,13 @@ describe('mixer factories', () => {
     expect(fx.id).toMatch(/^chef_/)
     expect(fx.type).toBe('filter')
     expect(fx.params.cutoff).toBe(1200)
+  })
+
+  it('creates a compressor channel effect with default params', () => {
+    const fx = createChannelEffect('comp')
+    expect(fx.type).toBe('comp')
+    expect(fx.params.threshold).toBe(-20)
+    expect(fx.params.mode).toBe(1)
   })
 
   it('default doc includes master channel and mixerInstrumentOrder', () => {
