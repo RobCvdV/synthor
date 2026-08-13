@@ -23,6 +23,10 @@ export interface ParamDef {
   showScale?: boolean
 }
 
+/** Palette category shown in the editor's Add palette. Singleton types
+ *  (note/gate/volume/midicc/output) never appear there, so they have none. */
+export type ModuleGroup = 'sources' | 'generators' | 'shaping' | 'distortion' | 'time'
+
 export interface ModuleDef {
   type: ModuleType
   label: string
@@ -33,6 +37,8 @@ export interface ModuleDef {
   params: ParamDef[]
   /** Sources and the output sink are singletons the user can't add/delete. */
   singleton?: boolean
+  /** Palette group. Required for every non-singleton type. */
+  group?: ModuleGroup
 }
 
 /** Waveform selector values for the oscillator. */
@@ -72,6 +78,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
   },
   eff: {
     type: 'eff',
+    group: 'sources',
     label: 'Eff In',
     inlets: [],
     outlets: ['val'],
@@ -83,6 +90,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
   },
   midicc: {
     type: 'midicc',
+    group: 'sources',
     label: 'MIDI CC',
     inlets: [],
     outlets: ['val'],
@@ -90,6 +98,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
   },
   osc: {
     type: 'osc',
+    group: 'generators',
     label: 'Oscillator',
     inlets: ['freq'],
     outlets: ['out'],
@@ -103,6 +112,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
   },
   filter: {
     type: 'filter',
+    group: 'shaping',
     label: 'Filter',
     inlets: ['in', 'cutoffMod'],
     outlets: ['out'],
@@ -117,6 +127,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
   },
   adsr: {
     type: 'adsr',
+    group: 'shaping',
     label: 'ADSR',
     inlets: ['gate'],
     outlets: ['env'],
@@ -129,6 +140,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
   },
   gain: {
     type: 'gain',
+    group: 'shaping',
     label: 'Gain',
     inlets: ['in', 'mod'],
     outlets: ['out'],
@@ -139,6 +151,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
   },
   mix: {
     type: 'mix',
+    group: 'shaping',
     label: 'Mix',
     inlets: ['a', 'b', 'c', 'd'],
     outlets: ['out'],
@@ -149,6 +162,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
   },
   lfo: {
     type: 'lfo',
+    group: 'generators',
     label: 'LFO',
     inlets: ['gate'],
     outlets: ['out'],
@@ -163,6 +177,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
   },
   tanh: {
     type: 'tanh',
+    group: 'distortion',
     label: 'Saturator',
     inlets: ['in', 'drive'],
     outlets: ['out'],
@@ -174,6 +189,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
   },
   clip: {
     type: 'clip',
+    group: 'distortion',
     label: 'Hard Clip',
     inlets: ['in', 'drive'],
     outlets: ['out'],
@@ -186,6 +202,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
   },
   fold: {
     type: 'fold',
+    group: 'distortion',
     label: 'Wave Folder',
     inlets: ['in', 'drive'],
     outlets: ['out'],
@@ -198,6 +215,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
   },
   crush: {
     type: 'crush',
+    group: 'distortion',
     label: 'Bit Crusher',
     inlets: ['in', 'bits'],
     outlets: ['out'],
@@ -209,6 +227,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
   },
   delay: {
     type: 'delay',
+    group: 'time',
     label: 'Delay',
     inlets: ['in'],
     outlets: ['out'],
@@ -221,6 +240,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
   },
   echo: {
     type: 'echo',
+    group: 'time',
     label: 'Echo',
     inlets: ['in'],
     outlets: ['out'],
@@ -234,6 +254,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
   },
   reverb: {
     type: 'reverb',
+    group: 'time',
     label: 'Reverb',
     inlets: ['in', 'inR'],
     outlets: ['outL', 'outR'],
@@ -248,6 +269,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
   },
   sample: {
     type: 'sample',
+    group: 'generators',
     label: 'Sample',
     inlets: ['gate', 'freq'],
     outlets: ['out', 'outR'],

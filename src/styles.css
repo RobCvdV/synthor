@@ -157,6 +157,12 @@ body {
   border-radius: 4px; padding: 3px 10px; font: inherit; cursor: pointer;
 }
 .mod-palette button:hover { border-color: var(--accent); }
+.mod-palette-group {
+  display: flex; align-items: center; gap: 4px;
+  padding-right: 10px; margin-right: 6px; border-right: 1px solid #333;
+}
+.mod-palette-group:last-child { border-right: none; padding-right: 0; margin-right: 0; }
+.mod-palette-group-label { color: var(--muted); font-size: 10px; text-transform: uppercase; }
 .mod-edge-inspector {
   display: flex; align-items: center; gap: 8px; margin-left: auto;
   color: var(--muted); font-size: 12px;

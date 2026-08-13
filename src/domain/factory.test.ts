@@ -91,6 +91,14 @@ describe('defaultParams', () => {
       expect(time.step).toBe(0.25)
     }
   })
+
+  it('every non-singleton module type is assigned a palette group', () => {
+    for (const [type, def] of Object.entries(MODULE_DEFS)) {
+      if (!def.singleton) {
+        expect(def.group, `module type '${type}' needs a palette group`).toBeDefined()
+      }
+    }
+  })
 })
 
 describe('mixer factories', () => {

@@ -20,13 +20,26 @@ import {
 import '@xyflow/react/dist/style.css'
 import { useDocStore } from '../state/docStore'
 import { useMidiStore } from '../state/midiStore'
-import { MODULE_DEFS } from '../domain/moduleDefs'
+import { MODULE_DEFS, type ModuleGroup } from '../domain/moduleDefs'
 import type { Id, ModuleType, ModularInstrument } from '../domain/types'
 import { collectClipboardModules, collectDeletableIds, preparePastedModules, type ModuleClipboard } from '../domain/clipboard'
 import type { AudioHost } from '../audio/host'
 
-/** Non-singleton module types the palette can drop into a patch. */
-const PALETTE: ModuleType[] = ['osc', 'filter', 'adsr', 'gain', 'mix', 'lfo', 'tanh', 'clip', 'fold', 'crush', 'delay', 'echo', 'reverb', 'sample', 'eff']
+/** Palette categories in display order. Types come from the registry, so a
+ *  new module def with a `group` shows up in the palette automatically. */
+const PALETTE_GROUPS: Array<{ label: string; group: ModuleGroup }> = [
+  { label: 'Sources', group: 'sources' },
+  { label: 'Generators', group: 'generators' },
+  { label: 'Shaping', group: 'shaping' },
+  { label: 'Distortion', group: 'distortion' },
+  { label: 'Time & Space', group: 'time' },
+]
+
+/** Non-singleton module types in a palette group, in registry order. */
+const paletteTypes = (group: ModuleGroup): ModuleType[] =>
+  (Object.keys(MODULE_DEFS) as ModuleType[]).filter(
+    (t) => MODULE_DEFS[t].group === group && !MODULE_DEFS[t].singleton,
+  )
 
 interface NodeData {
   instrumentId: Id
@@ -601,17 +614,22 @@ function Editor({ inst, host }: { inst: ModularInstrument; host?: AudioHost }) {
       </div>
       <div className="mod-palette">
         <span className="mod-palette-label">Add:</span>
-        {PALETTE.map((type) => (
-          <button
-            key={type}
-            draggable
-            onDragStart={(e) => {
-              e.dataTransfer.setData('application/module-type', type)
-              e.dataTransfer.effectAllowed = 'move'
-            }}
-          >
-            {MODULE_DEFS[type].label}
-          </button>
+        {PALETTE_GROUPS.map(({ label, group }) => (
+          <div className="mod-palette-group" key={group}>
+            <span className="mod-palette-group-label">{label}</span>
+            {paletteTypes(group).map((type) => (
+              <button
+                key={type}
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData('application/module-type', type)
+                  e.dataTransfer.effectAllowed = 'move'
+                }}
+              >
+                {MODULE_DEFS[type].label}
+              </button>
+            ))}
+          </div>
         ))}
       </div>
       <div className="mod-canvas" onDragOver={onDragOver} onDrop={onDrop}>
