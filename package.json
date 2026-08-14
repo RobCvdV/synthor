@@ -20,6 +20,7 @@
     "build-deploy": "npm run build && npm run deploy"
   },
   "dependencies": {
+    "@dagrejs/dagre": "^3.1.1",
     "@elemaudio/core": "^4.0.1",
     "@elemaudio/web-renderer": "^4.0.3",
     "@xyflow/react": "^12.11.2",

@@ -23,6 +23,7 @@ import { useMidiStore } from '../state/midiStore'
 import { MODULE_DEFS, WAVEFORM_MAX_LENGTH_SECONDS, type ModuleGroup } from '../domain/moduleDefs'
 import type { Id, ModuleType, ModularInstrument } from '../domain/types'
 import { collectClipboardModules, collectDeletableIds, preparePastedModules, type ModuleClipboard } from '../domain/clipboard'
+import { computeModuleLayout, estimateModuleSize } from '../domain/layout'
 import { buildDxAlgorithm } from '../domain/factory'
 import type { AudioHost } from '../audio/host'
 
@@ -419,7 +420,7 @@ function Editor({ inst, host }: { inst: ModularInstrument; host?: AudioHost }) {
   const pasteModules = useDocStore((s) => s.pasteModules)
   const ensureModularSingletons = useDocStore((s) => s.ensureModularSingletons)
 
-  const { screenToFlowPosition, getNodes } = useReactFlow()
+  const { screenToFlowPosition, getNodes, fitView } = useReactFlow()
 
   // Ensure required singleton source modules exist.
   useEffect(() => { ensureModularSingletons(inst.id) }, [inst.id, ensureModularSingletons])
@@ -527,6 +528,52 @@ function Editor({ inst, host }: { inst: ModularInstrument; host?: AudioHost }) {
     removeModules(inst.id, ids)
   }
 
+  const doLayoutRef = useRef<() => void>(() => {})
+  doLayoutRef.current = () => {
+    const doc = useDocStore.getState().doc
+    const current = doc.entities.instruments[inst.id]
+    if (current?.kind !== 'modular') return
+    const all = Object.values(current.modules)
+    if (all.length === 0) return
+    const sel = selectedIds()
+    const selectionMode = sel.length >= 2 // one selected node → whole graph
+    const scope = selectionMode
+      ? {
+          modules: all.filter((m) => sel.includes(m.id)),
+          connections: Object.values(current.connections).filter(
+            (c) => sel.includes(c.from.moduleId) && sel.includes(c.to.moduleId),
+          ),
+        }
+      : { modules: all, connections: Object.values(current.connections) }
+    // Prefer React Flow's live measurements; the def-derived estimate covers
+    // nodes RF hasn't measured yet (e.g. a click before the first paint).
+    const rfNodes = getNodes()
+    const measured = new Map<Id, { width: number; height: number }>()
+    for (const n of rfNodes) {
+      const m = n.measured
+      if (m && m.width !== undefined && m.height !== undefined && m.width > 0 && m.height > 0) {
+        measured.set(n.id, { width: m.width, height: m.height })
+      }
+    }
+    const getSize = (id: Id) => measured.get(id) ?? estimateModuleSize(current.modules[id])
+    // Anchor at the scope's current top-left so nothing teleports; fitView
+    // right after makes the anchor invisible for the whole-graph case.
+    const anchor = {
+      x: Math.min(...scope.modules.map((m) => m.pos.x)),
+      y: Math.min(...scope.modules.map((m) => m.pos.y)),
+    }
+    const laidOut = computeModuleLayout(scope.modules, scope.connections, getSize, { anchor })
+    if (laidOut.length === 0) return
+    useDocStore.getState().moveModules(inst.id, laidOut)
+    // New positions reach React Flow via the store → rebuild effect → setNodes,
+    // all post-commit — wait two frames before fitting.
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      fitView(selectionMode
+        ? { nodes: rfNodes.filter((n) => scope.modules.some((m) => m.id === n.id)), duration: 300, padding: 0.2 }
+        : { duration: 300, padding: 0.2 })
+    }))
+  }
+
   const addDxAlgorithmRef = useRef<(alg: number, clientX: number, clientY: number) => void>(() => {})
   addDxAlgorithmRef.current = (alg, clientX, clientY) => {
     const doc = useDocStore.getState().doc
@@ -630,6 +677,7 @@ function Editor({ inst, host }: { inst: ModularInstrument; host?: AudioHost }) {
         <button onClick={() => doCutRef.current()} title="Cut selected (⌘X / Ctrl+X)">Cut</button>
         <button onClick={() => doPasteRef.current()} title="Paste (⌘V / Ctrl+V)">Paste</button>
         <button onClick={() => doDeleteRef.current()} title="Delete selected (Del)">Del</button>
+        <button onClick={() => doLayoutRef.current()} title="Auto layout: ≥2 selected → layout selection, else whole patch">Layout</button>
         {selected && (
           <span className="mod-edge-inspector">
             <span>cord ×{round(selected.gain)}</span>
