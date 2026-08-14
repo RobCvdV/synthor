@@ -15,7 +15,9 @@ function sharedCtx(): AudioContext {
  * Load sample PCM data from OPFS into Elementary's VFS so they're playable.
  * Call on song load and whenever the sample list changes.
  *
- * Returns the set of hashes that were successfully loaded into VFS.
+ * Returns the hashes that were successfully loaded into VFS, plus each
+ * sample's L1 sum (Σ|channel 0|) — the compiler uses it to normalize
+ * convolution IRs so a conv effect can never amplify beyond the dry peak.
  * Sample entities whose OPFS files are missing or unparseable are NOT
  * in this set — the caller should prune them from the doc.
  */
@@ -23,9 +25,10 @@ export async function syncSamplesToVfs(
   host: AudioHost,
   samples: SampleEntity[],
   slug: string,
-): Promise<Set<string>> {
+): Promise<{ loaded: Set<string>; l1Sums: Record<string, number> }> {
   const vfs: Record<string, Float32Array | Float32Array[]> = {}
   const loaded = new Set<string>()
+  const l1Sums: Record<string, number> = {}
 
   for (const s of samples) {
     const raw = await readSampleAsset(slug, s.hash)
@@ -38,12 +41,17 @@ export async function syncSamplesToVfs(
       const ctx = sharedCtx()
       const buffer = await ctx.decodeAudioData(raw.slice(0))
 
+      const ch0 = buffer.getChannelData(0)
+      let l1 = 0
+      for (let i = 0; i < ch0.length; i++) l1 += Math.abs(ch0[i])
+      l1Sums[s.hash] = l1
+
       // Extract per-channel Float32Array data.
       if (buffer.numberOfChannels === 1) {
-        vfs[s.hash] = new Float32Array(buffer.getChannelData(0))
+        vfs[s.hash] = new Float32Array(ch0)
       } else {
-        const chData: Float32Array[] = []
-        for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
+        const chData: Float32Array[] = [new Float32Array(ch0)]
+        for (let ch = 1; ch < buffer.numberOfChannels; ch++) {
           chData.push(new Float32Array(buffer.getChannelData(ch)))
         }
         vfs[s.hash] = chData
@@ -58,5 +66,5 @@ export async function syncSamplesToVfs(
     await host.updateVfs(vfs)
   }
 
-  return loaded
+  return { loaded, l1Sums }
 }

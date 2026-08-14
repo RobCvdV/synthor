@@ -297,6 +297,68 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
       { key: 'mix', label: 'Mix', min: 0, max: 1, default: 0.35, step: 0.01 },
     ],
   },
+  conv: {
+    type: 'conv',
+    group: 'time',
+    label: 'Convolution',
+    inlets: ['in', 'inR'],
+    outlets: ['out', 'outL', 'outR'],
+    params: [
+      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'] },
+      { key: 'sampleIndex', label: 'IR Sample', min: 0, max: 0, default: 0, step: 1 },
+      // max and enumLabels are populated dynamically from entities.samples
+      // Half-dry by default: L1 normalization makes full wet very quiet for
+      // most samples, and the dry keeps the channel audible.
+      { key: 'mix', label: 'Mix', min: 0, max: 1, default: 0.5, step: 0.01 },
+      // L1 normalization keeps wet ≤ dry peak; gain restores loudness for quiet IRs.
+      { key: 'gain', label: 'Gain', min: 0, max: 32, default: 1, step: 0.01 },
+      // Stereo widening of the wet pair; >1 adds Haas pseudo-stereo.
+      { key: 'width', label: 'Width', min: 0, max: 2, default: 1, step: 0.01 },
+    ],
+  },
+  delayS: {
+    type: 'delayS',
+    group: 'time',
+    label: 'Stereo Delay',
+    inlets: ['in', 'inR'],
+    outlets: ['outL', 'outR'],
+    params: [
+      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'] },
+      // Tempo-synced: ticks (rows), live with BPM changes.
+      { key: 'time', label: 'Time (ticks)', min: 0.25, max: 16, default: 1.25, step: 0.25 },
+      { key: 'mix', label: 'Mix', min: 0, max: 1, default: 0.5, step: 0.01 },
+      // 0 = per-channel repeats, 1 = repeats bounce between L and R.
+      { key: 'pingpong', label: 'Ping-Pong', min: 0, max: 1, default: 0, step: 0.01 },
+    ],
+  },
+  echoS: {
+    type: 'echoS',
+    group: 'time',
+    label: 'Stereo Echo',
+    inlets: ['in', 'inR'],
+    outlets: ['outL', 'outR'],
+    params: [
+      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'] },
+      // Tempo-synced: ticks (rows), live with BPM changes.
+      { key: 'time', label: 'Time (ticks)', min: 0.25, max: 16, default: 1.25, step: 0.25 },
+      { key: 'feedback', label: 'Feedback', min: 0, max: 0.95, default: 0.25, step: 0.01 },
+      { key: 'mix', label: 'Mix', min: 0, max: 1, default: 0.5, step: 0.01 },
+      // 0 = per-channel repeats, 1 = repeats bounce between L and R.
+      { key: 'pingpong', label: 'Ping-Pong', min: 0, max: 1, default: 0, step: 0.01 },
+    ],
+  },
+  width: {
+    type: 'width',
+    group: 'shaping',
+    label: 'Stereo Width',
+    inlets: ['in', 'inR'],
+    outlets: ['outL', 'outR'],
+    params: [
+      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'] },
+      // >1 adds Haas pseudo-stereo, so even mono sources spread out.
+      { key: 'width', label: 'Width', min: 0, max: 2, default: 1, step: 0.01 },
+    ],
+  },
   sample: {
     type: 'sample',
     group: 'generators',
@@ -346,7 +408,11 @@ export const EFFECT_MODULE_TYPES: ModuleType[] = [
   'filter',
   'delay',
   'echo',
+  'delayS',
+  'echoS',
   'reverb',
+  'conv',
+  'width',
   'tanh',
   'clip',
   'fold',
@@ -361,7 +427,7 @@ export function isEffectModule(type: ModuleType): boolean {
 }
 
 /** Mono effects process one channel at a time — they get instantiated twice (L+R) on stereo channels. */
-const STEREO_EFFECT_TYPES: ModuleType[] = ['reverb', 'delay', 'echo', 'comp']
+const STEREO_EFFECT_TYPES: ModuleType[] = ['reverb', 'delay', 'echo', 'delayS', 'echoS', 'comp', 'width', 'conv']
 
 export function isStereoEffect(type: ModuleType): boolean {
   return (STEREO_EFFECT_TYPES as readonly string[]).includes(type)

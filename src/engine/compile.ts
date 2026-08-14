@@ -14,11 +14,18 @@ import type { InstrumentSlotLayout } from './voiceSlotLayout'
 function buildSampleMeta(
   samples: Record<Id, SampleEntity>,
   vfsLoaded?: Set<string>,
-): { hash: string; channels: number; sampleRate: number; frames: number }[] {
+  l1Sums?: Record<string, number>,
+): { hash: string; channels: number; sampleRate: number; frames: number; l1?: number }[] {
   return Object.values(samples)
     .filter((s) => !vfsLoaded || vfsLoaded.has(s.hash))
     .sort((a, b) => a.name.localeCompare(b.name))
-    .map((s) => ({ hash: s.hash, channels: s.channels, sampleRate: s.sampleRate, frames: s.frames }))
+    .map((s) => ({
+      hash: s.hash,
+      channels: s.channels,
+      sampleRate: s.sampleRate,
+      frames: s.frames,
+      l1: l1Sums?.[s.hash],
+    }))
 }
 
 /** Build a sampleId → hash lookup for drumkit slot resolution. */
@@ -82,6 +89,8 @@ export interface RenderContext {
   playEpoch: number
   mutedTracks?: Record<string, boolean>
   vfsLoadedHashes?: Set<string>
+  /** L1 sums (Σ|ch0|) per sample hash, for conv IR normalization. */
+  l1Sums?: Record<string, number>
   midiCcValues?: Record<number, number>
   paramRefs?: import('../audio/paramRefs').ParamRefRegistry
   ccBindings?: import('../audio/ccBindings').CcBindings
@@ -334,7 +343,7 @@ function compileTrackerVoiceSlots(
 export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
   ctx.ccBindings?.clear()
 
-  const sampleMeta = buildSampleMeta(doc.entities.samples, ctx.vfsLoadedHashes)
+  const sampleMeta = buildSampleMeta(doc.entities.samples, ctx.vfsLoadedHashes, ctx.l1Sums)
   const sampleHashById = buildSampleHashById(doc.entities.samples)
 
   // Live rows-per-second ref — updated on tempo changes so tempo-synced
@@ -389,7 +398,7 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
     }
 
     const processed = channel.kind === 'sub' || channel.kind === 'master'
-      ? compileChannelEffects(channel.effects, chanSum, chanId, ctx.paramRefs, rowHzNode)
+      ? compileChannelEffects(channel.effects, chanSum, chanId, ctx.paramRefs, rowHzNode, sampleMeta)
       : chanSum
 
     const mixed = applyChannelMix(processed, channel.volume, channel.pan, chanId, ctx.paramRefs)
@@ -402,7 +411,7 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
   const masterChannel = doc.entities.mixChannels[MASTER_CHANNEL_ID]
   let masterOut: StereoOut = { left: masterLeft, right: masterRight }
   if (masterChannel) {
-    masterOut = compileChannelEffects(masterChannel.effects, masterOut, MASTER_CHANNEL_ID, ctx.paramRefs, rowHzNode)
+    masterOut = compileChannelEffects(masterChannel.effects, masterOut, MASTER_CHANNEL_ID, ctx.paramRefs, rowHzNode, sampleMeta)
     masterOut = applyChannelMix(masterOut, masterChannel.volume, masterChannel.pan, MASTER_CHANNEL_ID, ctx.paramRefs)
   }
 

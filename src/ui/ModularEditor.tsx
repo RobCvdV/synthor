@@ -104,9 +104,9 @@ function ModuleNode({ data }: NodeProps) {
   const sampleLabels = samples.map((s) => s.name)
   // Dynamically override the sampleIndex param when samples exist. The wave
   // module only lists samples ≤ WAVEFORM_MAX_LENGTH_SECONDS — the same filter
-  // the engine applies, over the same name-sorted order.
+  // the engine applies, over the same name-sorted order. conv (IR) lists all.
   const moduleLabels =
-    module?.type === 'sample'
+    module?.type === 'sample' || module?.type === 'conv'
       ? sampleLabels
       : module?.type === 'wave'
         ? samples.filter((s) => s.frames / s.sampleRate <= WAVEFORM_MAX_LENGTH_SECONDS).map((s) => s.name)

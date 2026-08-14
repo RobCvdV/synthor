@@ -61,13 +61,18 @@ export function makeAdsr(
 /** Maximum delay/echo buffer: 16 ticks at 20 BPM, 4 rows/beat, 48 kHz. */
 export const TICK_DELAY_SIZE = 576000
 
+/** Haas pseudo-side delay for the width effect: ~13 ms at 44.1 kHz. */
+export const HAAS_DELAY_SAMPLES = 573
+/** Buffer for the Haas delay line. */
+export const HAAS_DELAY_SIZE = 2048
+
 /**
- * Delay time in samples from a tick (row) count. Uses a live rowHz node
- * (a 'transport:rowHz' ref) so tempo changes retune the delay without a
- * graph recompile: samples = ticks * sampleRate / rowHz.
+ * Delay time in samples from a tick (row) count. Both ticks and rowHz can be
+ * live refs, so slider and tempo changes retune the delay without a graph
+ * recompile: samples = ticks * sampleRate / rowHz.
  */
-export function tickTimeSamps(ticks: number, rowHzNode: NodeRepr_t | number): NodeRepr_t {
-  return el.div(el.mul(el.const({ value: ticks }), el.sr()), rowHzNode)
+export function tickTimeSamps(ticks: NodeRepr_t | number, rowHzNode: NodeRepr_t | number): NodeRepr_t {
+  return el.div(el.mul(ticks, el.sr()), rowHzNode)
 }
 
 /**
@@ -436,7 +441,9 @@ export function compileModular(
         const input = inlet(m.id, 'in') ?? SILENCE
         if (p.bypass) return input
         // Single-tap delay — no feedback, one repeat at the given tick time.
-        const timeSamps = tickTimeSamps(p.time ?? 1.25, rowHzNode)
+        // Ticks as a live ref so the Time slider retunes without a recompile.
+        const timeRef = kconst(key('time'), p.time ?? 1.25)
+        const timeSamps = tickTimeSamps(timeRef, rowHzNode)
         const wet = el.delay({ key: `${keyPrefix}:${m.id}`, size: TICK_DELAY_SIZE }, timeSamps, 0, input)
         const dryMix = kconst(key('mix'), p.mix ?? 0.5)
         return el.add(el.mul(input, el.sub(el.const({ value: 1 }), dryMix)), el.mul(wet, dryMix))
@@ -446,11 +453,150 @@ export function compileModular(
         const input = inlet(m.id, 'in') ?? SILENCE
         if (p.bypass) return input
         // Repeating echo — delay line with feedback for multiple repeats.
-        const timeSamps = tickTimeSamps(p.time ?? 1.25, rowHzNode)
+        // Ticks as a live ref so the Time slider retunes without a recompile.
+        const timeRef = kconst(key('time'), p.time ?? 1.25)
+        const timeSamps = tickTimeSamps(timeRef, rowHzNode)
         const fb = kconst(key('feedback'), p.feedback ?? 0.25)
         const wet = el.delay({ key: `${keyPrefix}:${m.id}`, size: TICK_DELAY_SIZE }, timeSamps, fb, input)
         const dryMix = kconst(key('mix'), p.mix ?? 0.5)
         return el.add(el.mul(input, el.sub(el.const({ value: 1 }), dryMix)), el.mul(wet, dryMix))
+      }
+
+      case 'delayS': {
+        const inputL = inlet(m.id, 'in') ?? SILENCE
+        const inputR = inlet(m.id, 'inR') // optional stereo right input
+        const hasStereoIn = inputR !== null
+        const r = hasStereoIn ? (inputR as Node) : inputL
+        if (p.bypass) {
+          memo.set(`${m.id}:outR`, r)
+          return inputL
+        }
+        // Ticks as a live ref so the Time slider retunes without a recompile.
+        const timeRef = kconst(key('time'), p.time ?? 1.25)
+        const timeSamps = tickTimeSamps(timeRef, rowHzNode)
+        const mixRef = kconst(key('mix'), p.mix ?? 0.5)
+        const ppRef = kconst(key('pingpong'), p.pingpong ?? 0)
+        const dry = el.sub(el.const({ value: 1 }), mixRef)
+        const invPp = el.sub(el.const({ value: 1 }), ppRef)
+        const tapL = el.delay({ key: `${keyPrefix}:${m.id}:L`, size: TICK_DELAY_SIZE }, timeSamps, 0, inputL)
+        const tapR = el.delay({ key: `${keyPrefix}:${m.id}:R`, size: TICK_DELAY_SIZE }, timeSamps, 0, r)
+        // Mono fallback: the cross tap is silent, so pp pans the single echo
+        // from L (0) to R (1) instead of duplicating it on both sides.
+        const crossInL = hasStereoIn ? tapR : el.const({ value: 0 })
+        const wetL = el.add(el.mul(tapL, invPp), el.mul(crossInL, ppRef))
+        const wetR = el.add(el.mul(tapR, invPp), el.mul(tapL, ppRef))
+        const outL = el.add(el.mul(inputL, dry), el.mul(wetL, mixRef))
+        const outR = el.add(el.mul(r, dry), el.mul(wetR, mixRef))
+        memo.set(`${m.id}:outR`, outR)
+        return outL
+      }
+
+      case 'echoS': {
+        const inputL = inlet(m.id, 'in') ?? SILENCE
+        const inputR = inlet(m.id, 'inR') // optional stereo right input
+        const hasStereoIn = inputR !== null
+        const r = hasStereoIn ? (inputR as Node) : inputL
+        if (p.bypass) {
+          memo.set(`${m.id}:outR`, r)
+          return inputL
+        }
+        // Ticks as a live ref so the Time slider retunes without a recompile.
+        const timeRef = kconst(key('time'), p.time ?? 1.25)
+        const timeSamps = tickTimeSamps(timeRef, rowHzNode)
+        const time2 = el.mul(timeSamps, el.const({ value: 2 }))
+        const fb = kconst(key('feedback'), p.feedback ?? 0.25)
+        const fb2 = el.mul(fb, fb)
+        const mixRef = kconst(key('mix'), p.mix ?? 0.5)
+        const ppRef = kconst(key('pingpong'), p.pingpong ?? 0)
+        const dry = el.sub(el.const({ value: 1 }), mixRef)
+        const invPp = el.sub(el.const({ value: 1 }), ppRef)
+
+        // Plain per-channel echo at pp=0.
+        const plainL = el.delay({ key: `${keyPrefix}:${m.id}:pL`, size: TICK_DELAY_SIZE }, timeSamps, fb, inputL)
+        const plainR = el.delay({ key: `${keyPrefix}:${m.id}:pR`, size: TICK_DELAY_SIZE }, timeSamps, fb, r)
+        // Ping-pong network: first repeat crosses at T, then alternates every
+        // T via per-channel 2T lines with fb² loop gain. In the mono fallback
+        // the right side's own taps are silent so repeats strictly alternate.
+        const crossL = el.delay({ key: `${keyPrefix}:${m.id}:xL`, size: TICK_DELAY_SIZE }, timeSamps, 0, inputL)
+        const crossR = hasStereoIn
+          ? el.delay({ key: `${keyPrefix}:${m.id}:xR`, size: TICK_DELAY_SIZE }, timeSamps, 0, r)
+          : el.const({ value: 0 })
+        const ppL = el.delay({ key: `${keyPrefix}:${m.id}:ppL`, size: TICK_DELAY_SIZE }, time2, fb2, el.add(inputL, el.mul(crossR, fb)))
+        const ppR = el.delay({ key: `${keyPrefix}:${m.id}:ppR`, size: TICK_DELAY_SIZE }, time2, fb2, el.add(hasStereoIn ? r : el.const({ value: 0 }), el.mul(crossL, fb)))
+        const wetL = el.add(el.mul(plainL, invPp), el.mul(el.add(crossR, ppL), ppRef))
+        const wetR = el.add(el.mul(plainR, invPp), el.mul(el.add(crossL, ppR), ppRef))
+        const outL = el.add(el.mul(inputL, dry), el.mul(wetL, mixRef))
+        const outR = el.add(el.mul(r, dry), el.mul(wetR, mixRef))
+        memo.set(`${m.id}:outR`, outR)
+        return outL
+      }
+
+      case 'conv': {
+        const inputL = inlet(m.id, 'in') ?? SILENCE
+        const inputR = inlet(m.id, 'inR') // optional stereo right input
+        const hasStereoIn = inputR !== null
+        const r = hasStereoIn ? (inputR as Node) : inputL
+        if (p.bypass) {
+          memo.set(`${m.id}:outR`, r)
+          return inputL
+        }
+        // Resolve sample index → VFS path (hash), same as sample/wave.
+        const idx = Math.round(p.sampleIndex ?? 0)
+        const meta = idx >= 0 && idx < sampleMeta.length ? sampleMeta[idx] : null
+        // Missing/unloaded IR → dry passthrough rather than silence.
+        if (!meta?.hash) {
+          memo.set(`${m.id}:outR`, r)
+          return inputL
+        }
+        const mixRef = kconst(key('mix'), p.mix ?? 0.5)
+        const gainRef = kconst(key('gain'), p.gain ?? 1)
+        // L1-normalize: wet can never exceed the dry peak, whatever the IR.
+        const norm = meta.l1 && meta.l1 > 0 ? el.const({ value: 1 / meta.l1 }) : el.const({ value: 1 })
+        const conv = (sig: Node, sideKey: string): NodeRepr_t =>
+          el.mul(el.convolve({ key: `${keyPrefix}:${m.id}:${sideKey}:${meta.hash}`, path: meta.hash }, sig), norm, gainRef)
+        const dry = el.sub(el.const({ value: 1 }), mixRef)
+
+        // Width-process the wet pair (mid/side + Haas past width 1).
+        const wRef = kconst(key('width'), p.width ?? 1)
+        const wetL0 = conv(inputL, 'L')
+        const wetR0 = conv(r, 'R')
+        const mid = el.mul(el.const({ value: 0.5 }), el.add(wetL0, wetR0))
+        const sideWet = el.mul(el.const({ value: 0.5 }), el.sub(wetL0, wetR0))
+        const spread = el.max(el.const({ value: 0 }), el.sub(wRef, el.const({ value: 1 })))
+        const pseudo = el.delay({ key: `${keyPrefix}:${m.id}:wspread`, size: HAAS_DELAY_SIZE }, el.const({ value: HAAS_DELAY_SAMPLES }), 0, mid)
+        const wetL = el.add(mid, el.mul(wRef, sideWet), el.mul(spread, pseudo))
+        const wetR = el.sub(mid, el.mul(wRef, sideWet), el.mul(spread, pseudo))
+
+        const outL = el.add(el.mul(inputL, dry), el.mul(wetL, mixRef))
+        const outR = el.add(el.mul(r, dry), el.mul(wetR, mixRef))
+        memo.set(`${m.id}:outR`, outR)
+        return outL
+      }
+
+      case 'width': {
+        const inputL = inlet(m.id, 'in') ?? SILENCE
+        const inputR = inlet(m.id, 'inR') // optional stereo right input
+        const hasStereoIn = inputR !== null
+        if (p.bypass) {
+          memo.set(`${m.id}:outR`, hasStereoIn ? inputR : inputL)
+          return inputL
+        }
+
+        const w = kconst(key('width'), p.width ?? 1)
+        const r = hasStereoIn ? (inputR as Node) : inputL
+        const mid = el.mul(el.const({ value: 0.5 }), el.add(inputL, r))
+        const sideReal = el.mul(el.const({ value: 0.5 }), el.sub(inputL, r))
+        // Pseudo-side for mono sources (Haas): a delayed copy of mid, injected
+        // only past width 1. L+R still sums to 2×mid, so mono stays compatible.
+        const spread = el.max(el.const({ value: 0 }), el.sub(w, el.const({ value: 1 })))
+        const pseudo = el.delay({ key: `${keyPrefix}:${m.id}:spread`, size: HAAS_DELAY_SIZE }, el.const({ value: HAAS_DELAY_SAMPLES }), 0, mid)
+        const outL = el.add(mid, el.mul(w, sideReal), el.mul(spread, pseudo))
+        const outR = el.sub(mid, el.mul(w, sideReal), el.mul(spread, pseudo))
+
+        // Store the right channel so connections from outR can pick it up.
+        memo.set(`${m.id}:outR`, outR)
+
+        return outL
       }
 
       case 'reverb': {

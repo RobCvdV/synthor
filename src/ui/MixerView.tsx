@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useDocStore } from '../state/docStore'
-import type { AudioHost } from '../audio/host'
+import type { AudioHost, SpatialParams } from '../audio/host'
 import type { Id, Instrument, MixChannel, ChannelEffect, ModuleType } from '../domain/types'
 import { MASTER_CHANNEL_ID } from '../domain/types'
 import { EFFECT_MODULE_TYPES, MODULE_DEFS } from '../domain/moduleDefs'
@@ -9,7 +9,7 @@ import { EFFECT_MODULE_TYPES, MODULE_DEFS } from '../domain/moduleDefs'
 
 interface MixerViewProps { host: AudioHost }
 
-export function MixerView({ host: _host }: MixerViewProps) {
+export function MixerView({ host }: MixerViewProps) {
   const doc = useDocStore((s) => s.doc)
   const store = () => useDocStore.getState()
   const [selectedChannel, setSelectedChannel] = useState<Id>(MASTER_CHANNEL_ID)
@@ -84,17 +84,20 @@ export function MixerView({ host: _host }: MixerViewProps) {
         <button className="octbtn" onClick={() => { const id = store().addChannel('sub'); setSelectedChannel(id) }}
           title="Add sub channel" style={{ alignSelf: 'flex-start', height: 'fit-content', flexShrink: 0 }}>+ Sub</button>
         {master && (
-          <ChannelStrip channel={master} isSelected={selectedChannel === MASTER_CHANNEL_ID} isMaster showMeter
-            onSelect={() => setSelectedChannel(MASTER_CHANNEL_ID)}
-            onVolumeSilent={(v) => store().setChannelVolumeSilent(MASTER_CHANNEL_ID, Math.max(0, Math.min(2, v)))}
-            onVolumeCommit={(v) => store().setChannelVolume(MASTER_CHANNEL_ID, Math.max(0, Math.min(2, v)))}
-            onPanSilent={(pan) => store().setChannelPanSilent(MASTER_CHANNEL_ID, Math.max(-1, Math.min(1, pan)))}
-            onPanCommit={(pan) => store().setChannelPan(MASTER_CHANNEL_ID, Math.max(-1, Math.min(1, pan)))}
-            onToggleMute={() => store().setChannelMute(MASTER_CHANNEL_ID, !master.mute)}
-            onToggleSolo={() => store().setChannelSolo(MASTER_CHANNEL_ID, !master.solo)}
-            onRename={() => {}}
-            onAddFx={(type) => store().addChannelEffect(MASTER_CHANNEL_ID, type)}
-          />
+          <>
+            <ChannelStrip channel={master} isSelected={selectedChannel === MASTER_CHANNEL_ID} isMaster showMeter
+              onSelect={() => setSelectedChannel(MASTER_CHANNEL_ID)}
+              onVolumeSilent={(v) => store().setChannelVolumeSilent(MASTER_CHANNEL_ID, Math.max(0, Math.min(2, v)))}
+              onVolumeCommit={(v) => store().setChannelVolume(MASTER_CHANNEL_ID, Math.max(0, Math.min(2, v)))}
+              onPanSilent={(pan) => store().setChannelPanSilent(MASTER_CHANNEL_ID, Math.max(-1, Math.min(1, pan)))}
+              onPanCommit={(pan) => store().setChannelPan(MASTER_CHANNEL_ID, Math.max(-1, Math.min(1, pan)))}
+              onToggleMute={() => store().setChannelMute(MASTER_CHANNEL_ID, !master.mute)}
+              onToggleSolo={() => store().setChannelSolo(MASTER_CHANNEL_ID, !master.solo)}
+              onRename={() => {}}
+              onAddFx={(type) => store().addChannelEffect(MASTER_CHANNEL_ID, type)}
+            />
+            <SpatialPanel host={host} />
+          </>
         )}
       </div>
 
@@ -166,6 +169,53 @@ function InstrumentStrip({
         <option value={MASTER_CHANNEL_ID}>Master</option>
         {subChannels.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
       </select>
+    </div>
+  )
+}
+
+// ── Master HRTF Panel ───────────────────────────────────────
+
+/** Compact master-level 3D positioning controls. Session-only state —
+ *  lives on the host, never in the doc. */
+function SpatialPanel({ host }: { host: AudioHost }) {
+  const [spatial, setSpatial] = useState(() => host.spatialState)
+  const apply = (patch: Partial<SpatialParams>) => {
+    const next = { ...spatial, ...patch }
+    setSpatial(next)
+    host.applySpatial(next)
+  }
+  return (
+    <div
+      style={{ display: 'flex', flexDirection: 'column', gap: 3, width: 100, padding: '4px 4px', border: '1px solid #444', borderRadius: 4, background: '#1a1a3e', flexShrink: 0, alignSelf: 'flex-start' }}
+      title="The whole mix is positioned as one point source (stereo image downmixed)">
+      <div style={{ fontSize: 9, fontWeight: 'bold', textAlign: 'center' }}>3D (master)</div>
+      <label style={{ fontSize: 9, color: '#aaa', display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center' }}>
+        <input type="checkbox" checked={spatial.enabled} onChange={(e) => apply({ enabled: e.target.checked })} />
+        Enable
+      </label>
+      <SpatialSlider label="Az" min={-180} max={180} step={1} value={spatial.azimuth} fmt={(v) => `${v.toFixed(0)}°`}
+        onChange={(v) => apply({ azimuth: v })} />
+      <SpatialSlider label="El" min={-90} max={90} step={1} value={spatial.elevation} fmt={(v) => `${v.toFixed(0)}°`}
+        onChange={(v) => apply({ elevation: v })} />
+      <SpatialSlider label="Dist" min={0.1} max={20} step={0.1} value={spatial.distance} fmt={(v) => v.toFixed(1)}
+        onChange={(v) => apply({ distance: v })} />
+    </div>
+  )
+}
+
+function SpatialSlider({ label, min, max, step, value, fmt, onChange }: {
+  label: string; min: number; max: number; step: number; value: number
+  fmt: (v: number) => string; onChange: (v: number) => void
+}) {
+  return (
+    <div style={{ fontSize: 8, color: '#aaa' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+        <span>{label}</span><span>{fmt(value)}</span>
+      </div>
+      <input type="range" min={min} max={max} step={step} value={value}
+        onMouseDown={(e) => e.stopPropagation()}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+        style={{ width: '100%', height: 12 }} />
     </div>
   )
 }
@@ -267,6 +317,12 @@ function EffectCard({
   onMoveUp?: () => void; onMoveDown?: () => void
 }) {
   const def = MODULE_DEFS[effect.type]
+  // Sample dropdown for conv (IR) effects — same name-sorted order the engine
+  // uses when resolving sampleIndex → VFS hash. Hook stays above the early
+  // return so the hook order is stable across renders.
+  const sampleLabels = Object.values(useDocStore((s) => s.doc.entities.samples))
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((s) => s.name)
   if (!def) return null
   const bypassed = (effect.params.bypass ?? 0) === 1
 
@@ -287,7 +343,14 @@ function EffectCard({
           return (
             <div key={param.key} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 70 }}>
               <label style={{ fontSize: 9, color: '#aaa' }}>{param.label}</label>
-              {param.enumLabels ? (
+              {param.key === 'sampleIndex' ? (
+                <select
+                  value={Math.round(val)}
+                  onChange={(e) => onParamCommit(param.key, parseInt(e.target.value))}
+                  className="mixer-dropdown" style={{ fontSize: 10, width: '100%' }}>
+                  {(sampleLabels.length ? sampleLabels : ['(none)']).map((lbl, i) => <option key={i} value={i}>{lbl}</option>)}
+                </select>
+              ) : param.enumLabels ? (
                 <select value={Math.round(val)} onChange={(e) => onParamCommit(param.key, parseInt(e.target.value))}
                   className="mixer-dropdown" style={{ fontSize: 10, width: '100%' }}>
                   {param.enumLabels.map((lbl, i) => <option key={i} value={i}>{lbl}</option>)}

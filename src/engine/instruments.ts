@@ -16,6 +16,8 @@ export interface SampleMeta {
   sampleRate: number
   /** Total frames per channel. */
   frames: number
+  /** Sum of |channel 0| — used to L1-normalize conv IRs (see mixer.ts). */
+  l1?: number
 }
 
 export function renderInstrument(

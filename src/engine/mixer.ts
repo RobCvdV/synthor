@@ -9,9 +9,10 @@
 import { el, type NodeRepr_t } from '@elemaudio/core'
 import type { ChannelEffect } from '../domain/types'
 import { isStereoEffect } from '../domain/moduleDefs'
-import { TICK_DELAY_SIZE, tickTimeSamps, type StereoOut } from './modular'
+import { HAAS_DELAY_SAMPLES, HAAS_DELAY_SIZE, TICK_DELAY_SIZE, tickTimeSamps, type StereoOut } from './modular'
 import { makeFdnReverb } from './reverbFdn'
 import type { ParamRefRegistry } from '../audio/paramRefs'
+import type { SampleMeta } from './instruments'
 
 /** Build a param ref key for a channel effect parameter. */
 function chanRefKey(channelId: string, effectId: string, paramKey: string): string {
@@ -37,10 +38,12 @@ export function compileChannelEffects(
   paramRefs?: ParamRefRegistry,
   /** Live rows-per-second node for tempo-synced delay/echo times. */
   rowHzNode: NodeRepr_t | number = 8,
+  /** Sample metadata for conv (IR) effects — sampleIndex → VFS hash. */
+  sampleMeta: SampleMeta[] = [],
 ): StereoOut {
   let out = input
   for (const fx of effects) {
-    out = compileOneEffect(fx, out, channelId, paramRefs, rowHzNode)
+    out = compileOneEffect(fx, out, channelId, paramRefs, rowHzNode, sampleMeta)
   }
   return out
 }
@@ -53,6 +56,7 @@ function compileOneEffect(
   channelId: string,
   paramRefs?: ParamRefRegistry,
   rowHzNode: NodeRepr_t | number = 8,
+  sampleMeta: SampleMeta[] = [],
 ): StereoOut {
   const p = fx.params
   const key = (name: string) => chanRefKey(channelId, fx.id, name)
@@ -169,7 +173,9 @@ function compileOneEffect(
 
     // ── Single-tap Delay ────────────────────────────────────
     case 'delay': {
-      const timeSamps = tickTimeSamps(p.time ?? 1.25, rowHzNode)
+      // Ticks as a live ref so the Time slider retunes without a recompile.
+      const timeTicks = k('time', p.time ?? 1.25)
+      const timeSamps = tickTimeSamps(timeTicks, rowHzNode)
       const mix = k('mix', p.mix ?? 0.5)
       const dry = el.sub(el.const({ value: 1 }), mix)
       const wetL = el.delay({ key: `${channelId}:${fx.id}:L`, size: TICK_DELAY_SIZE }, timeSamps, 0, input.left)
@@ -183,12 +189,69 @@ function compileOneEffect(
 
     // ── Echo (delay + feedback) ─────────────────────────────
     case 'echo': {
-      const timeSamps = tickTimeSamps(p.time ?? 1.25, rowHzNode)
+      // Ticks as a live ref so the Time slider retunes without a recompile.
+      const timeTicks = k('time', p.time ?? 1.25)
+      const timeSamps = tickTimeSamps(timeTicks, rowHzNode)
       const fb = k('feedback', p.feedback ?? 0.25)
       const mix = k('mix', p.mix ?? 0.5)
       const dry = el.sub(el.const({ value: 1 }), mix)
       const wetL = el.delay({ key: `${channelId}:${fx.id}:L`, size: TICK_DELAY_SIZE }, timeSamps, fb, input.left)
       const wetR = el.delay({ key: `${channelId}:${fx.id}:R`, size: TICK_DELAY_SIZE }, timeSamps, fb, input.right)
+      const effected: StereoOut = {
+        left: el.add(el.mul(input.left, dry), el.mul(wetL, mix)),
+        right: el.add(el.mul(input.right, dry), el.mul(wetR, mix)),
+      }
+      return bypassable(effected)
+    }
+
+    // ── Stereo Delay (ping-pong) ───────────────────────────
+    case 'delayS': {
+      // Ticks as a live ref so the Time slider retunes without a recompile.
+      const timeTicks = k('time', p.time ?? 1.25)
+      const timeSamps = tickTimeSamps(timeTicks, rowHzNode)
+      const mix = k('mix', p.mix ?? 0.5)
+      const pp = k('pingpong', p.pingpong ?? 0)
+      const dry = el.sub(el.const({ value: 1 }), mix)
+      const invPp = el.sub(el.const({ value: 1 }), pp)
+      const tapL = el.delay({ key: `${channelId}:${fx.id}:L`, size: TICK_DELAY_SIZE }, timeSamps, 0, input.left)
+      const tapR = el.delay({ key: `${channelId}:${fx.id}:R`, size: TICK_DELAY_SIZE }, timeSamps, 0, input.right)
+      // pp blends each side's repeat between its own and the opposite channel.
+      const wetL = el.add(el.mul(tapL, invPp), el.mul(tapR, pp))
+      const wetR = el.add(el.mul(tapR, invPp), el.mul(tapL, pp))
+      const effected: StereoOut = {
+        left: el.add(el.mul(input.left, dry), el.mul(wetL, mix)),
+        right: el.add(el.mul(input.right, dry), el.mul(wetR, mix)),
+      }
+      return bypassable(effected)
+    }
+
+    // ── Stereo Echo (ping-pong + feedback) ─────────────────
+    case 'echoS': {
+      // Ticks as a live ref so the Time slider retunes without a recompile.
+      const timeTicks = k('time', p.time ?? 1.25)
+      const timeSamps = tickTimeSamps(timeTicks, rowHzNode)
+      const time2 = el.mul(timeSamps, el.const({ value: 2 }))
+      const fb = k('feedback', p.feedback ?? 0.25)
+      const fb2 = el.mul(fb, fb)
+      const mix = k('mix', p.mix ?? 0.5)
+      const pp = k('pingpong', p.pingpong ?? 0)
+      const dry = el.sub(el.const({ value: 1 }), mix)
+      const invPp = el.sub(el.const({ value: 1 }), pp)
+
+      // Plain per-channel echo at pp=0.
+      const plainL = el.delay({ key: `${channelId}:${fx.id}:pL`, size: TICK_DELAY_SIZE }, timeSamps, fb, input.left)
+      const plainR = el.delay({ key: `${channelId}:${fx.id}:pR`, size: TICK_DELAY_SIZE }, timeSamps, fb, input.right)
+
+      // Ping-pong network: the first repeat crosses at T, then alternates
+      // every T — per-channel 2T lines with fb² loop gain, fed by the input
+      // plus the other side's first cross repeat.
+      const crossL = el.delay({ key: `${channelId}:${fx.id}:xL`, size: TICK_DELAY_SIZE }, timeSamps, 0, input.left)
+      const crossR = el.delay({ key: `${channelId}:${fx.id}:xR`, size: TICK_DELAY_SIZE }, timeSamps, 0, input.right)
+      const ppL = el.delay({ key: `${channelId}:${fx.id}:ppL`, size: TICK_DELAY_SIZE }, time2, fb2, el.add(input.left, el.mul(crossR, fb)))
+      const ppR = el.delay({ key: `${channelId}:${fx.id}:ppR`, size: TICK_DELAY_SIZE }, time2, fb2, el.add(input.right, el.mul(crossL, fb)))
+
+      const wetL = el.add(el.mul(plainL, invPp), el.mul(el.add(crossR, ppL), pp))
+      const wetR = el.add(el.mul(plainR, invPp), el.mul(el.add(crossL, ppR), pp))
       const effected: StereoOut = {
         left: el.add(el.mul(input.left, dry), el.mul(wetL, mix)),
         right: el.add(el.mul(input.right, dry), el.mul(wetR, mix)),
@@ -242,6 +305,67 @@ function compileOneEffect(
       const effected: StereoOut = {
         left: el.mul(el.db2gain(makeup), compL),
         right: el.mul(el.db2gain(makeup), compR),
+      }
+      return bypassable(effected)
+    }
+
+    // ── Convolution (IR) Reverb ────────────────────────────
+    case 'conv': {
+      const idx = Math.round(p.sampleIndex ?? 0)
+      const meta = idx >= 0 && idx < sampleMeta.length ? sampleMeta[idx] : null
+      // Missing/unloaded IR → pass through untouched rather than silence.
+      if (!meta?.hash) return input
+      const mix = k('mix', p.mix ?? 0.5)
+      const gain = k('gain', p.gain ?? 1)
+      const dry = el.sub(el.const({ value: 1 }), mix)
+      // L1-normalize: dividing wet by Σ|IR| guarantees it can never exceed
+      // the dry peak, whatever sample is used as the impulse response.
+      const norm = meta.l1 && meta.l1 > 0 ? el.const({ value: 1 / meta.l1 }) : el.const({ value: 1 })
+      const convSide = (sig: NodeRepr_t, sideKey: string): NodeRepr_t =>
+        el.mul(el.convolve({ key: `${channelId}:${fx.id}:${sideKey}:${meta.hash}`, path: meta.hash }, sig), norm, gain)
+
+      // Legacy per-side instances (docs from before conv became stereo):
+      // only that channel is processed, the other passes through.
+      if (side) {
+        const effected: StereoOut = {
+          left: el.add(el.mul(input.left, dry), el.mul(convSide(input.left, 'L'), mix)),
+          right: el.add(el.mul(input.right, dry), el.mul(convSide(input.right, 'R'), mix)),
+        }
+        return bypassable(
+          side === 'L' ? { left: effected.left, right: input.right } : { left: input.left, right: effected.right },
+        )
+      }
+
+      // Stereo instance: convolve both channels, then width-process the wet pair.
+      const w = k('width', p.width ?? 1)
+      const wetL0 = convSide(input.left, 'L')
+      const wetR0 = convSide(input.right, 'R')
+      const mid = el.mul(el.const({ value: 0.5 }), el.add(wetL0, wetR0))
+      const sideWet = el.mul(el.const({ value: 0.5 }), el.sub(wetL0, wetR0))
+      // Haas pseudo-side past width 1 so mono sources spread too.
+      const spread = el.max(el.const({ value: 0 }), el.sub(w, el.const({ value: 1 })))
+      const pseudo = el.delay({ key: `${channelId}:${fx.id}:wspread`, size: HAAS_DELAY_SIZE }, el.const({ value: HAAS_DELAY_SAMPLES }), 0, mid)
+      const wetL = el.add(mid, el.mul(w, sideWet), el.mul(spread, pseudo))
+      const wetR = el.sub(mid, el.mul(w, sideWet), el.mul(spread, pseudo))
+      const effected: StereoOut = {
+        left: el.add(el.mul(input.left, dry), el.mul(wetL, mix)),
+        right: el.add(el.mul(input.right, dry), el.mul(wetR, mix)),
+      }
+      return bypassable(effected)
+    }
+
+    // ── Stereo Width (mid/side + Haas) ─────────────────────
+    case 'width': {
+      const w = k('width', p.width ?? 1)
+      const mid = el.mul(el.const({ value: 0.5 }), el.add(input.left, input.right))
+      const sideReal = el.mul(el.const({ value: 0.5 }), el.sub(input.left, input.right))
+      // Pseudo-side for mono sources (Haas): a delayed copy of mid, injected
+      // only past width 1. L+R still sums to 2×mid, so mono stays compatible.
+      const spread = el.max(el.const({ value: 0 }), el.sub(w, el.const({ value: 1 })))
+      const pseudo = el.delay({ key: `${channelId}:${fx.id}:spread`, size: 2048 }, el.const({ value: HAAS_DELAY_SAMPLES }), 0, mid)
+      const effected: StereoOut = {
+        left: el.add(mid, el.mul(w, sideReal), el.mul(spread, pseudo)),
+        right: el.sub(mid, el.mul(w, sideReal), el.mul(spread, pseudo)),
       }
       return bypassable(effected)
     }

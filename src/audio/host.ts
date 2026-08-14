@@ -7,6 +7,17 @@ import { VoicePool, LIVE_VOICE_COUNT } from '../engine/voicePool'
 import type { DrumKitInstrument } from '../domain/types'
 import { SchedulerNode } from '../player/SchedulerNode'
 
+/** Master-level HRTF position. Session-only (not persisted in the doc). */
+export interface SpatialParams {
+  enabled: boolean
+  /** Degrees, -180..180. 0 = straight ahead, positive = right. */
+  azimuth: number
+  /** Degrees, -90..90. Positive = up. */
+  elevation: number
+  /** Distance from the listener, clamped ≥ 0.1 (inverse model blows up at 0). */
+  distance: number
+}
+
 /**
  * Owns the AudioContext + Elementary WebRenderer and pushes compiled graphs to
  * the AudioWorklet. Stateless beyond the audio plumbing: it just renders
@@ -16,6 +27,10 @@ export class AudioHost {
   private ctx: AudioContext | null = null
   private core: WebRenderer | null = null
   private analyser: AnalyserNode | null = null
+  private workletNode: AudioWorkletNode | null = null
+  private panner: PannerNode | null = null
+  private spatial: SpatialParams = { enabled: false, azimuth: 0, elevation: 0, distance: 1 }
+  private spatialPatched = false
   private ready = false
   private starting: Promise<void> | null = null
   private renderBusy = false
@@ -155,11 +170,21 @@ export class AudioHost {
       }
 
       this.analyser = this.ctx.createAnalyser()
+      this.workletNode = node
       node.connect(this.analyser)
       this.analyser.connect(this.ctx.destination)
+
+      // HRTF panner sits idle until spatial is enabled — then the worklet
+      // output is re-routed through it (see applySpatial).
+      this.panner = this.ctx.createPanner()
+      this.panner.panningModel = 'HRTF'
+      this.panner.distanceModel = 'inverse'
+      this.panner.refDistance = 1
+
       await this.ctx.resume()
       this.ready = true
       this.starting = null
+      this.applySpatial(this.spatial)
       this.onReady?.()
     })()
     return this.starting
@@ -216,6 +241,42 @@ export class AudioHost {
     }
 
     doRender()
+  }
+
+  /** Current HRTF position — the UI reads this to initialise its controls. */
+  get spatialState(): SpatialParams {
+    return { ...this.spatial }
+  }
+
+  /**
+   * Position (and optionally patch in) the master HRTF panner. The worklet's
+   * stereo output is treated as a single point source. Safe to call before
+   * start(): the state is stored and applied once the context is ready.
+   */
+  applySpatial(s: SpatialParams): void {
+    this.spatial = { ...s }
+    if (!this.ready || !this.ctx || !this.panner || !this.analyser || !this.workletNode) return
+
+    const az = (s.azimuth * Math.PI) / 180
+    const elv = (s.elevation * Math.PI) / 180
+    const d = Math.max(0.1, s.distance)
+    this.panner.positionX.value = d * Math.cos(elv) * Math.sin(az)
+    this.panner.positionY.value = d * Math.sin(elv)
+    this.panner.positionZ.value = d * Math.cos(elv) * Math.cos(az)
+
+    if (s.enabled === this.spatialPatched) return
+    this.spatialPatched = s.enabled
+    if (s.enabled) {
+      // Disconnect the direct path BEFORE patching through the panner,
+      // otherwise the dry path leaks.
+      this.workletNode.disconnect(this.analyser)
+      this.workletNode.connect(this.panner)
+      this.panner.connect(this.analyser)
+    } else {
+      this.workletNode.disconnect(this.panner)
+      this.panner.disconnect(this.analyser)
+      this.workletNode.connect(this.analyser)
+    }
   }
 
   /**

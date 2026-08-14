@@ -83,6 +83,23 @@ describe('defaultParams', () => {
     expect(defaultParams('echo').time).toBe(1.25)
   })
 
+  it('conv defaults to a half-dry IR mix with unity gain', () => {
+    const p = defaultParams('conv')
+    expect(p.sampleIndex).toBe(0)
+    expect(p.mix).toBe(0.5)
+    expect(p.gain).toBe(1)
+    expect(p.width).toBe(1)
+  })
+
+  it('stereo delay/echo default to no ping-pong', () => {
+    expect(defaultParams('delayS').pingpong).toBe(0)
+    expect(defaultParams('echoS').pingpong).toBe(0)
+  })
+
+  it('width defaults to natural stereo width', () => {
+    expect(defaultParams('width').width).toBe(1)
+  })
+
   it('delay/echo time is a quarter-tick grid up to 16', () => {
     for (const type of ['delay', 'echo'] as const) {
       const time = MODULE_DEFS[type].params.find((p) => p.key === 'time')!

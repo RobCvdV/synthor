@@ -109,4 +109,20 @@ describe('tempo-synced delay time', () => {
     // 16 ticks at 20 BPM (4 rows/beat) at 48 kHz = 576000 samples.
     expect(size).toBe(576000)
   })
+
+  it('time is a live ref (slider retunes without a recompile)', () => {
+    const keys = new Set<string>()
+    const refs = {
+      keys,
+      getOrCreate(key: string, value: number) {
+        keys.add(key)
+        return el.const({ key, value })
+      },
+    }
+    compileModular(
+      makeDelayPatch(1), el.const({ value: 440 }), el.const({ value: 1 }), 'voice',
+      [], 1, {}, undefined, refs as never, undefined, el.const({ value: 8 }),
+    )
+    expect(keys.has('i1:dl:time')).toBe(true)
+  })
 })

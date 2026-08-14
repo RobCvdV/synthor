@@ -79,6 +79,10 @@ export type ModuleType =
   | 'noise' // noise generator (normal/pink)
   | 'wave' // sample-waveform oscillator (whole sample = one cycle)
   | 'comp' // compressor (hard/soft knee), also a channel effect
+  | 'conv' // convolution (IR) reverb — any library sample as impulse response
+  | 'width' // stereo width control via mid/side processing
+  | 'delayS' // stereo single-tap delay with ping-pong
+  | 'echoS' // stereo echo with feedback and ping-pong
   | 'output' // the voice's final output tap
 
 /** An address into a module's inlet or outlet, by name. */

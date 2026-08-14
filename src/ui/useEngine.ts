@@ -44,6 +44,7 @@ export function useEngine(): AudioHost {
   const vfsSyncRef = useRef<Promise<void> | null>(null)
   const lastVfsKeysRef = useRef('')
   const vfsLoadedRef = useRef<Set<string>>(new Set())
+  const l1SumsRef = useRef<Record<string, number>>({})
 
   const lastStructuralKeyRef = useRef('')
   const lastEpochRef = useRef(0)
@@ -69,7 +70,7 @@ export function useEngine(): AudioHost {
             const mod = inst.modules[mid]
             let key = `${mid}:${mod.type}`
             // Sample index changes are structural (different hash → different table key).
-            if (mod.type === 'sample' || mod.type === 'wave') key += `:s${mod.params.sampleIndex ?? 0}`
+            if (mod.type === 'sample' || mod.type === 'wave' || mod.type === 'conv') key += `:s${mod.params.sampleIndex ?? 0}`
             return key
           }).join(',')
           const conns = Object.values(inst.connections)
@@ -93,7 +94,10 @@ export function useEngine(): AudioHost {
 
       // Mix channels.
       for (const [id, c] of Object.entries(doc.entities.mixChannels)) {
-        const fx = c.effects.map((e) => `${e.type}:${e.id}`).join(',')
+        // conv's sampleIndex is structural: different hash → different VFS path.
+        const fx = c.effects.map((e) =>
+          `${e.type}:${e.id}` + (e.type === 'conv' ? `:s${e.params.sampleIndex ?? 0}` : ''),
+        ).join(',')
         parts.push(`chan:${id}:${c.kind}:${fx}`)
       }
 
@@ -136,7 +140,7 @@ export function useEngine(): AudioHost {
         lastVfsKeysRef.current = keys
         if (samples.length > 0) {
           vfsSyncRef.current = syncSamplesToVfs(host, samples, slug).then(
-            (loaded) => { vfsSyncRef.current = null; vfsLoadedRef.current = loaded; useDocStore.getState().setVfsLoaded(loaded) },
+            ({ loaded, l1Sums }) => { vfsSyncRef.current = null; vfsLoadedRef.current = loaded; l1SumsRef.current = l1Sums; useDocStore.getState().setVfsLoaded(loaded) },
           )
         }
       }
@@ -168,6 +172,7 @@ export function useEngine(): AudioHost {
             playEpoch,
             mutedTracks: effectiveMute,
             vfsLoadedHashes: vfsLoadedRef.current,
+            l1Sums: l1SumsRef.current,
             midiCcValues: useMidiStore.getState().ccValues,
             paramRefs: host.paramRefs,
             ccBindings: host.ccBindings,
