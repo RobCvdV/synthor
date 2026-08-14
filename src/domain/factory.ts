@@ -180,6 +180,58 @@ export function cloneInstrument(inst: Instrument, name: string): Instrument {
   }
 }
 
+/**
+ * The 8 classic 4-op FM algorithm wirings, in DX manual numbering (op 4 = top
+ * = the feedback op, op 1 = bottom). `mod` pairs are "X modulates Y"; the
+ * carriers feed the instrument's output. Feedback is available on every op
+ * (a superset of the DX, which restricts it to op 4).
+ */
+const DX_ALGORITHM_WIRING: Record<number, { mod: Array<[number, number]>; carriers: number[] }> = {
+  1: { mod: [[4, 3], [3, 2], [2, 1]], carriers: [1] },
+  2: { mod: [[4, 2], [3, 2], [2, 1]], carriers: [1] },
+  3: { mod: [[3, 2], [2, 1], [4, 1]], carriers: [1] },
+  4: { mod: [[4, 3], [3, 1], [2, 1]], carriers: [1] },
+  5: { mod: [[4, 3], [2, 1]], carriers: [3, 1] },
+  6: { mod: [[4, 3], [4, 2], [4, 1]], carriers: [3, 2, 1] },
+  7: { mod: [[4, 3]], carriers: [3, 2, 1] },
+  8: { mod: [], carriers: [4, 3, 2, 1] },
+}
+
+/** Four `dxop` operators wired per one of the 8 algorithms, in a column with
+ *  op 4 on top. Carriers sum through a mix, then a gate→adsr→gain chain to the
+ *  instrument's output — without the envelope the always-on operators would
+ *  drone continuously, so the preset gates itself like the seeded patch does. */
+export function buildDxAlgorithm(
+  alg: number,
+  outputId: string,
+  gateId: string,
+  origin: { x: number; y: number },
+): { modules: Module[]; connections: Connection[] } {
+  const wiring = DX_ALGORITHM_WIRING[alg]
+  if (!wiring) throw new Error(`Unknown DX algorithm: ${alg}`)
+  const ops = new Map<number, Module>()
+  for (let n = 4; n >= 1; n--) {
+    ops.set(n, newModule('dxop', origin.x, origin.y + (4 - n) * 130))
+  }
+  const mix = newModule('mix', origin.x + 240, origin.y + 130)
+  const gain = newModule('gain', origin.x + 460, origin.y + 130)
+  const adsr = newModule('adsr', origin.x + 460, origin.y - 40)
+
+  const connections = wiring.mod.map(([from, to]) =>
+    connect({ moduleId: ops.get(from)!.id, port: 'out' }, { moduleId: ops.get(to)!.id, port: 'mod' }),
+  )
+  const carrierPorts = ['a', 'b', 'c', 'd']
+  for (const n of wiring.carriers) {
+    connections.push(connect({ moduleId: ops.get(n)!.id, port: 'out' }, { moduleId: mix.id, port: carrierPorts.shift()! }))
+  }
+  connections.push(connect({ moduleId: mix.id, port: 'out' }, { moduleId: gain.id, port: 'in' }))
+  connections.push(connect({ moduleId: gain.id, port: 'out' }, { moduleId: outputId, port: 'inL' }))
+  connections.push(connect({ moduleId: gateId, port: 'gate' }, { moduleId: adsr.id, port: 'gate' }))
+  connections.push(connect({ moduleId: adsr.id, port: 'env' }, { moduleId: gain.id, port: 'mod' }))
+
+  return { modules: [...ops.values(), mix, gain, adsr], connections }
+}
+
 /** A fresh empty track bound to an instrument. */
 export function newTrack(instrumentId: string, length: number): Track {
   return { id: makeId('trk'), instrumentId, cells: emptyCells(length), effectLanes: [] }

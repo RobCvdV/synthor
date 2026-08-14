@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { emptyCells, fitCells, makeId, newTrack, createDefaultDoc, createMasterChannel, createMixChannel, createChannelEffect, cloneInstrument, newModularInstrument, newDrumKitInstrument, nextEffName } from '../domain/factory'
+import { emptyCells, fitCells, makeId, newTrack, createDefaultDoc, createMasterChannel, createMixChannel, createChannelEffect, cloneInstrument, newModularInstrument, newDrumKitInstrument, nextEffName, buildDxAlgorithm } from '../domain/factory'
 import { defaultParams, MODULE_DEFS } from '../domain/moduleDefs'
 import { MASTER_CHANNEL_ID } from '../domain/types'
 
@@ -196,5 +196,77 @@ describe('mixer factories', () => {
       expect(copy.channelId).toBe('some-chan')
       expect(copy.pan).toBe(0.5)
     }
+  })
+})
+
+describe('buildDxAlgorithm', () => {
+  it('builds 4 dxop modules with unique ids for every algorithm', () => {
+    for (let alg = 1; alg <= 8; alg++) {
+      const { modules } = buildDxAlgorithm(alg, 'out', 'gate', { x: 0, y: 0 })
+      const ops = modules.filter((m) => m.type === 'dxop')
+      expect(ops).toHaveLength(4)
+      expect(new Set(modules.map((m) => m.id)).size).toBe(7)
+    }
+  })
+
+  it('wires the expected cord totals per algorithm', () => {
+    // mod cords + carrier cords + 4 envelope/output cords (mix→gain, gain→out, gate→adsr, adsr→gain.mod).
+    const expected: Record<number, number> = { 1: 8, 2: 8, 3: 8, 4: 8, 5: 8, 6: 10, 7: 8, 8: 8 }
+    for (let alg = 1; alg <= 8; alg++) {
+      const { connections } = buildDxAlgorithm(alg, 'out', 'gate', { x: 0, y: 0 })
+      expect(connections).toHaveLength(expected[alg])
+      expect(new Set(connections.map((c) => c.id)).size).toBe(connections.length)
+      expect(connections.every((c) => c.to.port !== 'inL' || c.to.moduleId === 'out')).toBe(true)
+    }
+  })
+
+  it('algorithm 1 is the classic 4→3→2→1 stack with op 1 as the only carrier', () => {
+    const { modules, connections } = buildDxAlgorithm(1, 'out', 'gate', { x: 0, y: 0 })
+    // Modules are returned op4 first (top of the column), then mix, gain, adsr.
+    const id = (n: number) => modules[4 - n].id
+    const mixId = modules[4].id
+    const mod = (from: number, to: number) =>
+      expect.objectContaining({ from: { moduleId: id(from), port: 'out' }, to: { moduleId: id(to), port: 'mod' } })
+    expect(connections).toContainEqual(mod(4, 3))
+    expect(connections).toContainEqual(mod(3, 2))
+    expect(connections).toContainEqual(mod(2, 1))
+    expect(connections).toContainEqual(
+      expect.objectContaining({ from: { moduleId: id(1), port: 'out' }, to: { moduleId: mixId, port: 'a' } }),
+    )
+  })
+
+  it('algorithm 8 is purely additive: four carriers into the mix, no mod cords', () => {
+    const { modules, connections } = buildDxAlgorithm(8, 'out', 'gate', { x: 0, y: 0 })
+    const mixId = modules[4].id
+    const carrierPorts = connections.filter((c) => c.to.moduleId === mixId).map((c) => c.to.port)
+    expect(carrierPorts).toEqual(['a', 'b', 'c', 'd'])
+    const opIds = new Set(modules.slice(0, 4).map((m) => m.id))
+    expect(connections.filter((c) => c.to.port === 'mod' && opIds.has(c.to.moduleId))).toHaveLength(0)
+  })
+
+  it('every algorithm gates its output through gate→adsr→gain', () => {
+    for (let alg = 1; alg <= 8; alg++) {
+      const { modules, connections } = buildDxAlgorithm(alg, 'out', 'gate', { x: 0, y: 0 })
+      const mixId = modules[4].id
+      const gainId = modules[5].id
+      const adsrId = modules[6].id
+      expect(connections).toContainEqual(
+        expect.objectContaining({ from: { moduleId: 'gate', port: 'gate' }, to: { moduleId: adsrId, port: 'gate' } }),
+      )
+      expect(connections).toContainEqual(
+        expect.objectContaining({ from: { moduleId: adsrId, port: 'env' }, to: { moduleId: gainId, port: 'mod' } }),
+      )
+      expect(connections).toContainEqual(
+        expect.objectContaining({ from: { moduleId: mixId, port: 'out' }, to: { moduleId: gainId, port: 'in' } }),
+      )
+      expect(connections).toContainEqual(
+        expect.objectContaining({ from: { moduleId: gainId, port: 'out' }, to: { moduleId: 'out', port: 'inL' } }),
+      )
+    }
+  })
+
+  it('throws on unknown algorithms', () => {
+    expect(() => buildDxAlgorithm(0, 'out', 'gate', { x: 0, y: 0 })).toThrow(/algorithm/i)
+    expect(() => buildDxAlgorithm(9, 'out', 'gate', { x: 0, y: 0 })).toThrow(/algorithm/i)
   })
 })

@@ -23,6 +23,7 @@ import { useMidiStore } from '../state/midiStore'
 import { MODULE_DEFS, WAVEFORM_MAX_LENGTH_SECONDS, type ModuleGroup } from '../domain/moduleDefs'
 import type { Id, ModuleType, ModularInstrument } from '../domain/types'
 import { collectClipboardModules, collectDeletableIds, preparePastedModules, type ModuleClipboard } from '../domain/clipboard'
+import { buildDxAlgorithm } from '../domain/factory'
 import type { AudioHost } from '../audio/host'
 
 /** Palette categories in display order. Types come from the registry, so a
@@ -517,6 +518,21 @@ function Editor({ inst, host }: { inst: ModularInstrument; host?: AudioHost }) {
     removeModules(inst.id, ids)
   }
 
+  const addDxAlgorithmRef = useRef<(alg: number, clientX: number, clientY: number) => void>(() => {})
+  addDxAlgorithmRef.current = (alg, clientX, clientY) => {
+    const doc = useDocStore.getState().doc
+    const current = doc.entities.instruments[inst.id]
+    if (current?.kind !== 'modular') return
+    // The gate singleton always exists (undeletable), so the preset's
+    // envelope can rely on it.
+    const gate = Object.values(current.modules).find((m) => m.type === 'gate')
+    if (!gate) return
+    const pos = screenToFlowPosition({ x: clientX, y: clientY })
+    const { modules, connections } = buildDxAlgorithm(alg, current.outputId, gate.id, pos)
+    pasteModules(inst.id, modules, connections)
+    pendingSelectionRef.current = modules.map((m) => m.id)
+  }
+
   // --- keyboard shortcuts -----------------------------------------------
   // Stable effect with empty deps — refs are always current.
 
@@ -639,6 +655,18 @@ function Editor({ inst, host }: { inst: ModularInstrument; host?: AudioHost }) {
             ))}
           </div>
         ))}
+        <div className="mod-palette-group">
+          <span className="mod-palette-group-label">DX FM</span>
+          {[1, 2, 3, 4, 5, 6, 7, 8].map((alg) => (
+            <button
+              key={alg}
+              onClick={(e) => addDxAlgorithmRef.current(alg, e.clientX, e.clientY)}
+              title="Insert 4 DX operators wired per this algorithm"
+            >
+              Alg {alg}
+            </button>
+          ))}
+        </div>
       </div>
       <div className="mod-canvas" onDragOver={onDragOver} onDrop={onDrop}>
         <ReactFlow

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createDefaultDoc, newModularInstrument, newTrack } from '../domain/factory'
+import { buildDxAlgorithm, createDefaultDoc, newModularInstrument, newTrack } from '../domain/factory'
 import {
   CURRENT_SCHEMA_VERSION,
   deserializeSong,
@@ -68,6 +68,19 @@ describe('song serialization', () => {
     const back = restored.doc.entities.instruments[inst.id]
     expect(back).toEqual(inst)
     expect(back.kind).toBe('modular')
+  })
+
+  it('round-trips dxop modules and algorithm wirings (v11)', () => {
+    const doc = createDefaultDoc()
+    const inst = newModularInstrument('FM Patch')
+    const gateId = Object.values(inst.modules).find((m) => m.type === 'gate')!.id
+    const { modules, connections } = buildDxAlgorithm(1, inst.outputId, gateId, { x: 0, y: 0 })
+    for (const m of modules) inst.modules[m.id] = m
+    for (const c of connections) inst.connections[c.id] = c
+    doc.entities.instruments[inst.id] = inst
+
+    const restored = deserializeSong(serializeSong(makeSongFile(doc, META)))
+    expect(restored.doc.entities.instruments[inst.id]).toEqual(inst)
   })
 
   it('migrates old output.in connections to inL (post-stereo fix)', () => {

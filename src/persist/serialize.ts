@@ -17,7 +17,7 @@ import { defaultParams } from '../domain/moduleDefs'
 /**
  * Bump when the on-disk shape changes; add a matching `migrate` case.
  */
-export const CURRENT_SCHEMA_VERSION = 10
+export const CURRENT_SCHEMA_VERSION = 11
 
 export interface SongMeta {
   name: string
@@ -100,6 +100,9 @@ export function migrate(raw: unknown): SongFile {
   // v9→v10: osc instruments removed — converted to minimal modular synths.
   if (version < 10) raw = upgradeV9toV10(raw)
 
+  // v10→v11: dxop module type added. No data conversion — old files simply
+  // can't contain one. The bump exists so older app versions reject the file.
+
   // v1→v1 migration: when the stereo output was added (commit b3917fc), the
   // output module's inlet changed from 'in' to 'inL'. Old modular instruments
   // with connections targeting 'in' would silently produce silence because
@@ -120,6 +123,12 @@ export function migrate(raw: unknown): SongFile {
   raw = nameEffModules(raw)
   // Merge old portaUp / portaDown lanes into portamento.
   raw = convertPortaLanes(raw)
+
+  // Normalize to the current version — files land here stamped by whichever
+  // upgrade ran last, which is only CURRENT when the newest upgrade changed data.
+  if ((raw as Record<string, unknown>).schemaVersion !== CURRENT_SCHEMA_VERSION) {
+    raw = { ...(raw as Record<string, unknown>), schemaVersion: CURRENT_SCHEMA_VERSION }
+  }
 
   assertShape(raw)
   return raw

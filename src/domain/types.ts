@@ -63,6 +63,7 @@ export type ModuleType =
   | 'eff' // source: per-row modulation value (0..1) from a named effect lane
   | 'midicc' // source: MIDI CC value (0..1), CC number set by param
   | 'osc' // oscillator (saw/square/triangle/sine)
+  | 'dxop' // DX-style FM operator: sine, phase-mod input, self-feedback
   | 'filter' // state-variable filter (lp/hp/bp)
   | 'adsr' // envelope generator
   | 'gain' // multiply a signal by a level (and/or a modulation inlet)

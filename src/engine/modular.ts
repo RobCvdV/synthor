@@ -236,6 +236,25 @@ export function compileModular(
         return el.mul(el.dcblock(oscOut), gain)
       }
 
+      case 'dxop': {
+        // Unwired freq inlet falls back to the voice's note Hz — ratio mode is
+        // note-relative by default, exactly like a DX operator.
+        const baseFreq = inlet(m.id, 'freq') ?? freq
+        const modSum = inlet(m.id, 'mod') ?? SILENCE
+        const modeRef = kconst(key('freqMode'), p.freqMode ?? 0)
+        const ratioRef = kconst(key('ratio'), p.ratio ?? 1)
+        const fixedRef = kconst(key('fixedHz'), p.fixedHz ?? 440)
+        const fbRef = kconst(key('feedback'), p.feedback ?? 0)
+        const levelRef = kconst(key('level'), p.level ?? 1)
+        const opFreq = el.select(el.le(modeRef, el.const({ value: 0.5 })), el.mul(baseFreq, ratioRef), fixedRef)
+        const phase = el.mul(el.phasor(opFreq), el.const({ value: 2 * Math.PI }))
+        // PM feedback via tapIn/tapOut (implicit block-size delay). The tap
+        // wraps the raw sine so level/EG stay out of the loop, as on the DX.
+        const fbTap = `${keyPrefix}:${m.id}:fb`
+        const sine = el.sin(el.add(phase, modSum, el.mul(fbRef, el.tapIn({ name: fbTap }))))
+        return el.mul(el.tapOut({ name: fbTap }, sine), levelRef)
+      }
+
       case 'noise': {
         const mode = kconst(key('mode'), p.mode ?? 0)
         const level = kconst(key('level'), p.level ?? 1)
