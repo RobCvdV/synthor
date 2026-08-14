@@ -43,6 +43,8 @@ export interface ModuleDef {
 
 /** Waveform selector values for the oscillator. */
 export const WAVEFORMS = ['saw', 'square', 'triangle', 'sine', 'pulse'] as const
+/** DX operator waveforms — sine first so old patches (no waveform param → 0) stay sine. */
+export const DX_WAVEFORMS = ['sine', 'saw', 'square', 'triangle', 'pulse'] as const
 /** LFO waveform selector — all shapes, ordered so old sine/triangle patches
  *  keep their index (0=sine, 1=triangle, then the rest). */
 export const LFO_WAVEFORMS = ['sine', 'triangle', 'saw', 'square', 'pulse'] as const
@@ -122,6 +124,8 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
       { key: 'freqMode', label: 'Freq mode', min: 0, max: 1, default: 0, step: 1, enumLabels: ['ratio', 'fixed'] },
       { key: 'ratio', label: 'Ratio', min: 0.5, max: 16, default: 1, step: 0.01 },
       { key: 'fixedHz', label: 'Fixed (Hz)', min: 1, max: 1000, default: 440, step: 1 },
+      { key: 'waveform', label: 'Wave', min: 0, max: 4, default: 0, step: 1, enumLabels: [...DX_WAVEFORMS] },
+      { key: 'pulseWidth', label: 'Width', min: 0.05, max: 0.95, default: 0.5, step: 0.01 },
       { key: 'feedback', label: 'Feedback', min: 0, max: 0.99, default: 0, step: 0.01 },
       { key: 'level', label: 'Level', min: 0, max: 2, default: 1, step: 0.01 },
     ],

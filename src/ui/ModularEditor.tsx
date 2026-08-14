@@ -244,6 +244,15 @@ function ModuleNode({ data }: NodeProps) {
           // (the one with showScale); skip them in the normal loop.
           if (p.key.endsWith('Scale')) return null
 
+          // Width only shapes the Pulse waveform — hide it for other shapes so
+          // the slider can't silently do nothing (square is hard-wired to 50%).
+          if (p.key === 'pulseWidth') {
+            const wfDef = def.params.find((d) => d.key === 'waveform')
+            const pulseIdx = wfDef?.enumLabels?.indexOf('pulse') ?? -1
+            const wf = module.params.waveform ?? wfDef?.default ?? 0
+            if (Math.round(wf) !== pulseIdx) return null
+          }
+
           const value = module.params[p.key] ?? p.default
           const over = paramOverrides?.get(p.key)
           const labels = over?.enumLabels ?? p.enumLabels

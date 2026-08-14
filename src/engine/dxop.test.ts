@@ -100,16 +100,16 @@ describe('dxop module', () => {
     expect(kinds).toContain('sin')
     expect(kinds).toContain('tapIn')
     expect(kinds).toContain('tapOut')
-    expect(taps.map((t) => `${t.kind}:${t.name}`).sort()).toEqual([
-      'tapIn:voice:op:fb',
-      'tapOut:voice:op:fb',
-    ])
+    // The shared pmPhase subtree is visited once per shape branch — compare sets.
+    expect(new Set(taps.map((t) => `${t.kind}:${t.name}`))).toEqual(
+      new Set(['tapIn:voice:op:fb', 'tapOut:voice:op:fb']),
+    )
   })
 
-  it('registers live refs for freqMode, ratio, fixedHz, feedback, level', () => {
+  it('registers live refs for all params', () => {
     const refs = mockParamRefs()
     compile(makeDxPatch({}), 440, refs)
-    for (const p of ['freqMode', 'ratio', 'fixedHz', 'feedback', 'level']) {
+    for (const p of ['freqMode', 'ratio', 'fixedHz', 'waveform', 'pulseWidth', 'feedback', 'level']) {
       expect(refs.keys.has(`i1:op:${p}`)).toBe(true)
     }
   })
@@ -138,6 +138,22 @@ describe('dxop module', () => {
     }
     expect(max).toBeGreaterThan(0.1)
     expect(max).toBeLessThan(2)
+  })
+
+  it('waveform param shapes the output: sine is DC-free, wide pulse shifts the mean', async () => {
+    const sineOut = await renderBlocks(compile(makeDxPatch({ waveform: 0 })))
+    let sineMean = 0
+    for (const x of sineOut) sineMean += x
+    sineMean /= sineOut.length
+    expect(Math.abs(sineMean)).toBeLessThan(0.02)
+
+    // Pulse width 0.7 → DC of 2·0.7 − 1 = 0.4, scaled by level 1 (and the
+    // renderer's 20 ms fade-in shaves some of the mean off).
+    const pulseOut = await renderBlocks(compile(makeDxPatch({ waveform: 4, pulseWidth: 0.7 })))
+    let pulseMean = 0
+    for (const x of pulseOut) pulseMean += x
+    pulseMean /= pulseOut.length
+    expect(pulseMean).toBeGreaterThan(0.1)
   })
 
   it('sums mod cords and keeps feedback taps per module', () => {

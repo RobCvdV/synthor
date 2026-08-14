@@ -249,10 +249,32 @@ export function compileModular(
         const opFreq = el.select(el.le(modeRef, el.const({ value: 0.5 })), el.mul(baseFreq, ratioRef), fixedRef)
         const phase = el.mul(el.phasor(opFreq), el.const({ value: 2 * Math.PI }))
         // PM feedback via tapIn/tapOut (implicit block-size delay). The tap
-        // wraps the raw sine so level/EG stay out of the loop, as on the DX.
+        // wraps the raw operator output so level/EG stay out of the loop, as
+        // on the DX. All shapes stay bounded, so the loop stays stable.
         const fbTap = `${keyPrefix}:${m.id}:fb`
-        const sine = el.sin(el.add(phase, modSum, el.mul(fbRef, el.tapIn({ name: fbTap }))))
-        return el.mul(el.tapOut({ name: fbTap }, sine), levelRef)
+        const pmPhase = el.add(phase, modSum, el.mul(fbRef, el.tapIn({ name: fbTap })))
+        // All 5 shapes run in the graph from the same PM'd phase; the waveform
+        // ref picks. Naive phase shapes (no blep) — PM jitters the phase so
+        // band-limited wavetable playback wouldn't stay alias-free anyway.
+        const wf = kconst(key('waveform'), p.waveform ?? 0)
+        const norm = el.div(pmPhase, el.const({ value: 2 * Math.PI }))
+        const one = el.const({ value: 1 })
+        const two = el.const({ value: 2 })
+        const sine = el.sin(pmPhase)
+        const saw = el.sub(el.mul(norm, two), one)
+        const square = el.sub(el.mul(el.le(norm, el.const({ value: 0.5 })), two), one)
+        const triangle = el.sub(one, el.mul(two, el.abs(el.sub(el.mul(norm, two), one))))
+        const width = kconst(key('pulseWidth'), p.pulseWidth ?? 0.5)
+        const pulse = el.sub(el.mul(el.le(norm, width), two), one)
+        const out = el.select(
+          el.le(wf, el.const({ value: 0.5 })), sine,
+          el.select(el.le(wf, el.const({ value: 1.5 })), saw,
+            el.select(el.le(wf, el.const({ value: 2.5 })), square,
+              el.select(el.le(wf, el.const({ value: 3.5 })), triangle, pulse),
+            ),
+          ),
+        )
+        return el.mul(el.tapOut({ name: fbTap }, out), levelRef)
       }
 
       case 'noise': {
