@@ -45,6 +45,7 @@ function resetStore() {
     view: 'tracker',
     trackerCursor: { row: 0, track: 0, col: 0, laneIndex: null },
     selectedInstrumentId: null,
+    selectedSampleId: null,
   })
 }
 
@@ -151,14 +152,15 @@ describe('appStore', () => {
 
   it('has exactly the expected top-level state keys', () => {
     // Verify the store shape matches what we document. The persist middleware
-    // partialize mirrors this — only these four keys ever hit localStorage.
+    // partialize mirrors this — only these five keys ever hit localStorage.
     const s = useAppStore.getState()
     const keys = Object.keys(s).filter((k) =>
-      ['playMode', 'view', 'trackerCursor', 'selectedInstrumentId'].includes(k),
+      ['playMode', 'view', 'trackerCursor', 'selectedInstrumentId', 'selectedSampleId'].includes(k),
     )
     expect(keys.sort()).toEqual([
       'playMode',
       'selectedInstrumentId',
+      'selectedSampleId',
       'trackerCursor',
       'view',
     ])
@@ -169,6 +171,7 @@ describe('appStore', () => {
     useAppStore.getState().setView('samples')
     useAppStore.getState().setTrackerCursor({ row: 8, track: 1, col: 0, laneIndex: null })
     useAppStore.getState().setSelectedInstrumentId('abc')
+    useAppStore.getState().setSelectedSampleId('smp-1')
 
     // Change one field — others stay intact.
     useAppStore.getState().setPlayMode('section')
@@ -177,6 +180,7 @@ describe('appStore', () => {
     expect(s.view).toBe('samples')
     expect(s.trackerCursor.row).toBe(8)
     expect(s.selectedInstrumentId).toBe('abc')
+    expect(s.selectedSampleId).toBe('smp-1')
   })
 })
 

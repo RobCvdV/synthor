@@ -24,3 +24,14 @@ const CODE_TO_SEMITONE: Record<string, number> = {
 export function codeToSemitone(code: string): number | undefined {
   return CODE_TO_SEMITONE[code]
 }
+
+/** True when a keystroke should go to a focused form field, not note playback.
+ *  Range sliders are excluded — they can't receive text, and we want note
+ *  keys to preview while tweaking sliders. */
+export function isEditableTarget(target: EventTarget | null): boolean {
+  const el = target as HTMLInputElement | null
+  if (!el) return false
+  const tag = el.tagName
+  if (tag === 'INPUT') return el.type !== 'range'
+  return tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable
+}

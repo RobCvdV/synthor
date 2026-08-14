@@ -52,12 +52,15 @@ interface AppState {
   view: View
   trackerCursor: TrackerCursor
   selectedInstrumentId: Id | null
+  /** Selected row in the sample library — target of keyboard preview. */
+  selectedSampleId: Id | null
 
   setPlayMode: (mode: PlayMode) => void
   cyclePlayMode: () => void
   setView: (view: View) => void
   setTrackerCursor: (cursor: TrackerCursor) => void
   setSelectedInstrumentId: (id: Id | null) => void
+  setSelectedSampleId: (id: Id | null) => void
 }
 
 export const useAppStore = create<AppState>()(
@@ -67,6 +70,7 @@ export const useAppStore = create<AppState>()(
       view: 'tracker' as View,
       trackerCursor: { row: 0, track: 0, col: 0, laneIndex: null },
       selectedInstrumentId: null,
+      selectedSampleId: null,
 
       setPlayMode: (playMode) => set({ playMode }),
       cyclePlayMode: () => set((s) => {
@@ -76,6 +80,7 @@ export const useAppStore = create<AppState>()(
       setView: (view) => set({ view }),
       setTrackerCursor: (trackerCursor) => set({ trackerCursor }),
       setSelectedInstrumentId: (selectedInstrumentId) => set({ selectedInstrumentId }),
+      setSelectedSampleId: (selectedSampleId) => set({ selectedSampleId }),
     }),
     {
       name: 'synthor-app-state',
@@ -85,6 +90,7 @@ export const useAppStore = create<AppState>()(
         view: state.view,
         trackerCursor: state.trackerCursor,
         selectedInstrumentId: state.selectedInstrumentId,
+        selectedSampleId: state.selectedSampleId,
       }),
     },
   ),

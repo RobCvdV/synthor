@@ -7,6 +7,15 @@ export function midiToFreq(midi: number): number {
   return 440 * Math.pow(2, (midi - 69) / 12)
 }
 
+/**
+ * Playback rate that pitches a sample to `midi`. MIDI 60 (C-4) = 1, i.e. the
+ * sample's natural rate — the same base-note convention as the engine's
+ * `sample` module.
+ */
+export function samplePlaybackRate(midi: number): number {
+  return midiToFreq(midi) / midiToFreq(60)
+}
+
 /** Human-readable note name, e.g. 60 -> "C-4". */
 export function midiToName(midi: number): string {
   const name = NOTE_NAMES[((midi % 12) + 12) % 12]

@@ -66,6 +66,12 @@ export class AudioHost {
    *  audio graph already spans the full arrangement. */
   skipNextRecompile = false
 
+  /** Decoded AudioBuffers for sample preview, keyed by content hash. */
+  private samplePreviewBuffers = new Map<string, AudioBuffer>()
+
+  /** Active preview sources, so a panic/unmount can cut them short. */
+  private previewSources = new Set<AudioBufferSourceNode>()
+
   /** Fixed voice pools per instrument (lazily created). */
   readonly voicePools = new Map<string, VoicePool>()
 
@@ -92,6 +98,46 @@ export class AudioHost {
     for (const pool of this.voicePools.values()) pool.panic()
     this.paramRefs.panic()
     for (const sch of this.schedulerNodes) sch.panic()
+  }
+
+  /**
+   * One-shot sample preview straight through Web Audio — no Elementary graph.
+   * Decodes on first use and caches the AudioBuffer per hash. `playbackRate`
+   * 1 = natural rate; pitch with samplePlaybackRate(note).
+   */
+  async playSamplePreview(hash: string, bytes: ArrayBuffer, playbackRate = 1): Promise<void> {
+    await this.start()
+    if (!this.ctx) return
+    let buffer = this.samplePreviewBuffers.get(hash)
+    if (!buffer) {
+      try {
+        buffer = await this.ctx.decodeAudioData(bytes.slice(0))
+      } catch (err) {
+        console.error('[host] sample preview decode failed:', err)
+        return
+      }
+      this.samplePreviewBuffers.set(hash, buffer)
+    }
+    const src = this.ctx.createBufferSource()
+    src.buffer = buffer
+    src.playbackRate.value = playbackRate
+    src.connect(this.ctx.destination)
+    src.onended = () => {
+      this.previewSources.delete(src)
+      src.disconnect()
+    }
+    this.previewSources.add(src)
+    src.start()
+  }
+
+  /** Cut all in-flight sample previews. */
+  stopSamplePreviews(): void {
+    for (const src of this.previewSources) {
+      src.onended = null
+      try { src.stop() } catch { /* already stopped */ }
+      src.disconnect()
+    }
+    this.previewSources.clear()
   }
 
   /** Precise AudioContext time captured at the moment the graph was rendered

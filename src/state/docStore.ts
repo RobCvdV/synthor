@@ -149,7 +149,7 @@ interface DocState {
   // --- Sample management ---
   addSampleEntity: (entity: SampleEntity) => void
   removeSampleEntity: (id: Id) => void
-  replaceSampleAsset: (id: Id, hash: string, sampleRate: number, channels: number, frames: number) => void
+  replaceSampleAsset: (id: Id, hash: string, originalName: string, sampleRate: number, channels: number, frames: number) => void
   renameSample: (id: Id, name: string) => void
 
   // --- Drum kit operations ---
@@ -760,11 +760,12 @@ export const useDocStore = create<DocState>((set, get) => ({
       sample.name = name.trim()
     }),
 
-  replaceSampleAsset: (id, hash, sampleRate, channels, frames) =>
+  replaceSampleAsset: (id, hash, originalName, sampleRate, channels, frames) =>
     get().mutate((draft) => {
       const sample = draft.entities.samples[id]
       if (!sample) return
       sample.hash = hash
+      sample.originalName = originalName
       sample.sampleRate = sampleRate
       sample.channels = channels
       sample.frames = frames

@@ -1,16 +1,26 @@
-import { useCallback, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useDocStore } from '../state/docStore'
 import { useProjectStore } from '../state/projectStore'
+import { useAppStore } from '../state/appStore'
 import { loadAudioFile } from '../audio/sampleLoader'
-import { writeSampleAsset, deleteSampleAsset } from '../persist/sampleStorage'
+import { readSampleAsset, writeSampleAsset, deleteSampleAsset } from '../persist/sampleStorage'
 import { newSampleEntity } from '../domain/factory'
+import { samplePlaybackRate } from '../domain/notes'
+import { codeToSemitone, isEditableTarget } from './keymap'
 import type { AudioHost } from '../audio/host'
+import type { SampleEntity } from '../domain/types'
 
 interface Props {
   host: AudioHost
 }
 
-/** Full-screen sample library — browse, rename, import, delete, and relink missing samples. */
+/**
+ * Full-screen sample library — browse, rename, import, delete, and relink
+ * missing samples. Rows have a one-shot play button (natural rate); note
+ * keys play the selected row pitched to the keyboard, with C-4 = natural
+ * rate (same convention as the sample module). Preview goes straight
+ * through Web Audio — no Elementary graph involved.
+ */
 export function SampleLibraryView({ host }: Props) {
   const sampleMap = useDocStore((s) => s.doc.entities.samples)
   const samples = Object.values(sampleMap)
@@ -20,8 +30,14 @@ export function SampleLibraryView({ host }: Props) {
   const renameSample = useDocStore((s) => s.renameSample)
   const vfsLoadedHashes = useDocStore((s) => s.vfsLoadedHashes)
   const slug = useProjectStore((s) => s.slug)
+  const selectedSampleId = useAppStore((s) => s.selectedSampleId)
+  const setSelectedSampleId = useAppStore((s) => s.setSelectedSampleId)
   const fileRef = useRef<HTMLInputElement>(null)
   const relinkRef = useRef<{ id: string; oldHash: string } | null>(null)
+
+  const [octave, setOctave] = useState(5)
+  const octaveRef = useRef(octave)
+  octaveRef.current = octave
 
   const doImport = useCallback(async () => {
     const files = fileRef.current?.files
@@ -73,6 +89,7 @@ export function SampleLibraryView({ host }: Props) {
       replaceSampleAsset(
         relinkInfo.id,
         loaded.hash,
+        file.name,
         loaded.sampleRate,
         loaded.channels,
         loaded.frames,
@@ -103,6 +120,58 @@ export function SampleLibraryView({ host }: Props) {
     if (fileRef.current) fileRef.current.value = ''
   }, [slug, host, replaceSampleAsset])
 
+  /** One-shot preview via plain Web Audio (host.ctx → destination). */
+  const playSample = useCallback(
+    async (sample: SampleEntity, rate = 1) => {
+      const raw = await readSampleAsset(slug, sample.hash).catch(() => null)
+      if (!raw) return
+      void host.playSamplePreview(sample.hash, raw, rate)
+    },
+    [slug, host],
+  )
+
+  // Keep the keyboard target valid as samples come and go.
+  useEffect(() => {
+    const map = useDocStore.getState().doc.entities.samples
+    if (selectedSampleId && map[selectedSampleId]) return
+    setSelectedSampleId(Object.keys(map)[0] ?? null)
+  }, [sampleMap, selectedSampleId, setSelectedSampleId])
+
+  // Note keys play the selected row; one-shot, no key-up handling.
+  const onKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      if (isEditableTarget(e.target) || e.metaKey || e.ctrlKey || e.altKey) return
+
+      if (e.code === 'Escape') {
+        e.preventDefault()
+        host.stopSamplePreviews()
+        return
+      }
+      if (e.code === 'Minus') { e.preventDefault(); setOctave((o) => Math.max(0, o - 1)); return }
+      if (e.code === 'Equal') { e.preventDefault(); setOctave((o) => Math.min(9, o + 1)); return }
+
+      if (e.repeat) return // one attack per physical press
+      const semi = codeToSemitone(e.code)
+      if (semi === undefined) return
+      const sample = selectedSampleId
+        ? useDocStore.getState().doc.entities.samples[selectedSampleId]
+        : undefined
+      if (!sample) return
+      e.preventDefault()
+      const note = octaveRef.current * 12 + semi
+      void playSample(sample, samplePlaybackRate(note))
+    },
+    [host, selectedSampleId, playSample],
+  )
+
+  useEffect(() => {
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [onKeyDown])
+
+  // Cut any ringing preview when leaving the view.
+  useEffect(() => () => host.stopSamplePreviews(), [host])
+
   /** Is a sample missing from VFS? */
   const isMissing = useCallback(
     (hash: string) => vfsLoadedHashes !== null && !vfsLoadedHashes.has(hash),
@@ -127,6 +196,13 @@ export function SampleLibraryView({ host }: Props) {
       <div className="slv-toolbar">
         <button onClick={() => fileRef.current?.click()}>Import Samples</button>
         <span className="muted">{samples.length} sample{samples.length === 1 ? '' : 's'}</span>
+        <span className="spacer" />
+        <span className="muted">Play keys to preview (C-4 = original pitch)</span>
+        <span className="preview-oct">
+          <button onClick={() => setOctave((o) => Math.max(0, o - 1))}>oct −</button>
+          <span className="preview-oct-val">oct {octave}</span>
+          <button onClick={() => setOctave((o) => Math.min(9, o + 1))}>oct +</button>
+        </span>
         <input
           ref={fileRef}
           type="file"
@@ -154,6 +230,7 @@ export function SampleLibraryView({ host }: Props) {
               <tr>
                 <th>Name</th>
                 <th>Original</th>
+                <th>Ch</th>
                 <th>Info</th>
                 <th>Size</th>
                 <th></th>
@@ -162,8 +239,13 @@ export function SampleLibraryView({ host }: Props) {
             <tbody>
               {samples.map((s) => {
                 const missing = isMissing(s.hash)
+                const selected = s.id === selectedSampleId
                 return (
-                  <tr key={s.id} className={missing ? 'slv-missing' : ''}>
+                  <tr
+                    key={s.id}
+                    className={(missing ? 'slv-missing' : '') + (selected ? ' slv-selected' : '')}
+                    onClick={() => setSelectedSampleId(s.id)}
+                  >
                     <td>
                       <input
                         className="slv-name-input"
@@ -185,15 +267,35 @@ export function SampleLibraryView({ host }: Props) {
                       </span>
                       {missing && <span className="missing-badge">missing</span>}
                     </td>
+                    <td>
+                      <span className={'slv-ch-badge' + (s.channels === 2 ? ' stereo' : '')}>
+                        {s.channels === 2 ? 'stereo' : 'mono'}
+                      </span>
+                    </td>
                     <td className="muted">
-                      {s.sampleRate.toLocaleString()} Hz · {s.channels === 2 ? 'stereo' : 'mono'} · {formatDuration(s.sampleRate, s.frames)}
+                      {s.sampleRate.toLocaleString()} Hz · {formatDuration(s.sampleRate, s.frames)}
                     </td>
                     <td className="muted">{formatSize(s.frames, s.channels)}</td>
-                    <td>
+                    <td className="slv-actions">
+                      <button
+                        className="slv-play"
+                        title={missing ? 'Sample binary missing — cannot play' : 'Play sample'}
+                        disabled={missing}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setSelectedSampleId(s.id)
+                          void playSample(s)
+                        }}
+                      >
+                        ▶
+                      </button>
                       <button
                         className="slv-delete"
                         title="Delete sample"
-                        onClick={() => doDelete(s.id, s.hash)}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          void doDelete(s.id, s.hash)
+                        }}
                       >
                         ×
                       </button>

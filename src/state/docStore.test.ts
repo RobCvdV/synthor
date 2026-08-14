@@ -1202,3 +1202,43 @@ describe('docStore — eff inlet naming', () => {
     expect(getModular(instId).modules[eff1.id].name).toBe('Filter Cutoff')
   })
 })
+
+describe('docStore — sample assets', () => {
+  beforeEach(() => resetStore())
+
+  const addSample = () => {
+    const id = makeId('smp')
+    useDocStore.getState().addSampleEntity({
+      id,
+      name: 'Kick',
+      hash: 'hash-old',
+      originalName: 'kick.wav',
+      sampleRate: 44100,
+      channels: 1,
+      frames: 44100,
+    })
+    return id
+  }
+
+  it('replaceSampleAsset updates metadata including the new original filename', () => {
+    const id = addSample()
+    useDocStore.getState().replaceSampleAsset(id, 'hash-new', 'snare.wav', 48000, 2, 96000)
+
+    const sample = useDocStore.getState().doc.entities.samples[id]
+    expect(sample.hash).toBe('hash-new')
+    expect(sample.originalName).toBe('snare.wav')
+    expect(sample.sampleRate).toBe(48000)
+    expect(sample.channels).toBe(2)
+    expect(sample.frames).toBe(96000)
+  })
+
+  it('replaceSampleAsset is undoable', () => {
+    const id = addSample()
+    useDocStore.getState().replaceSampleAsset(id, 'hash-new', 'snare.wav', 48000, 2, 96000)
+
+    useDocStore.getState().undo()
+    const sample = useDocStore.getState().doc.entities.samples[id]
+    expect(sample.hash).toBe('hash-old')
+    expect(sample.originalName).toBe('kick.wav')
+  })
+})

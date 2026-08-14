@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useDocStore } from '../state/docStore'
 import { usePreviewStore } from '../state/previewStore'
 import { useAppStore } from '../state/appStore'
-import { codeToSemitone } from './keymap'
+import { codeToSemitone, isEditableTarget } from './keymap'
 import { LIVE_VOICE_COUNT } from '../engine/voicePool'
 import { ModularEditor } from './ModularEditor'
 import { DrumKitEditor } from './DrumKitEditor'
@@ -10,17 +10,6 @@ import { InstrumentSettings } from './InstrumentSettings'
 import { cloneInstrument } from '../domain/factory'
 import type { AudioHost } from '../audio/host'
 import type { Id, Instrument } from '../domain/types'
-
-/** True when a keystroke should go to a focused form field, not the preview.
- *  Range sliders are excluded — they can't receive text, and we want note
- *  keys to preview the instrument while tweaking sliders. */
-function isEditableTarget(target: EventTarget | null): boolean {
-  const el = target as HTMLInputElement | null
-  if (!el) return false
-  const tag = el.tagName
-  if (tag === 'INPUT') return el.type !== 'range'
-  return tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable
-}
 
 /** Full-screen instruments view: a list rail on the left, the selected
  *  instrument's editor on the right (node graph for synths, key map for drum
