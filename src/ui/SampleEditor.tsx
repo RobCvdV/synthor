@@ -55,6 +55,8 @@ interface Props {
   slug: string
   sampleId: Id
   onClose: () => void
+  /** Switch the editor to another sample (used by Save As). */
+  onSwitchSample: (id: Id) => void
 }
 
 /**
@@ -64,7 +66,7 @@ interface Props {
  * re-encodes to a WAV, writes it to OPFS under a new content hash, and points
  * the entity at it via replaceSampleAsset — undo just reverts the pointer.
  */
-export function SampleEditor({ host, slug, sampleId, onClose }: Props) {
+export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: Props) {
   const entity = useDocStore((s) => s.doc.entities.samples[sampleId])
 
   const [pcm, setPcm] = useState<PcmData | null>(null)
@@ -75,6 +77,7 @@ export function SampleEditor({ host, slug, sampleId, onClose }: Props) {
   const [cursor, setCursor] = useState<number | null>(null)
   const [sel, setSel] = useState<Sel | null>(null)
   const [dialog, setDialog] = useState<'volume' | 'fadeIn' | 'fadeOut' | null>(null)
+  const [saveAsOpen, setSaveAsOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [wrapW, setWrapW] = useState(0)
@@ -600,6 +603,44 @@ export function SampleEditor({ host, slug, sampleId, onClose }: Props) {
     [commit],
   )
 
+  // ── Export / Save As ─────────────────────────────────────────────────────
+  const doExport = useCallback(async () => {
+    const ent = entityRef.current
+    if (!ent) return
+    const raw = await readSampleAsset(slug, ent.hash).catch(() => null)
+    if (!raw) return
+    // Unedited samples export as the original bytes/format; edits are stored
+    // as WAV, so use a .wav name when the stored file is ours (RIFF magic).
+    const bytes = new Uint8Array(raw)
+    const isWav =
+      bytes.length >= 4 &&
+      String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]) === 'RIFF'
+    downloadBytes(raw, isWav ? `${ent.name}.wav` : ent.originalName)
+  }, [slug])
+
+  const doSaveAs = useCallback(
+    async (name: string) => {
+      const m = metaRef.current
+      const data = pcmRef.current
+      if (!m || !data) return
+      setBusy(true)
+      try {
+        const bytes = encodeWav(data, m.sampleRate)
+        const hash = await computeHash(bytes)
+        await writeSampleData(slug, hash, bytes)
+        const sample = newSampleEntity(name, hash, `${name}.wav`, m.sampleRate, data.length, framesOf(data))
+        useDocStore.getState().addSampleEntity(sample)
+        useAppStore.getState().setSelectedSampleId(sample.id)
+        onSwitchSample(sample.id)
+      } catch (err) {
+        setLoadError('Save as failed — ' + String(err))
+      } finally {
+        setBusy(false)
+      }
+    },
+    [slug, onSwitchSample],
+  )
+
   // ── Keyboard: capture phase so Space/Cmd+C/V/X beat App's global handlers
   //    regardless of listener registration order (this component mounts later).
   useEffect(() => {
@@ -679,6 +720,23 @@ export function SampleEditor({ host, slug, sampleId, onClose }: Props) {
           Fade Out…
         </button>
         <span className="spacer" />
+        <button
+          className="octbtn"
+          disabled={missing || busy}
+          onClick={() => setSaveAsOpen(true)}
+          title="Save the edited sample as a new sample in the list"
+        >
+          Save As…
+        </button>
+        <button
+          className="octbtn"
+          disabled={missing || busy}
+          onClick={() => void doExport()}
+          title="Export sample to file"
+        >
+          Export
+        </button>
+        <span className="spacer" />
         <button className="octbtn" onClick={() => setPxPerFrame((p) => Math.max(MIN_PX, p / 2))} title="Zoom out">
           zoom −
         </button>
@@ -750,11 +808,96 @@ export function SampleEditor({ host, slug, sampleId, onClose }: Props) {
           onApplyFade={applyFade}
         />
       )}
+
+      {saveAsOpen && entity && (
+        <SaveAsDialog
+          defaultName={`${entity.name} copy`}
+          busy={busy}
+          onClose={() => setSaveAsOpen(false)}
+          onSave={(name) => void doSaveAs(name)}
+        />
+      )}
     </div>
   )
 }
 
 // ── Dialogs ────────────────────────────────────────────────────────────────
+
+function downloadBytes(bytes: ArrayBuffer, filename: string) {
+  const blob = new Blob([bytes], { type: 'application/octet-stream' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+function SaveAsDialog({
+  defaultName,
+  busy,
+  onClose,
+  onSave,
+}: {
+  defaultName: string
+  busy: boolean
+  onClose: () => void
+  onSave: (name: string) => void
+}) {
+  const [name, setName] = useState(defaultName)
+  const [err, setErr] = useState<string | null>(null)
+
+  useEffect(() => {
+    sampleDialogOpenRef.current = true
+    return () => {
+      sampleDialogOpenRef.current = false
+    }
+  }, [])
+
+  const save = () => {
+    const n = name.trim()
+    if (!n) {
+      setErr('Name is required')
+      return
+    }
+    onSave(n)
+  }
+
+  return (
+    <div className="dialog-overlay" onClick={onClose}>
+      <div className="dialog-box" onClick={(e) => e.stopPropagation()}>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            save()
+          }}
+        >
+          <div className="dialog-row">
+            <label>Name</label>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onFocus={(e) => e.target.select()}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') onClose()
+              }}
+              autoFocus
+            />
+          </div>
+          {err && <p className="dialog-err">{err}</p>}
+          <div className="dialog-actions">
+            <button type="submit" className="octbtn" disabled={busy}>
+              {busy ? 'Saving…' : 'Save'}
+            </button>
+            <button type="button" className="octbtn" onClick={onClose}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
 
 function EditDialog({
   kind,

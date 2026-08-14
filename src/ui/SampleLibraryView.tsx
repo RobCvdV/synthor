@@ -333,6 +333,7 @@ export function SampleLibraryView({ host }: Props) {
           slug={slug}
           sampleId={editingId}
           onClose={() => setEditingId(null)}
+          onSwitchSample={(id) => setEditingId(id)}
         />
       )}
 
