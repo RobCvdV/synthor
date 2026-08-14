@@ -7,6 +7,7 @@ import { readSampleAsset, writeSampleAsset, deleteSampleAsset } from '../persist
 import { newSampleEntity } from '../domain/factory'
 import { samplePlaybackRate } from '../domain/notes'
 import { codeToSemitone, isEditableTarget } from './keymap'
+import { CreateSampleDialog, SampleEditor, sampleDialogOpenRef } from './SampleEditor'
 import type { AudioHost } from '../audio/host'
 import type { SampleEntity } from '../domain/types'
 
@@ -38,6 +39,10 @@ export function SampleLibraryView({ host }: Props) {
   const [octave, setOctave] = useState(5)
   const octaveRef = useRef(octave)
   octaveRef.current = octave
+
+  /** Sample loaded in the editor below the list (null = editor closed). */
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [createDialog, setCreateDialog] = useState(false)
 
   const doImport = useCallback(async () => {
     const files = fileRef.current?.files
@@ -147,6 +152,7 @@ export function SampleLibraryView({ host }: Props) {
         host.stopSamplePreviews()
         return
       }
+      if (sampleDialogOpenRef.current) return
       if (e.code === 'Minus') { e.preventDefault(); setOctave((o) => Math.max(0, o - 1)); return }
       if (e.code === 'Equal') { e.preventDefault(); setOctave((o) => Math.min(9, o + 1)); return }
 
@@ -192,9 +198,10 @@ export function SampleLibraryView({ host }: Props) {
   }
 
   return (
-    <div className="sample-library-view">
+    <div className={'sample-library-view' + (editingId ? ' has-editor' : '')}>
       <div className="slv-toolbar">
         <button onClick={() => fileRef.current?.click()}>Import Samples</button>
+        <button onClick={() => setCreateDialog(true)}>Create Sample…</button>
         <span className="muted">{samples.length} sample{samples.length === 1 ? '' : 's'}</span>
         <span className="spacer" />
         <span className="muted">Play keys to preview (C-4 = original pitch)</span>
@@ -278,6 +285,17 @@ export function SampleLibraryView({ host }: Props) {
                     <td className="muted">{formatSize(s.frames, s.channels)}</td>
                     <td className="slv-actions">
                       <button
+                        className="slv-edit"
+                        title="Edit sample"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setSelectedSampleId(s.id)
+                          setEditingId(s.id)
+                        }}
+                      >
+                        Edit
+                      </button>
+                      <button
                         className="slv-play"
                         title={missing ? 'Sample binary missing — cannot play' : 'Play sample'}
                         disabled={missing}
@@ -306,6 +324,23 @@ export function SampleLibraryView({ host }: Props) {
             </tbody>
           </table>
         </div>
+      )}
+
+      {editingId && (
+        <SampleEditor
+          key={editingId}
+          host={host}
+          slug={slug}
+          sampleId={editingId}
+          onClose={() => setEditingId(null)}
+        />
+      )}
+
+      {createDialog && (
+        <CreateSampleDialog
+          onClose={() => setCreateDialog(false)}
+          onCreated={(id) => setEditingId(id)}
+        />
       )}
     </div>
   )

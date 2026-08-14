@@ -140,6 +140,36 @@ export class AudioHost {
     this.previewSources.clear()
   }
 
+  /**
+   * Play raw in-memory PCM via plain Web Audio — no Elementary, no VFS, no
+   * decode (the editor already holds decoded channels). Builds an AudioBuffer
+   * in the host context; tracked in previewSources so stopSamplePreviews() cuts
+   * it. `offsetSeconds` starts playback mid-buffer (clamped to its duration).
+   */
+  async playPcmPreview(
+    data: Float32Array<ArrayBuffer> | Float32Array<ArrayBuffer>[],
+    sampleRate: number,
+    offsetSeconds = 0,
+  ): Promise<void> {
+    await this.start()
+    if (!this.ctx) return
+    const chs = Array.isArray(data) ? data : [data]
+    const frames = chs[0]?.length ?? 0
+    if (frames === 0) return
+    const buffer = this.ctx.createBuffer(chs.length, frames, sampleRate)
+    chs.forEach((ch, i) => buffer.copyToChannel(ch, i))
+
+    const src = this.ctx.createBufferSource()
+    src.buffer = buffer
+    src.connect(this.ctx.destination)
+    src.onended = () => {
+      this.previewSources.delete(src)
+      src.disconnect()
+    }
+    this.previewSources.add(src)
+    src.start(0, Math.max(0, Math.min(offsetSeconds, buffer.duration)))
+  }
+
   /** Precise AudioContext time captured at the moment the graph was rendered
    *  for the current playback session. Set by useEngine. */
   playStartTime = 0
