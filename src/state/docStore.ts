@@ -132,7 +132,7 @@ interface DocState {
    *  a graph recompile. Use on slider mouseUp after the fast path already
    *  updated the ref. */
   setModuleParamSilent: (instrumentId: Id, moduleId: Id, key: string, value: number) => void
-  addConnection: (instrumentId: Id, from: Port, to: Port) => void
+  addConnection: (instrumentId: Id, from: Port, to: Port, stack?: boolean) => void
   removeConnection: (instrumentId: Id, connectionId: Id) => void
   setConnectionGain: (instrumentId: Id, connectionId: Id, gain: number) => void
   /** Ensure a modular instrument has its singleton source modules (effect1/2 etc.).
@@ -639,7 +639,7 @@ export const useDocStore = create<DocState>((set, get) => ({
     updateParamRef(`${instrumentId}:${moduleId}:${key}`, value)
   },
 
-  addConnection: (instrumentId, from, to) =>
+  addConnection: (instrumentId, from, to, stack = false) =>
     get().mutate((draft) => {
       const inst = draft.entities.instruments[instrumentId]
       if (inst?.kind !== 'modular') return
@@ -647,9 +647,18 @@ export const useDocStore = create<DocState>((set, get) => ({
       // Reject cycles first — before mutating anything — so a rejected cord
       // doesn't drop the inlet's existing feeder.
       if (wouldCycle(inst.connections, from.moduleId, to.moduleId)) return
-      // One cord per inlet: replace any existing feeder into this exact inlet.
+      // Exact duplicate adds nothing (same source into the same inlet twice).
       for (const c of Object.values(inst.connections)) {
-        if (c.to.moduleId === to.moduleId && c.to.port === to.port) delete inst.connections[c.id]
+        if (
+          c.from.moduleId === from.moduleId && c.from.port === from.port &&
+          c.to.moduleId === to.moduleId && c.to.port === to.port
+        ) return
+      }
+      if (!stack) {
+        // One cord per inlet: replace any existing feeder into this exact inlet.
+        for (const c of Object.values(inst.connections)) {
+          if (c.to.moduleId === to.moduleId && c.to.port === to.port) delete inst.connections[c.id]
+        }
       }
       const id = makeId('con')
       inst.connections[id] = { id, from, to, gain: 1 }

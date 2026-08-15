@@ -1203,6 +1203,78 @@ describe('docStore — eff inlet naming', () => {
   })
 })
 
+describe('docStore — stacked connections (fan-in)', () => {
+  let instId: string
+
+  beforeEach(() => {
+    instId = setupModular()
+  })
+
+  const mod = (type: string) => Object.values(getModular(instId).modules).find((m) => m.type === type)!
+  const cordsInto = (moduleId: string, port: string) =>
+    Object.values(getModular(instId).connections).filter((c) => c.to.moduleId === moduleId && c.to.port === port)
+
+  it('stack:true adds a second cord into the same inlet', () => {
+    const store = useDocStore.getState()
+    const target = mod('gain') // default patch already feeds it via filter.out
+    const osc = mod('osc')
+    const volume = mod('volume')
+    const before = cordsInto(target.id, 'in').length
+
+    store.addConnection(instId, { moduleId: osc.id, port: 'out' }, { moduleId: target.id, port: 'in' }, true)
+    store.addConnection(instId, { moduleId: volume.id, port: 'vol' }, { moduleId: target.id, port: 'in' }, true)
+
+    expect(cordsInto(target.id, 'in').length).toBe(before + 2)
+  })
+
+  it('default (stack:false) replaces existing feeders into the inlet', () => {
+    const store = useDocStore.getState()
+    const target = mod('gain')
+    const osc = mod('osc')
+    const volume = mod('volume')
+    const adsr = mod('adsr')
+    store.addConnection(instId, { moduleId: osc.id, port: 'out' }, { moduleId: target.id, port: 'in' }, true)
+    store.addConnection(instId, { moduleId: volume.id, port: 'vol' }, { moduleId: target.id, port: 'in' }, true)
+
+    store.addConnection(instId, { moduleId: adsr.id, port: 'env' }, { moduleId: target.id, port: 'in' })
+
+    const cords = cordsInto(target.id, 'in')
+    expect(cords).toHaveLength(1)
+    expect(cords[0].from.moduleId).toBe(adsr.id)
+  })
+
+  it('rejects an exact duplicate cord', () => {
+    const store = useDocStore.getState()
+    const target = mod('gain')
+    const osc = mod('osc')
+    store.addConnection(instId, { moduleId: osc.id, port: 'out' }, { moduleId: target.id, port: 'in' }, true)
+    const before = cordsInto(target.id, 'in').length
+
+    store.addConnection(instId, { moduleId: osc.id, port: 'out' }, { moduleId: target.id, port: 'in' }, true)
+
+    expect(cordsInto(target.id, 'in').length).toBe(before)
+  })
+
+  it('still rejects cycles when stacking', () => {
+    const store = useDocStore.getState()
+    const target = mod('gain')
+    store.addConnection(instId, { moduleId: target.id, port: 'out' }, { moduleId: target.id, port: 'in' }, true)
+    expect(cordsInto(target.id, 'in').filter((c) => c.from.moduleId === target.id)).toHaveLength(0)
+  })
+
+  it('stacked fan-in is undoable', () => {
+    const store = useDocStore.getState()
+    const target = mod('gain')
+    const osc = mod('osc')
+    store.addConnection(instId, { moduleId: osc.id, port: 'out' }, { moduleId: target.id, port: 'in' }, true)
+    const before = cordsInto(target.id, 'in').length
+
+    store.undo()
+
+    expect(cordsInto(target.id, 'in').length).toBe(before - 1)
+  })
+})
+
 describe('docStore — sample assets', () => {
   beforeEach(() => resetStore())
 
