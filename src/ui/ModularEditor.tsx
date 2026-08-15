@@ -446,15 +446,16 @@ function Editor({ inst, host }: { inst: ModularInstrument; host?: AudioHost }) {
   useEffect(() => {
     // Preserve selection state across node rebuilds — otherwise React Flow
     // clears the selection after any store change (drag stop, paste, delete).
+    // A pending paste replaces the selection entirely, so the freshly pasted
+    // nodes can be dragged to a new position right away.
     const prevSelected = new Set(getNodes().filter((n) => n.selected).map((n) => n.id))
-    // Also auto-select nodes that were just pasted/cut (tracked via pendingSelectionRef).
     const pending = pendingSelectionRef.current
     pendingSelectionRef.current = []
-    for (const id of pending) prevSelected.add(id)
+    const selection = pending.length > 0 ? new Set(pending) : prevSelected
     setNodes(
       buildNodes(inst, host).map((n) => ({
         ...n,
-        selected: prevSelected.has(n.id) || undefined,
+        selected: selection.has(n.id) || undefined,
       })),
     )
   }, [structuralKey, inst.id, host, setNodes, getNodes])
