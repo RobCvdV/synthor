@@ -75,23 +75,6 @@ function ModuleNode({ data }: NodeProps) {
   const ccLearningRef = useRef(false)
   ccLearningRef.current = ccLearning
 
-  // Inlets with ≥ 2 incoming cords get a "+" badge (stacked input).
-  // Stable joined string keeps re-renders to fan-in changes only.
-  const stackedPorts = useDocStore((s) => {
-    const inst = s.doc.entities.instruments[instrumentId]
-    if (inst?.kind !== 'modular') return ''
-    const counts = new Map<string, number>()
-    for (const c of Object.values(inst.connections)) {
-      if (c.to.moduleId === moduleId) counts.set(c.to.port, (counts.get(c.to.port) ?? 0) + 1)
-    }
-    return [...counts.entries()]
-      .filter(([, n]) => n >= 2)
-      .map(([p]) => p)
-      .sort()
-      .join(',')
-  })
-  const isStacked = (port: string) => stackedPorts !== '' && stackedPorts.split(',').includes(port)
-
   // Auto-learn: when a CC value changes while in learn mode, set the CC
   // param and exit learn mode.
   useEffect(() => {
@@ -248,11 +231,10 @@ function ModuleNode({ data }: NodeProps) {
           className="mod-port in"
           key={`in-${port}`}
           style={{ top: handleTop(i) }}
-          title={isStacked(port) ? `${port} — stacked input (multiple cords, each with its own gain)` : `${port} — hold ⌘/Ctrl while connecting to add a second cord`}
+          title={`${port} — hold ⌘/Ctrl while connecting to add a second cord`}
         >
           <Handle type="target" position={Position.Left} id={port} />
           <span className="mod-port-label">{port}</span>
-          {isStacked(port) && <span className="mod-port-plus" title="Stacked input — each cord adds its own gain">+</span>}
         </div>
       ))}
       {def.outlets.map((port, i) => (
@@ -654,13 +636,18 @@ function Editor({ inst, host }: { inst: ModularInstrument; host?: AudioHost }) {
   )
   // Track the stack modifier (⌘ on Mac / Ctrl elsewhere) while connecting —
   // React Flow's onConnect doesn't carry the event, so read it from a ref.
+  // modHeld mirrors it as state so the UI can react (the + indicator) mid-drag.
+  const [modHeld, setModHeld] = useState(false)
   const stackModRef = useRef(false)
   useEffect(() => {
     const update = (e: KeyboardEvent) => {
-      stackModRef.current = e.metaKey || e.ctrlKey
+      const held = e.metaKey || e.ctrlKey
+      stackModRef.current = held
+      setModHeld(held)
     }
     const reset = () => {
       stackModRef.current = false
+      setModHeld(false)
     }
     window.addEventListener('keydown', update)
     window.addEventListener('keyup', update)
@@ -671,6 +658,9 @@ function Editor({ inst, host }: { inst: ModularInstrument; host?: AudioHost }) {
       window.removeEventListener('blur', reset)
     }
   }, [])
+
+  // True while a cord is being dragged — gates the stack-mode "+" indicator.
+  const [connecting, setConnecting] = useState(false)
 
   const onConnect = useCallback(
     (c: RFConnection) => {
@@ -769,7 +759,11 @@ function Editor({ inst, host }: { inst: ModularInstrument; host?: AudioHost }) {
           ))}
         </div>
       </div>
-      <div className="mod-canvas" onDragOver={onDragOver} onDrop={onDrop}>
+      <div
+        className={'mod-canvas' + (connecting && modHeld ? ' stack-mode' : '')}
+        onDragOver={onDragOver}
+        onDrop={onDrop}
+      >
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -777,6 +771,8 @@ function Editor({ inst, host }: { inst: ModularInstrument; host?: AudioHost }) {
           onNodesChange={onNodesChange}
           onNodeDragStop={onNodeDragStop}
           onConnect={onConnect}
+          onConnectStart={() => setConnecting(true)}
+          onConnectEnd={() => setConnecting(false)}
           onEdgesChange={onEdgesChange}
           colorMode="dark"
           fitView

@@ -232,15 +232,16 @@ body {
 .mod-port.out { right: 0; flex-direction: row-reverse; }
 .mod-port-label { color: var(--muted); font-size: 10px; padding: 0 6px; }
 
-.mod-port-plus {
+/* While a cord is being dragged with ⌘/Ctrl held, every inlet shows a "+" —
+   dropping the cord will stack it onto the existing feeders. */
+.stack-mode .mod-port.in .mod-port-label::after {
+  content: ' +';
   color: var(--accent);
-  font-size: 11px;
   font-weight: 700;
-  line-height: 1;
-  background: rgba(79, 209, 197, 0.1);
-  border: 1px solid rgba(79, 209, 197, 0.4);
-  border-radius: 3px;
-  padding: 1px 4px;
+}
+
+.stack-mode .react-flow__handle.target {
+  box-shadow: 0 0 0 2px rgba(79, 209, 197, 0.45);
 }
 
 .mod-node-body { padding: 8px; }
