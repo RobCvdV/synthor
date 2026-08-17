@@ -87,7 +87,6 @@ export interface RenderContext {
   playing: number
   startRow: number
   playEpoch: number
-  mutedTracks?: Record<string, boolean>
   vfsLoadedHashes?: Set<string>
   /** L1 sums (Σ|ch0|) per sample hash, for conv IR normalization. */
   l1Sums?: Record<string, number>

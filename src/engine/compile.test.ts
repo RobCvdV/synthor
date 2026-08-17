@@ -174,13 +174,6 @@ describe('compileGraph', () => {
     expect(out).toBeDefined()
   })
 
-  // ── Muted tracks ──────────────────────────────────────────
-  it('handles muted tracks', () => {
-    const { doc, trackIds } = makeDoc([{ id: 'p1', name: 'P1', length: 16 }])
-    const ctx = defaultCtx({ mutedTracks: { [trackIds[0]]: true } })
-    const out = compileGraph(doc, ctx)
-    expect(out).toBeDefined()
-  })
 })
 
 // ── compileLiveVoices (with paramRefs) ──────────────────────────

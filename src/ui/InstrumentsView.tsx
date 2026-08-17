@@ -1,41 +1,36 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { useDocStore } from '../state/docStore'
 import { usePreviewStore } from '../state/previewStore'
 import { useAppStore } from '../state/appStore'
 import { codeToSemitone, isEditableTarget } from './keymap'
-import { LIVE_VOICE_COUNT } from '../engine/voicePool'
 import { ModularEditor } from './ModularEditor'
 import { DrumKitEditor } from './DrumKitEditor'
 import { InstrumentSettings } from './InstrumentSettings'
 import { cloneInstrument } from '../domain/factory'
 import type { AudioHost } from '../audio/host'
+import type { KeyboardPlayer } from '../audio/keyboardPlayer'
 import type { Id, Instrument } from '../domain/types'
 
 /** Full-screen instruments view: a list rail on the left, the selected
  *  instrument's editor on the right (node graph for synths, key map for drum
  *  kits). All edits go through docStore, so undo/redo + autosave apply.
  *
- *  The note keys audition the selected instrument live (held = gate open); the
- *  tracker keymap is inert here (App guards it). Octave keys and a panic control
- *  let you test a patch without touching the pattern. */
-export function InstrumentsView({ host }: { host: AudioHost }) {
+ *  The note keys audition the selected instrument live (held = gate open, see
+ *  KeyboardPlayer); the tracker keymap is inert here (App guards it). Octave is
+ *  the global header setting; panic lives in the toolbar. */
+export function InstrumentsView({ host, keyboardPlayer }: { host: AudioHost; keyboardPlayer: KeyboardPlayer }) {
   const doc = useDocStore((s) => s.doc)
   const addInstrument = useDocStore((s) => s.addInstrument)
   const removeInstrument = useDocStore((s) => s.removeInstrument)
   const duplicateInstrument = useDocStore((s) => s.duplicateInstrument)
 
   const noteOn = usePreviewStore((s) => s.noteOn)
-  const noteOff = usePreviewStore((s) => s.noteOff)
   const panic = usePreviewStore((s) => s.panic)
   const activeVoices = usePreviewStore((s) => Object.keys(s.voices).length)
 
   const instruments = Object.values(doc.entities.instruments)
   const selectedId = useAppStore((s) => s.selectedInstrumentId)
   const setSelectedId = useAppStore((s) => s.setSelectedInstrumentId)
-  const [octave, setOctave] = useState(5)
-  // Track whether the user has manually adjusted the octave since the last
-  // instrument switch, so we don't fight their preference.
-  const octaveManualRef = useRef(false)
 
   // Keep a valid selection as instruments come and go.
   useEffect(() => {
@@ -43,35 +38,17 @@ export function InstrumentsView({ host }: { host: AudioHost }) {
     setSelectedId(Object.keys(doc.entities.instruments)[0] ?? null)
   }, [doc.entities.instruments, selectedId])
 
-  // Auto-adjust octave when switching instruments: drumkits default to their
-  // keyLo so the keyboard covers the full key range.
-  useEffect(() => {
-    octaveManualRef.current = false
-    if (!selectedId) return
-    // Read directly from the store to avoid depending on the reference-changing
-    // `doc.entities.instruments` object.
-    const inst = useDocStore.getState().doc.entities.instruments[selectedId]
-    if (inst?.kind === 'drumkit') {
-      setOctave(Math.floor(inst.keyLo / 12))
-    }
-  }, [selectedId])
-
   const selected = selectedId ? doc.entities.instruments[selectedId] : undefined
 
-  // Refs so the window key handlers always read the latest values.
+  // Refs so the window key handler always reads the latest values.
   const selectedIdRef = useRef(selectedId)
   selectedIdRef.current = selectedId
-  const octaveRef = useRef(octave)
-  octaveRef.current = octave
-  // Physical key code → the MIDI note it triggered, so key-up releases the
-  // exact note even if the octave changed while it was held.
-  const heldRef = useRef<Record<string, number>>({})
 
   // Panic when leaving the view or switching instruments — no stuck notes.
   useEffect(() => {
-    heldRef.current = {}
+    keyboardPlayer.clearHeld()
     panic()
-  }, [selectedId, panic])
+  }, [selectedId, panic, keyboardPlayer])
   useEffect(() => () => panic(), [panic])
 
   const onKeyDown = useCallback(
@@ -80,52 +57,34 @@ export function InstrumentsView({ host }: { host: AudioHost }) {
 
       if (e.code === 'Escape') {
         e.preventDefault()
-        heldRef.current = {}
+        keyboardPlayer.clearHeld()
         panic()
         host.panic()
         return
       }
-      if (e.code === 'Minus') { e.preventDefault(); octaveManualRef.current = true; setOctave((o) => Math.max(0, o - 1)); return }
-      if (e.code === 'Equal') { e.preventDefault(); octaveManualRef.current = true; setOctave((o) => Math.min(9, o + 1)); return }
 
       if (e.repeat) return // ignore auto-repeat: one attack per physical press
       const semi = codeToSemitone(e.code)
       const instId = selectedIdRef.current
       if (semi === undefined || !instId) return
       e.preventDefault()
-      const note = octaveRef.current * 12 + semi
-      heldRef.current[e.code] = note
-      // Update previewStore for UI voice counter + fallback compile path,
-      // and VoicePool for the audio ref path.
+      const note = useAppStore.getState().octave * 12 + semi
+      // previewStore for the UI voice counter + MIDI priority, and the shared
+      // KeyboardPlayer for the audio ref path (held until App's key-up).
       void host.start().then(() => {
         noteOn(instId, note)
-        const kit = useDocStore.getState().doc.entities.instruments[instId]
-        host.voicePool(instId, LIVE_VOICE_COUNT, kit?.kind === 'drumkit' ? kit : undefined).noteOn(note, 127)
+        keyboardPlayer.noteOn(instId, note, e.code)
       })
     },
-    [host, noteOn, panic],
-  )
-
-  const onKeyUp = useCallback(
-    (e: KeyboardEvent) => {
-      const note = heldRef.current[e.code]
-      if (note === undefined) return
-      delete heldRef.current[e.code]
-      noteOff(note)
-      const instId = selectedIdRef.current
-      if (instId) host.voicePool(instId).noteOff(note)
-    },
-    [host, noteOff],
+    [host, keyboardPlayer, noteOn, panic],
   )
 
   useEffect(() => {
     window.addEventListener('keydown', onKeyDown)
-    window.addEventListener('keyup', onKeyUp)
     return () => {
       window.removeEventListener('keydown', onKeyDown)
-      window.removeEventListener('keyup', onKeyUp)
     }
-  }, [onKeyDown, onKeyUp])
+  }, [onKeyDown])
 
   /** How many tracks reference each instrument (delete is blocked while > 0). */
   const usage = (id: Id) => Object.values(doc.entities.tracks).filter((t) => t.instrumentId === id).length
@@ -197,21 +156,7 @@ export function InstrumentsView({ host }: { host: AudioHost }) {
         {selected && (
           <>
             <div className="preview-bar">
-              <span className="muted">Play keys to preview</span>
-              <span className="preview-oct">
-                <button onClick={() => { octaveManualRef.current = true; setOctave((o) => Math.max(0, o - 1)) }}>oct −</button>
-                <span className="preview-oct-val">oct {octave}</span>
-                <button onClick={() => { octaveManualRef.current = true; setOctave((o) => Math.min(9, o + 1)) }}>oct +</button>
-              </span>
-              <span className="spacer" />
               <span className={'preview-voices' + (activeVoices ? ' on' : '')}>{activeVoices} voice{activeVoices === 1 ? '' : 's'}</span>
-              <button
-                className="panic-btn"
-                title="Stop all preview notes (Esc)"
-                onMouseDown={() => { heldRef.current = {}; panic() }}
-              >
-                Panic
-              </button>
             </div>
 
             {selected.kind === 'modular' ? (

@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { AudioHost } from '../audio/host'
 import { compileGraph } from '../engine/compile'
 import { buildArrangement } from '../engine/arrangement'
-import { buildPlaybackData } from '../player/playbackData'
+import { buildPlaybackData, mapPatternTracksToSlots } from '../player/playbackData'
 import { syncSamplesToVfs } from '../audio/vfsLoader'
 import { computeSlotLayouts } from '../engine/voiceSlotLayout'
 import { useDocStore } from '../state/docStore'
@@ -10,7 +10,6 @@ import { useMidiStore } from '../state/midiStore'
 import { useProjectStore } from '../state/projectStore'
 import { rowHz, useTransportStore } from '../state/transportStore'
 import { useAppStore } from '../state/appStore'
-import type { Id } from '../domain/types'
 
 /**
  * Wires reactive stores to the audio host + scheduler AudioWorklet.
@@ -120,17 +119,37 @@ export function useEngine(): AudioHost {
       return parts.join('|')
     }
 
+    /** Push mute/solo state into every track-slot mute ref across all patterns.
+     *  Solo overrides mute. Runs after structural recompiles (paramRefs.clear
+     *  wipes the refs) and on mute/solo changes — ref-only, never a recompile. */
+    const applyMuteRefs = () => {
+      if (!host.isReady) return
+      const { doc } = useDocStore.getState()
+      const { mutedTrackNumbers, soloedTrackNumbers } = useAppStore.getState()
+      const hasSolo = Object.values(soloedTrackNumbers).some(Boolean)
+      // Current pattern last so it wins any slot shared between patterns.
+      const patterns = Object.values(doc.entities.patterns).sort(
+        (a, b) => (a.id === doc.patternId ? 1 : 0) - (b.id === doc.patternId ? 1 : 0),
+      )
+      for (const pattern of patterns) {
+        const trackToSlot = mapPatternTracksToSlots(doc, pattern.id)
+        pattern.trackIds.forEach((trackId, ti) => {
+          const si = trackToSlot.get(trackId)
+          if (si === undefined) return
+          const track = doc.entities.tracks[trackId]
+          if (!track) return
+          const trackNum = ti + 1
+          const muted = hasSolo ? !soloedTrackNumbers[trackNum] : !!mutedTrackNumbers[trackNum]
+          host.paramRefs.setValue(`tracker:${track.instrumentId}:ts:${si}:mute`, muted ? 0 : 1)
+        })
+      }
+    }
+
     const render = () => {
       frame = 0
       if (!host.isReady) return
 
-      const { doc, mutedTracks, soloedTracks } = useDocStore.getState()
-      const hasSolo = Object.values(soloedTracks).some(Boolean)
-      const effectiveMute = hasSolo
-        ? Object.fromEntries(
-            doc.entities.patterns[doc.patternId]?.trackIds.map((tid) => [tid, !soloedTracks[tid]]) ?? [],
-          )
-        : mutedTracks
+      const { doc } = useDocStore.getState()
       const slug = useProjectStore.getState().slug
 
       // Sync samples to VFS.
@@ -170,7 +189,6 @@ export function useEngine(): AudioHost {
             playing: playing ? 1 : 0,
             startRow,
             playEpoch,
-            mutedTracks: effectiveMute,
             vfsLoadedHashes: vfsLoadedRef.current,
             l1Sums: l1SumsRef.current,
             midiCcValues: useMidiStore.getState().ccValues,
@@ -179,6 +197,7 @@ export function useEngine(): AudioHost {
             arrangement: effectiveArrangement,
           })
           host.render(stereo)
+          applyMuteRefs()
         }
 
         // Split slots into batches, one per scheduler node (32 channels each).
@@ -280,24 +299,10 @@ export function useEngine(): AudioHost {
     })
 
     // ── mute/solo subscription ─────────────────────────────────────────
-    const unsubMute = useDocStore.subscribe((state, prev) => {
-      if (state.mutedTracks === prev.mutedTracks && state.soloedTracks === prev.soloedTracks) return
-      const { doc, mutedTracks, soloedTracks } = state
-      const hasSolo = Object.values(soloedTracks).some(Boolean)
-      const pattern = doc.entities.patterns[doc.patternId]
-      if (!pattern) return
-
-      // Map tracks to slots for the current pattern (same logic as buildPlaybackData).
-      const nextSlot = new Map<Id, number>()
-      for (const tid of pattern.trackIds) {
-        const track = doc.entities.tracks[tid]
-        if (!track) continue
-        const si = nextSlot.get(track.instrumentId) ?? 0
-        nextSlot.set(track.instrumentId, si + 1)
-        const muted = hasSolo ? !soloedTracks[tid] : !!mutedTracks[tid]
-        const refKey = `tracker:${track.instrumentId}:ts:${si}:mute`
-        host.paramRefs.setValue(refKey, muted ? 0 : 1)
-      }
+    const unsubMute = useAppStore.subscribe((state, prev) => {
+      if (state.mutedTrackNumbers === prev.mutedTrackNumbers &&
+          state.soloedTrackNumbers === prev.soloedTrackNumbers) return
+      applyMuteRefs()
     })
 
     host.onReady = () => {

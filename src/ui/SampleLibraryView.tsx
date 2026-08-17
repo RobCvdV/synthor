@@ -36,9 +36,6 @@ export function SampleLibraryView({ host }: Props) {
   const fileRef = useRef<HTMLInputElement>(null)
   const relinkRef = useRef<{ id: string; oldHash: string } | null>(null)
 
-  const [octave, setOctave] = useState(5)
-  const octaveRef = useRef(octave)
-  octaveRef.current = octave
 
   /** Sample loaded in the editor below the list (null = editor closed). */
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -153,8 +150,6 @@ export function SampleLibraryView({ host }: Props) {
         return
       }
       if (sampleDialogOpenRef.current) return
-      if (e.code === 'Minus') { e.preventDefault(); setOctave((o) => Math.max(0, o - 1)); return }
-      if (e.code === 'Equal') { e.preventDefault(); setOctave((o) => Math.min(9, o + 1)); return }
 
       if (e.repeat) return // one attack per physical press
       const semi = codeToSemitone(e.code)
@@ -164,7 +159,7 @@ export function SampleLibraryView({ host }: Props) {
         : undefined
       if (!sample) return
       e.preventDefault()
-      const note = octaveRef.current * 12 + semi
+      const note = useAppStore.getState().octave * 12 + semi
       void playSample(sample, samplePlaybackRate(note))
     },
     [host, selectedSampleId, playSample],
@@ -205,11 +200,6 @@ export function SampleLibraryView({ host }: Props) {
         <span className="muted">{samples.length} sample{samples.length === 1 ? '' : 's'}</span>
         <span className="spacer" />
         <span className="muted">Play keys to preview (C-4 = original pitch)</span>
-        <span className="preview-oct">
-          <button onClick={() => setOctave((o) => Math.max(0, o - 1))}>oct −</button>
-          <span className="preview-oct-val">oct {octave}</span>
-          <button onClick={() => setOctave((o) => Math.min(9, o + 1))}>oct +</button>
-        </span>
         <input
           ref={fileRef}
           type="file"

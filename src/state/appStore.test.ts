@@ -46,6 +46,9 @@ function resetStore() {
     trackerCursor: { row: 0, track: 0, col: 0, laneIndex: null },
     selectedInstrumentId: null,
     selectedSampleId: null,
+    octave: 5,
+    mutedTrackNumbers: {},
+    soloedTrackNumbers: {},
   })
 }
 
@@ -148,19 +151,54 @@ describe('appStore', () => {
     expect(c.laneIndex).toBeNull()
   })
 
-  /* ---- state shape: only the four persisted fields are user-settable ---- */
+  /* ---- octave ---- */
+
+  it('defaults octave to 5', () => {
+    expect(useAppStore.getState().octave).toBe(5)
+  })
+
+  it('setOctave() clamps to 0..9', () => {
+    useAppStore.getState().setOctave(12)
+    expect(useAppStore.getState().octave).toBe(9)
+    useAppStore.getState().setOctave(-3)
+    expect(useAppStore.getState().octave).toBe(0)
+    useAppStore.getState().setOctave(7)
+    expect(useAppStore.getState().octave).toBe(7)
+  })
+
+  /* ---- global track mutes / solos ---- */
+
+  it('toggleMute() flips a track number on and off', () => {
+    useAppStore.getState().toggleMute(3)
+    expect(useAppStore.getState().mutedTrackNumbers).toEqual({ 3: true })
+    useAppStore.getState().toggleMute(3)
+    expect(useAppStore.getState().mutedTrackNumbers).toEqual({ 3: false })
+  })
+
+  it('toggleSolo() is independent of mute state', () => {
+    useAppStore.getState().toggleMute(1)
+    useAppStore.getState().toggleSolo(1)
+    const s = useAppStore.getState()
+    expect(s.mutedTrackNumbers).toEqual({ 1: true })
+    expect(s.soloedTrackNumbers).toEqual({ 1: true })
+  })
+
+  /* ---- state shape: only the persisted fields are user-settable ---- */
 
   it('has exactly the expected top-level state keys', () => {
     // Verify the store shape matches what we document. The persist middleware
-    // partialize mirrors this — only these five keys ever hit localStorage.
+    // partialize mirrors this — only these eight keys ever hit localStorage.
     const s = useAppStore.getState()
     const keys = Object.keys(s).filter((k) =>
-      ['playMode', 'view', 'trackerCursor', 'selectedInstrumentId', 'selectedSampleId'].includes(k),
+      ['playMode', 'view', 'trackerCursor', 'selectedInstrumentId', 'selectedSampleId', 'octave', 'mutedTrackNumbers', 'soloedTrackNumbers'].includes(k),
     )
     expect(keys.sort()).toEqual([
+      'mutedTrackNumbers',
+      'octave',
       'playMode',
       'selectedInstrumentId',
       'selectedSampleId',
+      'soloedTrackNumbers',
       'trackerCursor',
       'view',
     ])

@@ -50,10 +50,6 @@ interface DocState {
   trackClipboard: TrackSnapshot | null
   /** Non-undoable scratch space for rectangular cell copy/paste. */
   rectClipboard: RectClipboard | null
-  /** Non-undoable performance state: which tracks are muted (keyed by id). */
-  mutedTracks: Record<Id, boolean>
-  /** Non-undoable performance state: which tracks are soloed (keyed by id). */
-  soloedTracks: Record<Id, boolean>
   /** Counter bumped to force a render (e.g. after host.start() mounts refs). */
   compileTick: number
   /** Bump to trigger a render via store subscription. */
@@ -173,10 +169,6 @@ interface DocState {
   duplicateTrack: (trackId: Id, atIndex: number) => void
   /** Rotate a track's cells one row up or down, wrapping around. */
   shiftTrack: (trackId: Id, dir: 'up' | 'down') => void
-  /** Toggle a track's mute (performance state, not part of undo history). */
-  toggleMute: (trackId: Id) => void
-  /** Toggle a track's solo (performance state, not part of undo history). */
-  toggleSolo: (trackId: Id) => void
 
   // --- Rectangular cell clipboard (non-undoable) ---
   copyRect: (trackIds: Id[], startRow: number, endRow: number, startTrack: number, endTrack: number) => void
@@ -218,8 +210,6 @@ export const useDocStore = create<DocState>((set, get) => ({
   future: [],
   trackClipboard: null,
   rectClipboard: null,
-  mutedTracks: {},
-  soloedTracks: {},
   vfsLoadedHashes: null,
   compileTick: 0,
   silentBatch: false,
@@ -241,7 +231,7 @@ export const useDocStore = create<DocState>((set, get) => ({
   },
 
   loadDoc: (doc) =>
-    set({ doc, past: [], future: [], trackClipboard: null, rectClipboard: null, mutedTracks: {}, soloedTracks: {}, vfsLoadedHashes: null }),
+    set({ doc, past: [], future: [], trackClipboard: null, rectClipboard: null, vfsLoadedHashes: null }),
 
   undo: () => {
     const { doc, past, future } = get()
@@ -414,12 +404,6 @@ export const useDocStore = create<DocState>((set, get) => ({
       if (dir === 'up') cells.push(cells.shift()!) // row 0 wraps to the bottom
       else cells.unshift(cells.pop()!) // last row wraps to the top
     }),
-
-  toggleMute: (trackId) =>
-    set((s) => ({ mutedTracks: { ...s.mutedTracks, [trackId]: !s.mutedTracks[trackId] } })),
-
-  toggleSolo: (trackId) =>
-    set((s) => ({ soloedTracks: { ...s.soloedTracks, [trackId]: !s.soloedTracks[trackId] } })),
 
   // --- Rectangular clipboard ---
 

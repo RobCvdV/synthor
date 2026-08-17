@@ -162,6 +162,38 @@ function copyRegularTrackToSlot(
   }
 }
 
+/** Map one pattern's tracks to their compiled voice slots, using the exact
+ *  assignment rule buildPlaybackData applies (per-instrument counter; slots
+ *  beyond the layout's slotCount are skipped but still counted). Tracks with
+ *  missing entities or instruments are omitted. */
+export function mapPatternTracksToSlots(
+  doc: Doc,
+  patternId: Id,
+  layoutByInst?: Map<Id, InstrumentSlotLayout>,
+): Map<Id, number> {
+  const pattern = doc.entities.patterns[patternId]
+  const map = new Map<Id, number>()
+  if (!pattern) return map
+  const layouts = layoutByInst ?? (() => {
+    const m = new Map<Id, InstrumentSlotLayout>()
+    for (const l of computeSlotLayouts(doc)) m.set(l.instId, l)
+    return m
+  })()
+  const nextSlot = new Map<Id, number>()
+  for (const trackId of pattern.trackIds) {
+    const track = doc.entities.tracks[trackId]
+    if (!track) continue
+    if (!doc.entities.instruments[track.instrumentId]) continue
+    const layout = layouts.get(track.instrumentId)
+    if (!layout) continue
+    const slotIdx = nextSlot.get(track.instrumentId) ?? 0
+    nextSlot.set(track.instrumentId, slotIdx + 1)
+    if (slotIdx >= layout.slotCount) continue
+    map.set(trackId, slotIdx)
+  }
+  return map
+}
+
 /** Build the playback data for the given doc and arrangement. */
 export function buildPlaybackData(
   doc: Doc,
@@ -191,19 +223,14 @@ export function buildPlaybackData(
     const pattern = doc.entities.patterns[item.patternId]
     if (!pattern) continue
 
-    const nextSlot = new Map<Id, number>()
-
-    for (const trackId of pattern.trackIds) {
+    const trackToSlot = mapPatternTracksToSlots(doc, item.patternId, layoutByInst)
+    for (const [trackId, slotIdx] of trackToSlot) {
       const track = doc.entities.tracks[trackId]
       if (!track) continue
       const inst = doc.entities.instruments[track.instrumentId]
       if (!inst) continue
       const layout = layoutByInst.get(track.instrumentId)
       if (!layout) continue
-
-      const slotIdx = nextSlot.get(track.instrumentId) ?? 0
-      nextSlot.set(track.instrumentId, slotIdx + 1)
-      if (slotIdx >= layout.slotCount) continue
 
       const slot = allSlots.find(
         (s) => s.instId === layout.instId && s.slotIndex === slotIdx,

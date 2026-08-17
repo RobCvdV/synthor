@@ -25,8 +25,9 @@ interface Props {
   pattern: Pattern
   cursor: Cursor
   playhead: number | null
-  muted: Record<Id, boolean>
-  soloed: Record<Id, boolean>
+  /** Keyed by 1-based track position (Track #), global across patterns. */
+  muted: Record<number, boolean>
+  soloed: Record<number, boolean>
   selection: Selection | null
   /** Pending high nibble (0-15) for two-digit hex entry, or null. */
   volumeEntry: number | null
@@ -131,8 +132,8 @@ export function TrackerGrid({ doc, pattern, cursor, playhead, muted, soloed, sel
       <div className="grid-row grid-head">
         <span className="cell rownum">##</span>
         {tracks.map((t, ti) => {
-          const isMuted = muted[t.id] === true
-          const isSoloed = soloed[t.id] === true
+          const isMuted = muted[ti + 1] === true
+          const isSoloed = soloed[ti + 1] === true
           const inletOptions = getInletOptions[t.instrumentId] ?? []
 
           return (
@@ -223,7 +224,7 @@ export function TrackerGrid({ doc, pattern, cursor, playhead, muted, soloed, sel
             const noteActive = active && cursor.col === 0
             const volActive = active && cursor.col === 1
             const sel = inSelection(selection, row, ti)
-            const mutedClass = muted[t.id] ? ' muted' : ''
+            const mutedClass = muted[ti + 1] ? ' muted' : ''
 
             let noteLabel: string
             if (hold) noteLabel = '|'

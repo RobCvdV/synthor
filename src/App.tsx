@@ -16,7 +16,8 @@ import { createDefaultDoc } from './domain/factory'
 import { midiToName } from './domain/notes'
 import { useMidi } from './midi/useMidi'
 import { useMidiStore } from './state/midiStore'
-import { LIVE_VOICE_COUNT } from './engine/voicePool'
+import { usePreviewStore } from './state/previewStore'
+import { KeyboardPlayer } from './audio/keyboardPlayer'
 
 /** True when a keystroke should go to a focused form field, not the tracker.
  *  Range sliders are excluded — they can't receive text, and we want global
@@ -33,6 +34,7 @@ export default function App() {
   const host = useEngine()
   useAutosave()
   useMidi(host) // connect to Web MIDI API
+  const keyboardPlayer = useMemo(() => new KeyboardPlayer(host), [host])
 
   // Don't render the default placeholder doc — wait until either a persisted
   // song is loaded or a fresh default is created, then apply the rest of the
@@ -82,6 +84,7 @@ export default function App() {
   }, [])
 
   const doc = useDocStore((s) => s.doc)
+  const instruments = Object.values(doc.entities.instruments)
   const setCellNote = useDocStore((s) => s.setCellNote)
   const setCellHold = useDocStore((s) => s.setCellHold)
   const setCellVolume = useDocStore((s) => s.setCellVolume)
@@ -97,13 +100,9 @@ export default function App() {
   const pasteTrack = useDocStore((s) => s.pasteTrack)
   const duplicateTrack = useDocStore((s) => s.duplicateTrack)
   const shiftTrack = useDocStore((s) => s.shiftTrack)
-  const toggleMute = useDocStore((s) => s.toggleMute)
-  const toggleSolo = useDocStore((s) => s.toggleSolo)
-  const soloedTracks = useDocStore((s) => s.soloedTracks)
   const copyRect = useDocStore((s) => s.copyRect)
   const cutRect = useDocStore((s) => s.cutRect)
   const pasteRect = useDocStore((s) => s.pasteRect)
-  const mutedTracks = useDocStore((s) => s.mutedTracks)
 
   const projectName = useProjectStore((s) => s.name)
   const slug = useProjectStore((s) => s.slug)
@@ -120,6 +119,13 @@ export default function App() {
   const view = useAppStore((s) => s.view)
   const setView = useAppStore((s) => s.setView)
   const trackerCursor = useAppStore((s) => s.trackerCursor)
+  const selectedInstrumentId = useAppStore((s) => s.selectedInstrumentId)
+  const octave = useAppStore((s) => s.octave)
+  const setOctave = useAppStore((s) => s.setOctave)
+  const toggleMute = useAppStore((s) => s.toggleMute)
+  const toggleSolo = useAppStore((s) => s.toggleSolo)
+  const mutedTrackNumbers = useAppStore((s) => s.mutedTrackNumbers)
+  const soloedTrackNumbers = useAppStore((s) => s.soloedTrackNumbers)
 
   // Song title editing
   const [editingTitle, setEditingTitle] = useState(false)
@@ -206,7 +212,6 @@ export default function App() {
   const cursor = trackerCursor
 
   const [selection, setSelection] = useState<Selection | null>(null)
-  const [octave, setOctave] = useState(5)
   const [playhead, setPlayhead] = useState<number | null>(null)
 
   // Compute keyboard note range for the octave display
@@ -289,15 +294,17 @@ export default function App() {
     })
   }, [trackCount, ready])
 
-  // Auto-select MIDI instrument from the cursor's current track so MIDI
-  // keyboards always play the instrument you're editing.  Re-evaluates on
-  // cursor moves and pattern switches (section/song playback).
+  // Auto-select the global keyboard instrument from the cursor's current
+  // track so note keys (and MIDI) always play the instrument you're editing.
+  // Re-evaluates on cursor moves and pattern switches (section/song playback).
+  // Empty tracks keep the last selection.
   useEffect(() => {
     const state = useDocStore.getState()
     const pattern = state.doc.entities.patterns[state.doc.patternId]
     const trackId = pattern?.trackIds[trackerCursor.track]
     const instId = trackId ? state.doc.entities.tracks[trackId]?.instrumentId : null
     useMidiStore.getState().setActiveInstrument(instId ?? null)
+    if (instId) useAppStore.getState().setSelectedInstrumentId(instId)
   }, [trackerCursor.track, trackCount, ready])
 
   // Visual playhead with pattern transition support for section/song modes.
@@ -411,18 +418,19 @@ export default function App() {
       // --- Panic (Esc) ---
       if (e.code === 'Escape' && !isEditableTarget(e.target)) {
         e.preventDefault()
+        keyboardPlayer.clearHeld()
         host.panic()
         return
       }
 
-      // --- Mute / Solo toggle: F1..F12 ---
+      // --- Mute / Solo toggle: F1..F12 (by Track #) ---
       const fkey = /^F([1-9]|1[0-2])$/.exec(e.code)
       if (fkey) {
         e.preventDefault()
-        const id = pattern.trackIds[Number(fkey[1]) - 1]
-        if (id) {
-          if (e.shiftKey) toggleSolo(id)
-          else toggleMute(id)
+        const trackNum = Number(fkey[1])
+        if (pattern.trackIds[trackNum - 1]) {
+          if (e.shiftKey) toggleSolo(trackNum)
+          else toggleMute(trackNum)
         }
         return
       }
@@ -481,7 +489,29 @@ export default function App() {
         return next
       }
 
-      if (view !== 'tracker') return
+      // --- Octave shift ( - / = ) — global across all views ---
+      if (!e.metaKey && !e.ctrlKey && !e.altKey) {
+        if (e.code === 'Minus') { e.preventDefault(); setOctave(octaveRef.current - 1); return }
+        if (e.code === 'Equal') { e.preventDefault(); setOctave(octaveRef.current + 1); return }
+      }
+
+      if (view !== 'tracker') {
+        // Note keys play the global instrument on the mixer — held until
+        // key-up (see onKeyUp), no cell writes.
+        if (view === 'mixer' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+          const semi = codeToSemitone(e.code)
+          if (semi !== undefined) {
+            e.preventDefault()
+            if (e.repeat) return // one attack per physical press
+            const instId = useAppStore.getState().selectedInstrumentId
+            if (instId) {
+              const note = octaveRef.current * 12 + semi
+              void host.start().then(() => keyboardPlayer.noteOn(instId, note, e.code))
+            }
+          }
+        }
+        return
+      }
 
       // --- Cmd/Meta shortcuts ---
       if (e.metaKey && !e.ctrlKey && !e.altKey) {
@@ -597,10 +627,6 @@ export default function App() {
         return
       }
 
-      // --- Octave shift ( - / = ) ---
-      if (e.code === 'Minus') { e.preventDefault(); setOctave((o) => Math.max(0, o - 1)); return }
-      if (e.code === 'Equal') { e.preventDefault(); setOctave((o) => Math.min(9, o + 1)); return }
-
       // --- Clear cell (Delete / Backspace, no modifiers) ---
       if (e.code === 'Delete' || e.code === 'Backspace') {
         e.preventDefault()
@@ -691,15 +717,11 @@ export default function App() {
           // Preview-pip the note through VoicePool regardless of transport
           // state so you can hear what you're entering mid-playback.
           {
-            const d = useDocStore.getState().doc
-            const instId = d.entities.tracks[trackId]?.instrumentId
+            const instId = useAppStore.getState().selectedInstrumentId
             if (instId) {
               void host.start().then(() => {
-                const inst = d.entities.instruments[instId]
-                const kit = inst?.kind === 'drumkit' ? inst : undefined
-                const pool = host.voicePool(instId, LIVE_VOICE_COUNT, kit)
-                pool.noteOn(note)
-                setTimeout(() => pool.noteOff(note), 120)
+                keyboardPlayer.noteOn(instId, note)
+                setTimeout(() => keyboardPlayer.noteOffNote(instId, note), 120)
               })
             }
           }
@@ -710,10 +732,23 @@ export default function App() {
     [view, pattern, host, toggle, undo, redo, setCellNote, setCellHold, setCellVolume, setCellEffectLane, addEffectLane, removeEffectLane, addTrack, removeTrack, moveTrack, copyTrack, pasteTrack, duplicateTrack, shiftTrack, toggleMute, copyRect, cutRect, pasteRect, clearEntry, laneCountForTrack, cyclePlayMode],
   )
 
+  const onKeyUp = useCallback(
+    (e: KeyboardEvent) => {
+      const released = keyboardPlayer.noteOff(e.code)
+      if (released) usePreviewStore.getState().noteOff(released.note)
+    },
+    [keyboardPlayer],
+  )
+
   useEffect(() => {
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [onKeyDown])
+
+  useEffect(() => {
+    window.addEventListener('keyup', onKeyUp)
+    return () => window.removeEventListener('keyup', onKeyUp)
+  }, [onKeyUp])
 
   return (
     <div className="app">
@@ -802,12 +837,44 @@ export default function App() {
 
         <span className="spacer" />
 
+        {/* Global keyboard instrument */}
+        <select
+          className="midi-inst-select"
+          value={selectedInstrumentId ?? ''}
+          onChange={(e) => {
+            const id = e.target.value
+            if (!id) return
+            useAppStore.getState().setSelectedInstrumentId(id)
+            useMidiStore.getState().setActiveInstrument(id)
+          }}
+          title="Global keyboard instrument — note keys play this in every view"
+        >
+          {instruments.length === 0 && <option value="">No instruments</option>}
+          {instruments.map((inst) => (
+            <option key={inst.id} value={inst.id}>{inst.name}</option>
+          ))}
+        </select>
+
         {/* Octave group */}
         <span className="toolbar-octave-group" title="Keyboard playable note range">
           <span className="muted toolbar-octave-range">{noteRange}</span>
-          <button className="octbtn" onClick={() => setOctave((o) => Math.max(0, o - 1))}>oct −</button>
-          <button className="octbtn" onClick={() => setOctave((o) => Math.min(9, o + 1))}>oct +</button>
+          <button className="octbtn" onClick={() => setOctave(octaveRef.current - 1)}>oct −</button>
+          <button className="octbtn" onClick={() => setOctave(octaveRef.current + 1)}>oct +</button>
         </span>
+
+        {/* Global panic */}
+        <button
+          className="panic-btn"
+          title="Panic — stop all audio (Esc)"
+          onClick={() => {
+            keyboardPlayer.clearHeld()
+            host.panic()
+            host.stopSamplePreviews()
+            usePreviewStore.getState().panic()
+          }}
+        >
+          PANIC
+        </button>
 
         {/* Page switch buttons */}
         <button
@@ -864,8 +931,8 @@ export default function App() {
               pattern={pattern}
               cursor={cursor}
               playhead={playhead}
-              muted={mutedTracks}
-              soloed={soloedTracks}
+              muted={mutedTrackNumbers}
+              soloed={soloedTrackNumbers}
               selection={selection}
               volumeEntry={volumeEntry}
               laneEntry={laneEntry}
@@ -876,11 +943,11 @@ export default function App() {
         </div>
       ) : view === 'instruments' ? (
         <div className="layout">
-          <InstrumentsView host={host} />
+          <InstrumentsView host={host} keyboardPlayer={keyboardPlayer} />
         </div>
       ) : view === 'mixer' ? (
         <div className="layout">
-          <MixerView host={host} />
+          <MixerView />
         </div>
       ) : (
         <div className="layout">

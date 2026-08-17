@@ -54,6 +54,13 @@ interface AppState {
   selectedInstrumentId: Id | null
   /** Selected row in the sample library — target of keyboard preview. */
   selectedSampleId: Id | null
+  /** Global keyboard note-range octave, 0..9. Single source for all views. */
+  octave: number
+  /** Global mutes keyed by 1-based track position (Track #) — applies to
+   *  that position in every pattern. */
+  mutedTrackNumbers: Record<number, boolean>
+  /** Global solos, same keying as mutes. Solo overrides mute. */
+  soloedTrackNumbers: Record<number, boolean>
 
   setPlayMode: (mode: PlayMode) => void
   cyclePlayMode: () => void
@@ -61,6 +68,9 @@ interface AppState {
   setTrackerCursor: (cursor: TrackerCursor) => void
   setSelectedInstrumentId: (id: Id | null) => void
   setSelectedSampleId: (id: Id | null) => void
+  setOctave: (octave: number) => void
+  toggleMute: (trackNumber: number) => void
+  toggleSolo: (trackNumber: number) => void
 }
 
 export const useAppStore = create<AppState>()(
@@ -71,6 +81,9 @@ export const useAppStore = create<AppState>()(
       trackerCursor: { row: 0, track: 0, col: 0, laneIndex: null },
       selectedInstrumentId: null,
       selectedSampleId: null,
+      octave: 5,
+      mutedTrackNumbers: {},
+      soloedTrackNumbers: {},
 
       setPlayMode: (playMode) => set({ playMode }),
       cyclePlayMode: () => set((s) => {
@@ -81,6 +94,13 @@ export const useAppStore = create<AppState>()(
       setTrackerCursor: (trackerCursor) => set({ trackerCursor }),
       setSelectedInstrumentId: (selectedInstrumentId) => set({ selectedInstrumentId }),
       setSelectedSampleId: (selectedSampleId) => set({ selectedSampleId }),
+      setOctave: (octave) => set({ octave: Math.max(0, Math.min(9, octave)) }),
+      toggleMute: (trackNumber) => set((s) => ({
+        mutedTrackNumbers: { ...s.mutedTrackNumbers, [trackNumber]: !s.mutedTrackNumbers[trackNumber] },
+      })),
+      toggleSolo: (trackNumber) => set((s) => ({
+        soloedTrackNumbers: { ...s.soloedTrackNumbers, [trackNumber]: !s.soloedTrackNumbers[trackNumber] },
+      })),
     }),
     {
       name: 'synthor-app-state',
@@ -91,6 +111,9 @@ export const useAppStore = create<AppState>()(
         trackerCursor: state.trackerCursor,
         selectedInstrumentId: state.selectedInstrumentId,
         selectedSampleId: state.selectedSampleId,
+        octave: state.octave,
+        mutedTrackNumbers: state.mutedTrackNumbers,
+        soloedTrackNumbers: state.soloedTrackNumbers,
       }),
     },
   ),
