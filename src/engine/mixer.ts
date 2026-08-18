@@ -194,13 +194,12 @@ function compileOneEffect(
       const timeSamps = tickTimeSamps(timeTicks, rowHzNode)
       const fb = k('feedback', p.feedback ?? 0.25)
       const mix = k('mix', p.mix ?? 0.5)
+      const dry = el.sub(el.const({ value: 1 }), mix)
       const wetL = el.delay({ key: `${channelId}:${fx.id}:L`, size: TICK_DELAY_SIZE }, timeSamps, fb, input.left)
       const wetR = el.delay({ key: `${channelId}:${fx.id}:R`, size: TICK_DELAY_SIZE }, timeSamps, fb, input.right)
-      // Dry always passes at full level — mix scales only the wet, so the
-      // first sound after silence isn't attenuated while the loop charges.
       const effected: StereoOut = {
-        left: el.add(input.left, el.mul(wetL, mix)),
-        right: el.add(input.right, el.mul(wetR, mix)),
+        left: el.add(el.mul(input.left, dry), el.mul(wetL, mix)),
+        right: el.add(el.mul(input.right, dry), el.mul(wetR, mix)),
       }
       return bypassable(effected)
     }
@@ -212,16 +211,16 @@ function compileOneEffect(
       const timeSamps = tickTimeSamps(timeTicks, rowHzNode)
       const mix = k('mix', p.mix ?? 0.5)
       const pp = k('pingpong', p.pingpong ?? 0)
+      const dry = el.sub(el.const({ value: 1 }), mix)
       const invPp = el.sub(el.const({ value: 1 }), pp)
       const tapL = el.delay({ key: `${channelId}:${fx.id}:L`, size: TICK_DELAY_SIZE }, timeSamps, 0, input.left)
       const tapR = el.delay({ key: `${channelId}:${fx.id}:R`, size: TICK_DELAY_SIZE }, timeSamps, 0, input.right)
       // pp blends each side's repeat between its own and the opposite channel.
       const wetL = el.add(el.mul(tapL, invPp), el.mul(tapR, pp))
       const wetR = el.add(el.mul(tapR, invPp), el.mul(tapL, pp))
-      // Dry passes at full level; mix scales only the wet.
       const effected: StereoOut = {
-        left: el.add(input.left, el.mul(wetL, mix)),
-        right: el.add(input.right, el.mul(wetR, mix)),
+        left: el.add(el.mul(input.left, dry), el.mul(wetL, mix)),
+        right: el.add(el.mul(input.right, dry), el.mul(wetR, mix)),
       }
       return bypassable(effected)
     }
@@ -236,6 +235,7 @@ function compileOneEffect(
       const fb2 = el.mul(fb, fb)
       const mix = k('mix', p.mix ?? 0.5)
       const pp = k('pingpong', p.pingpong ?? 0)
+      const dry = el.sub(el.const({ value: 1 }), mix)
       const invPp = el.sub(el.const({ value: 1 }), pp)
 
       // Plain per-channel echo at pp=0.
@@ -252,10 +252,9 @@ function compileOneEffect(
 
       const wetL = el.add(el.mul(plainL, invPp), el.mul(el.add(crossR, ppL), pp))
       const wetR = el.add(el.mul(plainR, invPp), el.mul(el.add(crossL, ppR), pp))
-      // Dry passes at full level; mix scales only the wet.
       const effected: StereoOut = {
-        left: el.add(input.left, el.mul(wetL, mix)),
-        right: el.add(input.right, el.mul(wetR, mix)),
+        left: el.add(el.mul(input.left, dry), el.mul(wetL, mix)),
+        right: el.add(el.mul(input.right, dry), el.mul(wetR, mix)),
       }
       return bypassable(effected)
     }

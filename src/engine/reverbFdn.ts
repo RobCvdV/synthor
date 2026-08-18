@@ -120,10 +120,8 @@ export function makeFdnReverb(
   const wetMid = el.mul(0.5, el.add(yl, yr))
   const wetSide = el.mul(0.5, el.sub(yl, yr))
 
-  // Dry passes at full level; mix scales only the wet, so the first sound
-  // isn't attenuated while the network charges.
   return {
-    left: el.add(xl, el.mul(mix, el.add(wetMid, el.mul(stereoWidth, wetSide)))),
-    right: el.add(xr, el.mul(mix, el.sub(wetMid, el.mul(stereoWidth, wetSide)))),
+    left: el.select(mix, el.add(wetMid, el.mul(stereoWidth, wetSide)), xl),
+    right: el.select(mix, el.sub(wetMid, el.mul(stereoWidth, wetSide)), xr),
   }
 }
