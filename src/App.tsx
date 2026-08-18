@@ -4,7 +4,7 @@ import { rowHz, useTransportStore } from './state/transportStore'
 import { PLAY_MODES, useAppStore, clampCursor, type TrackerCursor } from './state/appStore'
 import { useEngine } from './ui/useEngine'
 import { useAutosave } from './ui/useAutosave'
-import { codeToSemitone } from './ui/keymap'
+import { codeToSemitone, isEditableTarget, keyToHex } from './ui/keymap'
 import { TrackerGrid, type Selection } from './ui/TrackerGrid'
 import { TrackerRightPane } from './ui/TrackerRightPane'
 import { InstrumentsView } from './ui/InstrumentsView'
@@ -18,17 +18,6 @@ import { useMidi } from './midi/useMidi'
 import { useMidiStore } from './state/midiStore'
 import { usePreviewStore } from './state/previewStore'
 import { KeyboardPlayer } from './audio/keyboardPlayer'
-
-/** True when a keystroke should go to a focused form field, not the tracker.
- *  Range sliders are excluded — they can't receive text, and we want global
- *  shortcuts (transport, undo/redo) to work while tweaking sliders. */
-function isEditableTarget(target: EventTarget | null): boolean {
-  const el = target as HTMLInputElement | null
-  if (!el) return false
-  const tag = el.tagName
-  if (tag === 'INPUT') return el.type !== 'range'
-  return tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable
-}
 
 export default function App() {
   const host = useEngine()
@@ -958,23 +947,3 @@ export default function App() {
   )
 }
 
-/** Map a KeyboardEvent code to its hex digit value 0-15, or undefined. */
-function keyToHex(code: string): number | undefined {
-  if (code === 'Digit0') return 0
-  if (code === 'Digit1') return 1
-  if (code === 'Digit2') return 2
-  if (code === 'Digit3') return 3
-  if (code === 'Digit4') return 4
-  if (code === 'Digit5') return 5
-  if (code === 'Digit6') return 6
-  if (code === 'Digit7') return 7
-  if (code === 'Digit8') return 8
-  if (code === 'Digit9') return 9
-  if (code === 'KeyA') return 10
-  if (code === 'KeyB') return 11
-  if (code === 'KeyC') return 12
-  if (code === 'KeyD') return 13
-  if (code === 'KeyE') return 14
-  if (code === 'KeyF') return 15
-  return undefined
-}

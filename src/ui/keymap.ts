@@ -35,3 +35,24 @@ export function isEditableTarget(target: EventTarget | null): boolean {
   if (tag === 'INPUT') return el.type !== 'range'
   return tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable
 }
+
+/** Map a KeyboardEvent code to its hex digit value 0-15, or undefined. */
+export function keyToHex(code: string): number | undefined {
+  if (code === 'Digit0') return 0
+  if (code === 'Digit1') return 1
+  if (code === 'Digit2') return 2
+  if (code === 'Digit3') return 3
+  if (code === 'Digit4') return 4
+  if (code === 'Digit5') return 5
+  if (code === 'Digit6') return 6
+  if (code === 'Digit7') return 7
+  if (code === 'Digit8') return 8
+  if (code === 'Digit9') return 9
+  if (code === 'KeyA') return 10
+  if (code === 'KeyB') return 11
+  if (code === 'KeyC') return 12
+  if (code === 'KeyD') return 13
+  if (code === 'KeyE') return 14
+  if (code === 'KeyF') return 15
+  return undefined
+}

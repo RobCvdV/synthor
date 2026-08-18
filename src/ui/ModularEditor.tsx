@@ -26,6 +26,7 @@ import { collectClipboardModules, collectDeletableIds, preparePastedModules, typ
 import { computeModuleLayout, estimateModuleSize } from '../domain/layout'
 import { buildDxAlgorithm } from '../domain/factory'
 import type { AudioHost } from '../audio/host'
+import { isEditableTarget } from './keymap'
 
 /** Palette categories in display order. Types come from the registry, so a
  *  new module def with a `group` shows up in the palette automatically. */
@@ -402,17 +403,6 @@ function buildEdges(inst: ModularInstrument): Edge[] {
     label: c.gain === 1 ? undefined : `×${round(c.gain)}`,
   }))
 }
-
-/** True when a keystroke should stay in a focused form field. Range sliders are
- *  excluded — they can't receive text, and we want shortcuts to work. */
-function isEditableTarget(target: EventTarget | null): boolean {
-  const el = target as HTMLInputElement | null
-  if (!el) return false
-  const tag = el.tagName
-  if (tag === 'INPUT') return el.type !== 'range'
-  return tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable
-}
-
 
 function Editor({ inst, host }: { inst: ModularInstrument; host?: AudioHost }) {
   const addModule = useDocStore((s) => s.addModule)
