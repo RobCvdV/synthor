@@ -1,4 +1,4 @@
-import { createNode, el, resolve, unpack, type NodeRepr_t } from '@elemaudio/core'
+import { el, type NodeRepr_t } from '@elemaudio/core'
 import type { DrumKitSlot, Id, Instrument } from '../domain/types'
 import { midiToFreq } from '../domain/notes'
 import { compileModular, type StereoOut } from './modular'
@@ -125,12 +125,11 @@ export function renderDrumKitSlot(
           el.le(counter, el.const({ value: meta.frames / playbackRate + 128 })),
         )
         const phase = el.accum(el.mul(el.const({ key: `${key}:rate`, value: playbackRate / meta.frames }), running), edge)
-        const tbl = createNode('table', {
-          key: `${key}:tbl`,
-          path: hash,
-          channels: meta.channels,
-        }, [resolve(phase)]) as unknown as NodeRepr_t
-        const ch = unpack(tbl, meta.channels)
+        // mc.table reads every file channel with the same normalized index
+        // as the mono table; the plain table only ever reads channel 0.
+        // d.ts types mc.table as the mono table; it actually returns the
+        // unpacked per-channel nodes.
+        const ch = el.mc.table({ key: `${key}:tbl`, path: hash, channels: meta.channels }, phase) as unknown as NodeRepr_t[]
         rawL = ch[0]
         rawR = ch[meta.channels >= 2 ? 1 : 0]
       }

@@ -65,6 +65,13 @@ function nearKickAt(out: Float32Array, sample: number, kickSample: number): bool
   )
 }
 
+/** Same, against arbitrary channel data. */
+function nearDataAt(out: Float32Array, sample: number, data: Float32Array, dataSample: number): boolean {
+  return [dataSample - 1, dataSample, dataSample + 1].some(
+    (k) => k >= 0 && k < FRAMES && Math.abs(out[sample] - data[k]) < 0.05,
+  )
+}
+
 describe('drumkit table one-shot', () => {
   it('plays the sample from sample 0 on the gate edge', async () => {
     const out = await renderKick([20], 60)
@@ -94,5 +101,49 @@ describe('drumkit table one-shot', () => {
     const out = await renderKick([50], 60)
     for (let i = 0; i < 50 * 128; i++) expect(out[i]).toBe(0)
     expect(nearKickAt(out, 50 * 128 + 98, 100)).toBe(true)
+  })
+
+  it('plays both channels of a stereo sample', async () => {
+    // Right channel: same shape but a distinct negative pulse at 700.
+    const kickR = new Float32Array(FRAMES)
+    for (let i = 0; i < FRAMES; i++) kickR[i] = Math.sin(i / 90) * 0.3 * (1 - i / FRAMES)
+    for (let i = 0; i < 100; i++) kickR[i] = (i / 100) * 0.8
+    for (let i = 695; i <= 705; i++) kickR[i] = -0.6
+    const vfs = { [HASH]: [kick, kickR] }
+    const metaStereo = [{ hash: HASH, channels: 2, sampleRate: SR, frames: FRAMES }]
+
+    // Render each output in its own renderer (the offline renderer handles
+    // the shared subgraph poorly when rendered as two outputs at once).
+    const renderOne = async (slotPan: number, output: 'left' | 'right'): Promise<Float32Array> => {
+      const slotS: DrumKitSlot = {
+        id: 's1', note: 40, sampleId: 'k1', instrumentId: null, baseNote: 60, volume: 1, pan: slotPan,
+      }
+      const pair = renderDrumKitSlot(slotS, {}, el.in({ channel: 0 }), el.in({ channel: 1 }), 'voice', metaStereo, hashById)
+      const r = new OfflineRenderer()
+      await r.initialize({
+        numInputChannels: 2, numOutputChannels: 1, blockSize: 128, sampleRate: SR,
+        virtualFileSystem: vfs,
+      })
+      await r.render(output === 'left' ? pair.left : pair.right)
+      const in0 = new Float32Array(128)
+      const in1 = new Float32Array(128)
+      const out = new Float32Array(128)
+      const all = new Float32Array(40 * 128)
+      for (let b = 0; b < 40; b++) {
+        in0.fill(b === 20 ? 1 : 0)
+        r.process([in0, in1], [out])
+        all.set(out, b * 128)
+      }
+      return all
+    }
+
+    const base = 20 * 128
+    // pan −1 → left gain 1: left output carries channel 0's data only.
+    const L = await renderOne(-1, 'left')
+    expect(nearDataAt(L, base + 499, kick, 500)).toBe(true) // left pulse 0.7
+    expect(nearDataAt(L, base + 699, kick, 700)).toBe(true) // no −0.6 bleed
+    // pan 1 → right gain 1: right output carries channel 1's data.
+    const R = await renderOne(1, 'right')
+    expect(nearDataAt(R, base + 699, kickR, 700)).toBe(true) // right pulse −0.6
   })
 })
