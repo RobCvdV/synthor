@@ -2,6 +2,7 @@ import { el, type NodeRepr_t } from '@elemaudio/core'
 import type { DrumKitSlot, Id, Instrument } from '../domain/types'
 import { midiToFreq } from '../domain/notes'
 import { compileModular, type StereoOut } from './modular'
+import { makeSampleOneShot } from './samplePlay'
 
 /**
  * An instrument is a node factory: given the control signals a track drives
@@ -112,24 +113,10 @@ export function renderDrumKitSlot(
         // free-running between hits.
         const baseFreq = 261.6255653005986 // midiToFreq(60)
         const playbackRate = midiToFreq(slot.baseNote) / baseFreq
-        // Clamped to ≥0: accum's reset fires on ANY rise, including the
-        // −1 → 0 recovery after the gate's falling edge.
-        const edge = el.max(el.sub(slotGate, el.z(slotGate)), el.const({ value: 0 }))
-        // Gate-high samples since the last edge: stays 0 before the first
-        // hit (no phantom playback after render), freezes at the row end so
-        // samples longer than the row keep playing. Elementary's le/ge are
-        // strict (< / >), so `le(0, counter)` is the counter > 0 check.
-        const counter = el.accum(slotGate, edge)
-        const running = el.and(
-          el.le(el.const({ value: 0 }), counter),
-          el.le(counter, el.const({ value: meta.frames / playbackRate + 128 })),
+        const ch = makeSampleOneShot(
+          key, hash, meta.channels, slotGate,
+          playbackRate / meta.frames, meta.frames, playbackRate,
         )
-        const phase = el.accum(el.mul(el.const({ key: `${key}:rate`, value: playbackRate / meta.frames }), running), edge)
-        // mc.table reads every file channel with the same normalized index
-        // as the mono table; the plain table only ever reads channel 0.
-        // d.ts types mc.table as the mono table; it actually returns the
-        // unpacked per-channel nodes.
-        const ch = el.mc.table({ key: `${key}:tbl`, path: hash, channels: meta.channels }, phase) as unknown as NodeRepr_t[]
         rawL = ch[0]
         rawR = ch[meta.channels >= 2 ? 1 : 0]
       }

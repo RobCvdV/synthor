@@ -1,4 +1,5 @@
-import { createNode, el, resolve, unpack, type NodeRepr_t } from '@elemaudio/core'
+import { el, type NodeRepr_t } from '@elemaudio/core'
+import { makeSampleLoop, makeSampleOneShot } from './samplePlay'
 import type { Connection, Module, ModularInstrument } from '../domain/types'
 import { midiToFreq } from '../domain/notes'
 import { WAVEFORM_MAX_LENGTH_SECONDS } from '../domain/moduleDefs'
@@ -692,21 +693,14 @@ export function compileModular(
           ? el.mul(el.div(freqIn, el.const({ value: midiToFreq(60) })), ratio)
           : ratio
 
-        // Loop ON: table+phasor for continuous cycling.  Loop OFF: el.sample
-        // triggers on gate rising edge, plays to completion, and adapts to
-        // signal-rate playbackRate changes in real time.
+        // Loop ON: table+phasor for continuous cycling.  Loop OFF: the
+        // shared one-shot — deterministic playback from sample 0 on the gate
+        // edge, with signal-rate rate for live pitch changes.
         if (loop) {
-          const rateFactor = meta.sampleRate / (meta.frames * midiToFreq(60))
-          const phasorRate = el.mul(rate, el.const({ key: `${keyPrefix}:${m.id}:rf:${meta.hash}`, value: rateFactor }))
-          const phase = el.phasor(phasorRate)
-          const sampleDur = meta.frames / meta.sampleRate
-          const time = el.mul(phase, el.const({ key: `${keyPrefix}:${m.id}:dur`, value: sampleDur }))
-          const tbl = createNode('table', {
-            key: `${keyPrefix}:${m.id}:tbl:${meta.hash}`,
-            path: meta.hash,
-            channels: meta.channels,
-          }, [resolve(time)])
-          const ch = unpack(tbl as NodeRepr_t, meta.channels)
+          const ch = makeSampleLoop(
+            `${keyPrefix}:${m.id}:${meta.hash}`, meta.hash, meta.channels,
+            rate, meta.frames, meta.sampleRate,
+          )
           const env = makeAdsr(0.001, 0.05, 1, 0.05, gateSig)
           const outL = el.mul(ch[0], gain, env)
           if (meta.channels === 2) memo.set(`${m.id}:outR`, el.mul(ch[1], gain, env))
@@ -714,12 +708,12 @@ export function compileModular(
           return outL
         }
 
-        const smp = (el as any).sample(
-          { key: `${keyPrefix}:${m.id}:${meta.hash}`, path: meta.hash, channels: meta.channels },
-          gateSig,
-          rate,
-        ) as NodeRepr_t
-        const ch = unpack(smp, meta.channels)
+        // Slowest playRate (−48 st) at the lowest note (C-2) ≈ 0.002.
+        const minRate = 0.001
+        const ch = makeSampleOneShot(
+          `${keyPrefix}:${m.id}:${meta.hash}`, meta.hash, meta.channels, gateSig,
+          el.div(rate, el.const({ value: meta.frames })), meta.frames, minRate,
+        )
         const out = el.mul(ch[0], gain)
         if (meta.channels === 2) memo.set(`${m.id}:outR`, el.mul(ch[1], gain))
         else memo.set(`${m.id}:outR`, out)
@@ -746,12 +740,11 @@ export function compileModular(
         // The table index is normalized 0..1, so the raw phasor sweeps the
         // whole buffer once per cycle — one full sample = one waveform cycle.
         const phase = el.phasor(el.mul(f, ratio))
-        const tbl = createNode('table', {
+        const ch = el.mc.table({
           key: `${keyPrefix}:${m.id}:tbl:${meta.hash}`,
           path: meta.hash,
           channels: meta.channels,
-        }, [phase])
-        const ch = unpack(tbl as NodeRepr_t, meta.channels)
+        }, phase) as unknown as NodeRepr_t[]
         const outL = el.mul(ch[0], gain)
         if (meta.channels === 2) memo.set(`${m.id}:outR`, el.mul(ch[1], gain))
         else memo.set(`${m.id}:outR`, outL)
