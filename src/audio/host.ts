@@ -10,6 +10,9 @@ import { SchedulerNode } from '../player/SchedulerNode'
 /** How long a freshly created AudioContext needs before its output stream
  *  can be trusted to pass transients cleanly (device establishment window). */
 export const OUTPUT_WARMUP_MS = 500
+/** How long after the wake-up burst the device needs to finish its
+ *  first-transient ramp before real audio can land. */
+export const PRIME_SETTLE_MS = 500
 
 /**
  * Owns the AudioContext + Elementary WebRenderer and pushes compiled graphs to
@@ -180,6 +183,28 @@ export class AudioHost {
     return this.ctx ? (this.ctx.currentTime - this.ctxStartTime) * 1000 : 0
   }
 
+  private primed = false
+
+  /** One-time wake-up burst through the output. Some devices eat the first
+   *  loud transient after start-up; a short, softly enveloped noise burst
+   *  fired during the armed wait window takes that hit instead of the first
+   *  musical note. */
+  primeOutput(): void {
+    if (!this.ctx || this.primed) return
+    this.primed = true
+    const frames = Math.floor(this.ctx.sampleRate * 0.12)
+    const buf = this.ctx.createBuffer(1, frames, this.ctx.sampleRate)
+    const d = buf.getChannelData(0)
+    for (let i = 0; i < frames; i++) {
+      // Sine-shaped envelope: no hard edges, ~-26 dBFS peak.
+      d[i] = (Math.random() * 2 - 1) * 0.05 * Math.sin((Math.PI * i) / frames)
+    }
+    const src = this.ctx.createBufferSource()
+    src.buffer = buf
+    src.connect(this.ctx.destination)
+    src.start()
+  }
+
   get isReady(): boolean {
     return this.ready
   }
@@ -249,14 +274,11 @@ export class AudioHost {
       node.connect(this.analyser)
       this.analyser.connect(this.ctx.destination)
 
-      // Keep-alive: some output devices gate or delay the first loud sound
-      // after a silence gap. A constant low-level noise floor keeps the
-      // pipeline active — −60 dBFS was the lowest level that reliably held
-      // the output open on the test machine (at −80 dB the first transient
-      // was still eaten).
+      // Keep-alive: a constant −80 dB noise floor keeps the output pipeline
+      // from idling between sounds, so the device never gates on silence.
       const noiseBuf = this.ctx.createBuffer(1, this.ctx.sampleRate, this.ctx.sampleRate)
       const noiseData = noiseBuf.getChannelData(0)
-      for (let i = 0; i < noiseData.length; i++) noiseData[i] = (Math.random() * 2 - 1) * 1e-3
+      for (let i = 0; i < noiseData.length; i++) noiseData[i] = (Math.random() * 2 - 1) * 1e-4
       const noiseSrc = this.ctx.createBufferSource()
       noiseSrc.buffer = noiseBuf
       noiseSrc.loop = true
