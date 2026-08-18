@@ -20,6 +20,10 @@ export class AudioHost {
   private starting: Promise<void> | null = null
   private renderBusy = false
   private pendingGraph: StereoOut | null = null
+  /** Resolves when the current render queue fully drains — awaited before the
+   *  scheduler clock starts so rows never advance against a dead graph. */
+  private settlePromise: Promise<void> | null = null
+  private settleResolve: (() => void) | null = null
 
   /** The audio-thread scheduler nodes. One per 32-channel batch.
    *  Multiple nodes overcome the browser's 32-channel AudioWorkletNode limit. */
@@ -155,8 +159,8 @@ export class AudioHost {
     src.start(0, Math.max(0, Math.min(offsetSeconds, buffer.duration)))
   }
 
-  /** Precise AudioContext time captured at the moment the graph was rendered
-   *  for the current playback session. Set by useEngine. */
+  /** Precise AudioContext time captured at the moment the scheduler clock
+   *  actually started for the current playback session. Set by useEngine. */
   playStartTime = 0
   /** Pattern row at which the current playback session started. */
   playStartRow = 0
@@ -239,14 +243,21 @@ export class AudioHost {
       this.starting = null
       this.onReady?.()
     })()
+    // Clear the in-flight promise on failure so a later gesture can retry.
+    this.starting = this.starting.catch((err: unknown) => {
+      console.error('[host] start failed:', err)
+      this.starting = null
+      throw err
+    })
     return this.starting
   }
 
   /** Render a stereo pair to the output.  Drops frames when busy to avoid
    *  overwhelming Elementary with concurrent render() calls (which crashes
-   *  the WASM worklet with Aborted()). */
-  render(stereo: StereoOut): void {
-    if (!this.ready || !this.core) return
+   *  the WASM worklet with Aborted()). Returns a promise that resolves once
+   *  this graph — and anything queued behind it — has landed. */
+  render(stereo: StereoOut): Promise<void> {
+    if (!this.ready || !this.core) return Promise.resolve()
 
     // If a render is already in flight, store this graph as pending.  When the
     // current render finishes it will pick up the latest pending graph.  This
@@ -254,11 +265,12 @@ export class AudioHost {
     // cascade of concurrent ones.
     if (this.renderBusy) {
       this.pendingGraph = stereo
-      return
+      return this.settlePromise ?? Promise.resolve()
     }
 
     this.renderBusy = true
     this.pendingGraph = null
+    this.settlePromise = new Promise<void>((res) => { this.settleResolve = res })
 
     const finish = () => {
       this.renderBusy = false
@@ -267,7 +279,16 @@ export class AudioHost {
       // Render the next queued graph, even if the current one failed.
       const next = this.pendingGraph
       this.pendingGraph = null
-      if (next) this.render(next)
+      // Capture locally: render(next) below overwrites these fields.
+      const resolve = this.settleResolve
+      this.settleResolve = null
+      this.settlePromise = null
+      if (next) {
+        // Keep this graph's promise open until the queued one also lands.
+        this.render(next).then(() => resolve?.())
+      } else {
+        resolve?.()
+      }
     }
 
     const doRender = () => {
@@ -292,7 +313,11 @@ export class AudioHost {
       }
     }
 
+    // Captured before doRender: the sync-error path calls finish() inline,
+    // which nulls this.settlePromise — return the (resolved) local instead.
+    const settle = this.settlePromise
     doRender()
+    return settle
   }
 
   /**

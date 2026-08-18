@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { AudioHost } from '../audio/host'
 import { compileGraph } from '../engine/compile'
 import { buildArrangement } from '../engine/arrangement'
-import { buildPlaybackData, mapPatternTracksToSlots } from '../player/playbackData'
+import { buildPlaybackData, mapPatternTracksToSlots, type PlaybackData, type VoiceSlotData } from '../player/playbackData'
 import { syncSamplesToVfs } from '../audio/vfsLoader'
 import { computeSlotLayouts } from '../engine/voiceSlotLayout'
 import { useDocStore } from '../state/docStore'
@@ -10,6 +10,7 @@ import { useMidiStore } from '../state/midiStore'
 import { useProjectStore } from '../state/projectStore'
 import { rowHz, useTransportStore } from '../state/transportStore'
 import { useAppStore } from '../state/appStore'
+import { useAudioStore } from '../state/audioStore'
 
 /**
  * Wires reactive stores to the audio host + scheduler AudioWorklet.
@@ -47,6 +48,15 @@ export function useEngine(): AudioHost {
 
   const lastStructuralKeyRef = useRef('')
   const lastEpochRef = useRef(0)
+
+  /** Latest playback data from the most recent pass — a deferred play-start
+   *  must send the data matching the live graph, not its own stale pass. */
+  const latestPlaybackRef = useRef<PlaybackData | null>(null)
+  const latestBatchRef = useRef<Map<number, VoiceSlotData[]>>(new Map())
+  /** Promise of the most recent host.render(). Awaited before sch.play so the
+   *  row clock never starts on a graph still uploading. Never nulled — a
+   *  resolved promise awaits instantly. */
+  const renderSettleRef = useRef<Promise<void> | null>(null)
 
   useEffect(() => {
     let frame = 0
@@ -145,6 +155,11 @@ export function useEngine(): AudioHost {
       }
     }
 
+    const markAudioReady = () => {
+      const audio = useAudioStore.getState()
+      if (audio.status !== 'ready') audio.setStatus('ready')
+    }
+
     const render = () => {
       frame = 0
       if (!host.isReady) return
@@ -158,10 +173,37 @@ export function useEngine(): AudioHost {
       if (keys !== lastVfsKeysRef.current) {
         lastVfsKeysRef.current = keys
         if (samples.length > 0) {
+          useAudioStore.getState().setStatus('warming')
           vfsSyncRef.current = syncSamplesToVfs(host, samples, slug).then(
             ({ loaded, l1Sums }) => { vfsSyncRef.current = null; vfsLoadedRef.current = loaded; l1SumsRef.current = l1Sums; useDocStore.getState().setVfsLoaded(loaded) },
           )
         }
+      }
+
+      /** Start the scheduler clock once the graph is live. Deferred past the
+       *  latest render so rows never advance against a dead graph. Re-reads
+       *  the store fresh: a stop during the wait cancels, and a newer play
+       *  session (higher epoch) supersedes this deferred pass. Synchronous
+       *  from the guard to sch.play, so nothing can interleave. */
+      const startPlayback = (epoch: number) => {
+        const t = useTransportStore.getState()
+        const latest = latestPlaybackRef.current
+        if (!t.playing || t.playEpoch !== epoch || !latest) return
+        host.playStartTime = host.currentTime
+        host.playStartRow = t.startRow
+        host.paramRefs.setValue('transport:playing', 1)
+        for (const [nodeIdx, sch] of host.schedulerNodes.entries()) {
+          const batch = latestBatchRef.current.get(nodeIdx) ?? []
+          sch.play(
+            { slots: batch, totalRows: latest.totalRows, arrangement: latest.arrangement },
+            t.bpm,
+            t.linesPerBeat,
+            t.startRow,
+          )
+        }
+        const audio = useAudioStore.getState()
+        audio.setPlaybackStarted(true)
+        if (audio.status !== 'ready') audio.setStatus('ready')
       }
 
       const doRecompile = () => {
@@ -196,7 +238,8 @@ export function useEngine(): AudioHost {
             ccBindings: host.ccBindings,
             arrangement: effectiveArrangement,
           })
-          host.render(stereo)
+          renderSettleRef.current = host.render(stereo)
+          renderSettleRef.current.then(markAudioReady)
           applyMuteRefs()
         }
 
@@ -225,6 +268,11 @@ export function useEngine(): AudioHost {
           console.log('[useEngine] batching:\n' + batchInfo.join('\n'))
         }
 
+        // Every pass overwrites these: a deferred play-start (below) must
+        // read the latest batch, not the data captured by its own pass.
+        latestPlaybackRef.current = playbackData
+        latestBatchRef.current = batchedSlots
+
         // Send data to schedulers.
         const transport = useTransportStore.getState()
         const schNodes = host.schedulerNodes
@@ -232,16 +280,10 @@ export function useEngine(): AudioHost {
           if (transport.playEpoch !== lastEpochRef.current) {
             console.log('[useEngine] new play session playEpoch=', transport.playEpoch)
             lastEpochRef.current = transport.playEpoch
-            host.paramRefs.setValue('transport:playing', 1)
-            for (const [nodeIdx, sch] of schNodes.entries()) {
-              const batch = batchedSlots.get(nodeIdx) ?? []
-              sch.play(
-                { slots: batch, totalRows: playbackData.totalRows, arrangement: playbackData.arrangement },
-                transport.bpm,
-                transport.linesPerBeat,
-                transport.startRow,
-              )
-            }
+            const epoch = transport.playEpoch
+            const settle = renderSettleRef.current
+            if (settle) settle.then(() => startPlayback(epoch))
+            else startPlayback(epoch)
           } else {
             for (const [nodeIdx, sch] of schNodes.entries()) {
               const batch = batchedSlots.get(nodeIdx) ?? []
@@ -286,6 +328,7 @@ export function useEngine(): AudioHost {
         host.paramRefs.setValue('transport:playing', 0)
         for (const sch of host.schedulerNodes) sch.stop()
         lastEpochRef.current = 0
+        useAudioStore.getState().setPlaybackStarted(false)
         return
       }
 

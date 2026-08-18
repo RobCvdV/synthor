@@ -539,6 +539,13 @@ body {
 }
 .toolbar-play:hover { background: #243a24; border-color: #4a9; }
 .toolbar-play.playing { background: #2a1a1a; color: #e06060; border-color: #5a2020; }
+/* Warming / armed: audio not audible yet — pulse as a cue. */
+.toolbar-play.warming,
+.toolbar-play.armed { animation: toolbar-pulse 1.2s ease-in-out infinite; }
+@keyframes toolbar-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
 
 /* Play mode toggle group */
 .toolbar-mode-group {
