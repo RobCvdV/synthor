@@ -1,4 +1,4 @@
-import { el, type NodeRepr_t } from '@elemaudio/core'
+import { createNode, el, resolve, unpack, type NodeRepr_t } from '@elemaudio/core'
 import type { DrumKitSlot, Id, Instrument } from '../domain/types'
 import { midiToFreq } from '../domain/notes'
 import { compileModular, type StereoOut } from './modular'
@@ -103,15 +103,34 @@ export function renderDrumKitSlot(
       if (meta) {
         const key = `${voiceKey}:slot:${slot.id}:${hash}`
 
-        // el.mc.sample — v4 native API, reliable gate + proper multi-channel.
-        // playbackRate sets the base pitch; per-note offset within the slot's
-        // range is not yet supported with mc.sample (no signal-rate rate).
+        // One-shot via table + edge-reset phase. mc.sample's built-in fade
+        // and alternating readers drop the first ms of the attack after
+        // silence; the table plays deterministically from sample 0 on every
+        // gate edge. The table index is normalized 0..1 (1 = full buffer),
+        // so the phase advances playbackRate/frames per sample — but only
+        // while the `running` window is open (edge → end of sample), never
+        // free-running between hits.
         const baseFreq = 261.6255653005986 // midiToFreq(60)
         const playbackRate = midiToFreq(slot.baseNote) / baseFreq
-        const ch = el.mc.sample(
-          { key: `${key}:sample`, path: hash, channels: meta.channels, playbackRate },
-          slotGate,
+        // Clamped to ≥0: accum's reset fires on ANY rise, including the
+        // −1 → 0 recovery after the gate's falling edge.
+        const edge = el.max(el.sub(slotGate, el.z(slotGate)), el.const({ value: 0 }))
+        // Gate-high samples since the last edge: stays 0 before the first
+        // hit (no phantom playback after render), freezes at the row end so
+        // samples longer than the row keep playing. Elementary's le/ge are
+        // strict (< / >), so `le(0, counter)` is the counter > 0 check.
+        const counter = el.accum(slotGate, edge)
+        const running = el.and(
+          el.le(el.const({ value: 0 }), counter),
+          el.le(counter, el.const({ value: meta.frames / playbackRate + 128 })),
         )
+        const phase = el.accum(el.mul(el.const({ key: `${key}:rate`, value: playbackRate / meta.frames }), running), edge)
+        const tbl = createNode('table', {
+          key: `${key}:tbl`,
+          path: hash,
+          channels: meta.channels,
+        }, [resolve(phase)]) as unknown as NodeRepr_t
+        const ch = unpack(tbl, meta.channels)
         rawL = ch[0]
         rawR = ch[meta.channels >= 2 ? 1 : 0]
       }
