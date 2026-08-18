@@ -253,9 +253,12 @@ describe('FDN reverb (mixer)', () => {
     // Natural width (stereoWidth 1) isolates the network itself from the
     // mid/side width mixing. Without the d4 pre-spread, every r0 line carries
     // a copy of the input and the interleaved downmix echoes it L-R-L-R…
+    // Separate noise streams per channel: the dry now passes at full level,
+    // so identical inputs would dominate the cross-correlation by themselves.
     const fx: ChannelEffect = { id: 'chef_1', type: 'reverb', params: { ...REVERB_DEFAULTS, roomSize: 1, stereoWidth: 1, mix: 1 } }
-    const n = el.noise({ key: 'test:pingpong:noise' })
-    const pair = compileChannelEffects([fx], { left: n, right: n }, 'chan_1')
+    const nl = el.noise({ key: 'test:pingpong:noiseL' })
+    const nr = el.noise({ key: 'test:pingpong:noiseR' })
+    const pair = compileChannelEffects([fx], { left: nl, right: nr }, 'chan_1')
     const [L, R] = await renderBlocks(pair, 200)
     expect(rms(L, 15000, 40000)).toBeGreaterThan(0.05)
     // …which would peak ≫0.3 at the 48 ms line-spacing lag (≈2117 samples).

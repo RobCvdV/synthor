@@ -169,12 +169,22 @@ export function useEngine(): AudioHost {
 
       // Sync samples to VFS.
       const samples = Object.values(doc.entities.samples)
-      const keys = samples.map((s) => s.hash).sort().join(',')
+      // One-shot drum samples get leading-silence padding (see samplePrep).
+      const padHashes = new Set<string>()
+      for (const inst of Object.values(doc.entities.instruments)) {
+        if (inst.kind !== 'drumkit') continue
+        for (const slot of inst.slots) {
+          const e = slot.sampleId ? doc.entities.samples[slot.sampleId] : undefined
+          if (e) padHashes.add(e.hash)
+        }
+      }
+      const padKey = [...padHashes].sort().join(',')
+      const keys = samples.map((s) => s.hash).sort().join(',') + '|pad:' + padKey
       if (keys !== lastVfsKeysRef.current) {
         lastVfsKeysRef.current = keys
         if (samples.length > 0) {
           useAudioStore.getState().setStatus('warming')
-          vfsSyncRef.current = syncSamplesToVfs(host, samples, slug).then(
+          vfsSyncRef.current = syncSamplesToVfs(host, samples, slug, padHashes).then(
             ({ loaded, l1Sums }) => { vfsSyncRef.current = null; vfsLoadedRef.current = loaded; l1SumsRef.current = l1Sums; useDocStore.getState().setVfsLoaded(loaded) },
           )
         }

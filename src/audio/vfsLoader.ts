@@ -1,6 +1,7 @@
 import type { SampleEntity } from '../domain/types'
 import type { AudioHost } from './host'
 import { readSampleAsset } from '../persist/sampleStorage'
+import { ensureLeadingSilence } from '../engine/samplePrep'
 
 /** Shared AudioContext reused for all VFS decoding — avoids hitting browser limits. */
 let _sharedCtx: AudioContext | null = null
@@ -25,6 +26,9 @@ export async function syncSamplesToVfs(
   host: AudioHost,
   samples: SampleEntity[],
   slug: string,
+  /** Hashes played one-shot (drumkit slots) — padded so Elementary's
+   *  per-trigger fade-in lands on silence, not the sample's attack. */
+  padHashes: ReadonlySet<string> = new Set(),
 ): Promise<{ loaded: Set<string>; l1Sums: Record<string, number> }> {
   const vfs: Record<string, Float32Array | Float32Array[]> = {}
   const loaded = new Set<string>()
@@ -41,21 +45,19 @@ export async function syncSamplesToVfs(
       const ctx = sharedCtx()
       const buffer = await ctx.decodeAudioData(raw.slice(0))
 
-      const ch0 = buffer.getChannelData(0)
+      // Extract per-channel Float32Array data.
+      const channels: Float32Array[] = []
+      for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
+        channels.push(new Float32Array(buffer.getChannelData(ch)))
+      }
+      const chs = padHashes.has(s.hash) ? ensureLeadingSilence(channels, buffer.sampleRate) : channels
+
+      const ch0 = chs[0]
       let l1 = 0
       for (let i = 0; i < ch0.length; i++) l1 += Math.abs(ch0[i])
       l1Sums[s.hash] = l1
 
-      // Extract per-channel Float32Array data.
-      if (buffer.numberOfChannels === 1) {
-        vfs[s.hash] = new Float32Array(ch0)
-      } else {
-        const chData: Float32Array[] = [new Float32Array(ch0)]
-        for (let ch = 1; ch < buffer.numberOfChannels; ch++) {
-          chData.push(new Float32Array(buffer.getChannelData(ch)))
-        }
-        vfs[s.hash] = chData
-      }
+      vfs[s.hash] = chs.length === 1 ? chs[0] : chs
       loaded.add(s.hash)
     } catch (err) {
       console.error('Failed to decode sample for VFS:', s.name, err)
