@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { applyPatches, enablePatches, produceWithPatches } from 'immer'
-import type { Doc, DrumKitSlot, Id, ModuleType, Pattern, SampleEntity } from '../domain/types'
+import type { Doc, DrumKitSlot, Id, ModuleType, Pattern } from '../domain/types'
 import { getSlotForNote, MASTER_CHANNEL_ID } from '../domain/types'
 import { clearParamRefs, updateParamRef } from '../audio/paramRefs'
 import {
@@ -19,6 +19,7 @@ import { trackerOps, type TrackerOps } from './trackerOps'
 import { trackOps, type TrackOps } from './trackOps'
 import { instrumentOps, type InstrumentOps } from './instrumentOps'
 import { modularOps, type ModularOps } from './modularOps'
+import { sampleOps, type SampleOps } from './sampleOps'
 
 enablePatches()
 
@@ -38,7 +39,7 @@ interface CoreOps {
   loadDoc: (doc: Doc) => void
 }
 
-export interface DocState extends CoreOps, TrackerOps, TrackOps, InstrumentOps, ModularOps {
+export interface DocState extends CoreOps, TrackerOps, TrackOps, InstrumentOps, ModularOps, SampleOps {
   doc: Doc
   past: HistoryEntry[]
   future: HistoryEntry[]
@@ -70,12 +71,6 @@ export interface DocState extends CoreOps, TrackerOps, TrackOps, InstrumentOps, 
   removePatternFromSection: (sectionId: Id, patternIndex: number) => void
   reorderSections: (fromIdx: number, toIdx: number) => void
   reorderPatternsInSection: (sectionId: Id, fromIdx: number, toIdx: number) => void
-
-  // --- Sample management ---
-  addSampleEntity: (entity: SampleEntity) => void
-  removeSampleEntity: (id: Id) => void
-  replaceSampleAsset: (id: Id, hash: string, originalName: string, sampleRate: number, channels: number, frames: number) => void
-  renameSample: (id: Id, name: string) => void
 
   // --- Drum kit operations ---
   addDrumKitSlot: (instrumentId: Id, note: number, sampleId?: Id, slotInstrumentId?: Id) => void
@@ -167,46 +162,9 @@ export const useDocStore = create<DocState>((set, get) => ({
   ...trackOps(set, get),
   ...instrumentOps(get),
   ...modularOps(get),
+  ...sampleOps(get),
 
   // --- Sample management ---
-
-  addSampleEntity: (entity) =>
-    get().mutate((draft) => {
-      draft.entities.samples[entity.id] = entity
-    }),
-
-  removeSampleEntity: (id) =>
-    get().mutate((draft) => {
-      const sample = draft.entities.samples[id]
-      if (!sample) return
-      // Guard: don't delete if any drumkit slot references this sample.
-      for (const inst of Object.values(draft.entities.instruments)) {
-        if (inst.kind === 'drumkit') {
-          for (const slot of inst.slots) {
-            if (slot.sampleId === id) return
-          }
-        }
-      }
-      delete draft.entities.samples[id]
-    }),
-
-  renameSample: (id, name) =>
-    get().mutate((draft) => {
-      const sample = draft.entities.samples[id]
-      if (!sample) return
-      sample.name = name.trim()
-    }),
-
-  replaceSampleAsset: (id, hash, originalName, sampleRate, channels, frames) =>
-    get().mutate((draft) => {
-      const sample = draft.entities.samples[id]
-      if (!sample) return
-      sample.hash = hash
-      sample.originalName = originalName
-      sample.sampleRate = sampleRate
-      sample.channels = channels
-      sample.frames = frames
-    }),
 
   setVfsLoaded: (hashes) => set({ vfsLoadedHashes: hashes }),
 
