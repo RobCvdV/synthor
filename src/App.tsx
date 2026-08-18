@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useDocStore } from './state/docStore'
 import { rowHz, useTransportStore } from './state/transportStore'
-import { PLAY_MODES, useAppStore, clampCursor, type TrackerCursor } from './state/appStore'
+import { useAppStore, clampCursor, type TrackerCursor } from './state/appStore'
 import { useEngine } from './ui/useEngine'
 import { useAutosave } from './ui/useAutosave'
-import { codeToSemitone } from './ui/keymap'
+import { codeToSemitone, isEditableTarget, keyToHex } from './ui/keymap'
+import { Dialog } from './ui/Dialog'
+import { Toolbar } from './ui/Toolbar'
 import { TrackerGrid, type Selection } from './ui/TrackerGrid'
 import { TrackerRightPane } from './ui/TrackerRightPane'
 import { InstrumentsView } from './ui/InstrumentsView'
@@ -18,17 +20,6 @@ import { useMidi } from './midi/useMidi'
 import { useMidiStore } from './state/midiStore'
 import { usePreviewStore } from './state/previewStore'
 import { KeyboardPlayer } from './audio/keyboardPlayer'
-
-/** True when a keystroke should go to a focused form field, not the tracker.
- *  Range sliders are excluded — they can't receive text, and we want global
- *  shortcuts (transport, undo/redo) to work while tweaking sliders. */
-function isEditableTarget(target: EventTarget | null): boolean {
-  const el = target as HTMLInputElement | null
-  if (!el) return false
-  const tag = el.tagName
-  if (tag === 'INPUT') return el.type !== 'range'
-  return tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable
-}
 
 export default function App() {
   const host = useEngine()
@@ -752,175 +743,70 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className="toolbar">
-        {/* Left: transport controls */}
-        <button
-          className={'toolbar-play' + (playing ? ' playing' : '')}
-          title={playing ? 'Stop (Space)' : 'Play (Space)'}
-          onClick={() => {
-            void host.start().then(() => {
-              host.playStartTime = host.currentTime
-              host.playStartRow = cursorRef.current.row
-              toggle(host.currentTime, cursorRef.current.row)
-            })
-          }}
-        >
-          {playing ? '■' : '▶'}
-        </button>
-        <span className="toolbar-mode-group" title="Play mode — Tab to cycle">
-          {PLAY_MODES.map((mode) => (
-            <button
-              key={mode}
-              className={'toolbar-mode-btn' + (playMode === mode ? ' active' : '')}
-              onClick={() => setPlayMode(mode)}
-            >
-              {mode === 'song' ? 'Song' : mode === 'section' ? 'Section' : 'Pattern'}
-            </button>
-          ))}
-        </span>
-
-        {/* Song title */}
-        {editingTitle ? (
-          <input
-            ref={titleInputRef}
-            className="toolbar-title-input"
-            value={titleDraft}
-            onChange={(e) => setTitleDraft(e.target.value)}
-            onBlur={commitTitle}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') commitTitle()
-              if (e.key === 'Escape') { setEditingTitle(false); setTitleDraft(projectName) }
-            }}
-          />
-        ) : (
-          <span
-            className="toolbar-title"
-            title="Double-click to rename"
-            onDoubleClick={beginEditTitle}
-          >
-            {projectName}
-          </span>
-        )}
-
-        {/* Tempo */}
-        <span className="toolbar-tempo-group">
-          {editingTempo ? (
-            <input
-              ref={tempoInputRef}
-              className="toolbar-tempo-input"
-              value={tempoDraft}
-              onChange={(e) => setTempoDraft(e.target.value)}
-              onBlur={commitTempo}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') commitTempo()
-                if (e.key === 'Escape') setEditingTempo(false)
-              }}
-            />
-          ) : (
-            <span
-              className="toolbar-tempo"
-              title="Double-click to edit tempo"
-              onDoubleClick={beginEditTempo}
-            >
-              {bpm}
-            </span>
-          )}
-          <span className="muted">BPM</span>
-          <button
-            className={'toolbar-tap-btn' + (tapFlash ? ' flash' : '')}
-            title="Tap tempo"
-            onClick={onTapBpm}
-          >
-            TAP
-          </button>
-        </span>
-
-        <span className="spacer" />
-
-        {/* Global keyboard instrument */}
-        <select
-          className="midi-inst-select"
-          value={selectedInstrumentId ?? ''}
-          onChange={(e) => {
-            const id = e.target.value
-            if (!id) return
-            useAppStore.getState().setSelectedInstrumentId(id)
-            useMidiStore.getState().setActiveInstrument(id)
-          }}
-          title="Global keyboard instrument — note keys play this in every view"
-        >
-          {instruments.length === 0 && <option value="">No instruments</option>}
-          {instruments.map((inst) => (
-            <option key={inst.id} value={inst.id}>{inst.name}</option>
-          ))}
-        </select>
-
-        {/* Octave group */}
-        <span className="toolbar-octave-group" title="Keyboard playable note range">
-          <span className="muted toolbar-octave-range">{noteRange}</span>
-          <button className="octbtn" onClick={() => setOctave(octaveRef.current - 1)}>oct −</button>
-          <button className="octbtn" onClick={() => setOctave(octaveRef.current + 1)}>oct +</button>
-        </span>
-
-        {/* Global panic */}
-        <button
-          className="panic-btn"
-          title="Panic — stop all audio (Esc)"
-          onClick={() => {
-            keyboardPlayer.clearHeld()
-            host.panic()
-            host.stopSamplePreviews()
-            usePreviewStore.getState().panic()
-          }}
-        >
-          PANIC
-        </button>
-
-        {/* Page switch buttons */}
-        <button
-          className={'octbtn' + (view === 'tracker' ? ' active' : '')}
-          onClick={() => setView('tracker')}
-          title="Tracker (⌘T)"
-        >
-          Tracker
-        </button>
-        <button
-          className={'octbtn' + (view === 'instruments' ? ' active' : '')}
-          onClick={() => setView('instruments')}
-          title="Instruments (⌘I)"
-        >
-          Instruments
-        </button>
-        <button
-          className={'octbtn' + (view === 'samples' ? ' active' : '')}
-          onClick={() => setView('samples')}
-          title="Samples (⌘S)"
-        >
-          Samples
-        </button>
-        <button
-          className={'octbtn' + (view === 'mixer' ? ' active' : '')}
-          onClick={() => setView('mixer')}
-          title="Mixer (⌘M)"
-        >
-          Mixer
-        </button>
-      </header>
+      <Toolbar
+        playing={playing}
+        onTogglePlay={() => {
+          void host.start().then(() => {
+            host.playStartTime = host.currentTime
+            host.playStartRow = cursorRef.current.row
+            toggle(host.currentTime, cursorRef.current.row)
+          })
+        }}
+        playMode={playMode}
+        onSetPlayMode={setPlayMode}
+        editingTitle={editingTitle}
+        titleDraft={titleDraft}
+        projectName={projectName}
+        titleInputRef={titleInputRef}
+        onTitleDraftChange={setTitleDraft}
+        onCommitTitle={commitTitle}
+        onCancelTitleEdit={() => { setEditingTitle(false); setTitleDraft(projectName) }}
+        onBeginEditTitle={beginEditTitle}
+        editingTempo={editingTempo}
+        tempoDraft={tempoDraft}
+        bpm={bpm}
+        tapFlash={tapFlash}
+        tempoInputRef={tempoInputRef}
+        onTempoDraftChange={setTempoDraft}
+        onCommitTempo={commitTempo}
+        onCancelTempoEdit={() => setEditingTempo(false)}
+        onBeginEditTempo={beginEditTempo}
+        onTapBpm={onTapBpm}
+        instruments={instruments}
+        selectedInstrumentId={selectedInstrumentId}
+        onSelectInstrument={(id) => {
+          useAppStore.getState().setSelectedInstrumentId(id)
+          useMidiStore.getState().setActiveInstrument(id)
+        }}
+        noteRange={noteRange}
+        onOctaveDown={() => setOctave(octaveRef.current - 1)}
+        onOctaveUp={() => setOctave(octaveRef.current + 1)}
+        onPanic={() => {
+          keyboardPlayer.clearHeld()
+          host.panic()
+          host.stopSamplePreviews()
+          usePreviewStore.getState().panic()
+        }}
+        view={view}
+        onSetView={setView}
+      />
 
       {/* Rename dialog */}
       {renameDialog && (
-        <div className="dialog-overlay" onClick={cancelRename}>
-          <div className="dialog-box" onClick={(e) => e.stopPropagation()}>
-            <p>
-              "<strong>{titleDraft}</strong>" is not the current song name.
-            </p>
-            <div className="dialog-actions">
+        <Dialog
+          onClose={cancelRename}
+          actions={
+            <>
               <button className="octbtn" onClick={doNewSong}>Create New Song</button>
               <button className="octbtn" onClick={doRenameSong}>Rename Current</button>
               <button className="octbtn" onClick={cancelRename}>Cancel</button>
-            </div>
-          </div>
-        </div>
+            </>
+          }
+        >
+          <p>
+            "<strong>{titleDraft}</strong>" is not the current song name.
+          </p>
+        </Dialog>
       )}
 
       {ready && (view === 'tracker' ? (
@@ -958,23 +844,3 @@ export default function App() {
   )
 }
 
-/** Map a KeyboardEvent code to its hex digit value 0-15, or undefined. */
-function keyToHex(code: string): number | undefined {
-  if (code === 'Digit0') return 0
-  if (code === 'Digit1') return 1
-  if (code === 'Digit2') return 2
-  if (code === 'Digit3') return 3
-  if (code === 'Digit4') return 4
-  if (code === 'Digit5') return 5
-  if (code === 'Digit6') return 6
-  if (code === 'Digit7') return 7
-  if (code === 'Digit8') return 8
-  if (code === 'Digit9') return 9
-  if (code === 'KeyA') return 10
-  if (code === 'KeyB') return 11
-  if (code === 'KeyC') return 12
-  if (code === 'KeyD') return 13
-  if (code === 'KeyE') return 14
-  if (code === 'KeyF') return 15
-  return undefined
-}
