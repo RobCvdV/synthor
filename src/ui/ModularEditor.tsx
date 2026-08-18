@@ -9,7 +9,6 @@ import {
   useOnSelectionChange,
   useReactFlow,
   type Connection as RFConnection,
-  type Edge,
   type EdgeChange,
   type Node,
   type NodeChange,
@@ -24,6 +23,7 @@ import { buildDxAlgorithm } from '../domain/factory'
 import type { AudioHost } from '../audio/host'
 import { isEditableTarget } from './keymap'
 import { ModuleNode } from './ModuleNode'
+import { buildEdges, buildNodes } from './modularLayout'
 import { round } from './format'
 
 /** Palette categories in display order. Types come from the registry, so a
@@ -44,26 +44,6 @@ const paletteTypes = (group: ModuleGroup): ModuleType[] =>
 
 const nodeTypes = { module: ModuleNode }
 
-
-function buildNodes(inst: ModularInstrument, host?: AudioHost): Node[] {
-  return Object.values(inst.modules).map((m) => ({
-    id: m.id,
-    type: 'module',
-    position: { ...m.pos },
-    data: { instrumentId: inst.id, moduleId: m.id, host: m.type === 'output' ? host : undefined },
-  }))
-}
-
-function buildEdges(inst: ModularInstrument): Edge[] {
-  return Object.values(inst.connections).map((c) => ({
-    id: c.id,
-    source: c.from.moduleId,
-    sourceHandle: c.from.port,
-    target: c.to.moduleId,
-    targetHandle: c.to.port,
-    label: c.gain === 1 ? undefined : `×${round(c.gain)}`,
-  }))
-}
 
 function Editor({ inst, host }: { inst: ModularInstrument; host?: AudioHost }) {
   const addModule = useDocStore((s) => s.addModule)
