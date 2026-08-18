@@ -13,6 +13,11 @@ export function formatSize(frames: number, channels: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+/** Compact number rendering: integers above 100, otherwise trimmed 2-decimal. */
+export function round(v: number): string {
+  return Math.abs(v) >= 100 ? String(Math.round(v)) : v.toFixed(2).replace(/\.?0+$/, '')
+}
+
 /** Autosave status label for the store tab. */
 export function saveLabel(status: string, lastSavedAt: string | null): string {
   if (status === 'saving') return 'Saving…'

@@ -1,5 +1,20 @@
 import { describe, expect, it } from 'vitest'
-import { formatDuration, formatSize, saveLabel } from './format'
+import { formatDuration, formatSize, round, saveLabel } from './format'
+
+describe('round', () => {
+  it('renders integers from 100 up', () => {
+    expect(round(100)).toBe('100')
+    expect(round(101.4)).toBe('101')
+    expect(round(-101.4)).toBe('-101')
+  })
+
+  it('trims trailing zeros below 100', () => {
+    expect(round(1)).toBe('1')
+    expect(round(0.5)).toBe('0.5')
+    expect(round(0.123)).toBe('0.12')
+    expect(round(99.9)).toBe('99.9')
+  })
+})
 
 describe('formatDuration', () => {
   it('renders sub-second durations in ms', () => {
