@@ -4,8 +4,6 @@ import type { DocState } from './docStore'
 
 export interface TrackerOps {
   setCellNote: (trackId: Id, row: number, note: number | null) => void
-  /** @deprecated Use setCellHold instead. */
-  setCellNoteOff: (trackId: Id, row: number, noteOff: boolean) => void
   setCellHold: (trackId: Id, row: number, hold: boolean) => void
   setCellVolume: (trackId: Id, row: number, volume: number | null) => void
   addEffectLane: (trackId: Id, type: string) => void
@@ -24,16 +22,6 @@ export function trackerOps(get: () => DocState): TrackerOps {
           // Note and hold/note-off are mutually exclusive.
           track.cells[row].noteOff = false
           track.cells[row].hold = false
-        }
-      }),
-
-    /** @deprecated Use setCellHold instead. Kept for old song compat. */
-    setCellNoteOff: (trackId, row, noteOff) =>
-      get().mutate((draft) => {
-        const track = draft.entities.tracks[trackId]
-        if (track && track.cells[row]) {
-          track.cells[row].noteOff = noteOff
-          if (noteOff) track.cells[row].note = null
         }
       }),
 

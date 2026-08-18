@@ -10,7 +10,6 @@ export interface MixerOps {
   removeChannel: (channelId: Id) => void
   renameChannel: (channelId: Id, name: string) => void
   setChannelVolume: (channelId: Id, vol: number) => void
-  setChannelVolumeFast: (channelId: Id, vol: number) => void
   setChannelPan: (channelId: Id, pan: number) => void
   setChannelMute: (channelId: Id, mute: boolean) => void
   setChannelSolo: (channelId: Id, solo: boolean) => void
@@ -18,13 +17,11 @@ export interface MixerOps {
   removeChannelEffect: (channelId: Id, effectId: Id) => void
   moveChannelEffect: (channelId: Id, effectId: Id, newIndex: number) => void
   setChannelEffectParam: (channelId: Id, effectId: Id, key: string, value: number) => void
-  setChannelEffectParamFast: (channelId: Id, effectId: Id, key: string, value: number) => void
   hideInstrumentFromMixer: (instrumentId: Id) => void
   showInstrumentInMixer: (instrumentId: Id) => void
   reorderMixerInstrument: (instrumentId: Id, newIndex: number) => void
   setInstrumentChannelId: (instrumentId: Id, channelId: Id) => void
   setInstrumentPan: (instrumentId: Id, pan: number) => void
-  setInstrumentPanFast: (instrumentId: Id, pan: number) => void
   setInstrumentPanSilent: (instrumentId: Id, pan: number) => void
   setChannelVolumeSilent: (channelId: Id, vol: number) => void
   setChannelPanSilent: (channelId: Id, pan: number) => void
@@ -62,9 +59,6 @@ export function mixerOps(get: () => DocState): MixerOps {
         if (chan) chan.volume = vol
       }),
 
-    setChannelVolumeFast: (channelId, vol) => {
-      updateParamRef(`chan:${channelId}:volume`, vol)
-    },
 
     setChannelPan: (channelId, pan) =>
       get().mutate((draft) => {
@@ -129,9 +123,6 @@ export function mixerOps(get: () => DocState): MixerOps {
         if (fx) fx.params[key] = value
       }),
 
-    setChannelEffectParamFast: (channelId, effectId, key, value) => {
-      updateParamRef(`chan:${channelId}:${effectId}:${key}`, value)
-    },
 
     hideInstrumentFromMixer: (instrumentId) =>
       get().mutate((draft) => {
@@ -167,9 +158,6 @@ export function mixerOps(get: () => DocState): MixerOps {
         if (inst) inst.pan = pan
       }),
 
-    setInstrumentPanFast: (instrumentId, pan) => {
-      updateParamRef(`inst:${instrumentId}:pan`, pan)
-    },
 
     setInstrumentPanSilent: (instrumentId, pan) => {
       get().mutateSilent((draft) => {

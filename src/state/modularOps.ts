@@ -14,10 +14,6 @@ export interface ModularOps {
   /** Batch-move multiple modules in one undo step (multi-node drag stop). */
   moveModules: (instrumentId: Id, moves: Array<{ id: Id; pos: { x: number; y: number } }>) => void
   setModuleParam: (instrumentId: Id, moduleId: Id, key: string, value: number) => void
-  /** Update param ref immediately without triggering a recompile.
-   *  Use during slider drags for smooth audio; call setModuleParamSilent
-   *  on drag-end to persist the value in the store without triggering compile. */
-  setModuleParamFast: (instrumentId: Id, moduleId: Id, key: string, value: number) => void
   /** Persist a module param to the store + undo history WITHOUT triggering
    *  a graph recompile. Use on slider mouseUp after the fast path already
    *  updated the ref. */
@@ -133,12 +129,6 @@ export function modularOps(get: () => DocState): ModularOps {
         }
       }),
 
-    setModuleParamFast: (_instrumentId, _moduleId, key, value) => {
-      // Only update the ref — no store mutation, no compile trigger.
-      // Combine instrument+module+key the same way compileModular's kconst does.
-      const refKey = `${_instrumentId}:${_moduleId}:${key}`
-      updateParamRef(refKey, value)
-    },
 
     setModuleParamSilent: (instrumentId, moduleId, key, value) => {
       get().mutateSilent((draft) => {

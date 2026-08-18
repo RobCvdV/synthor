@@ -7,13 +7,11 @@ import type { DocState } from './docStore'
 export interface DrumkitOps {
   addDrumKitSlot: (instrumentId: Id, note: number, sampleId?: Id, slotInstrumentId?: Id) => void
   removeDrumKitSlot: (instrumentId: Id, slotId: Id) => void
-  setDrumKitSlotParam: (instrumentId: Id, slotId: Id, key: 'note' | 'baseNote' | 'volume' | 'pan', value: number) => void
   /** Set a param on the slot at the given note. If the slot is inherited,
    *  promotes it (copies parent source) and sets the param in one undo step. */
   setOrPromoteSlotParam: (instrumentId: Id, note: number, key: 'baseNote' | 'volume' | 'pan', value: number) => void
   setDrumKitSlotSource: (instrumentId: Id, slotId: Id, sampleId: Id | null, slotInstrumentId: Id | null) => void
   setDrumKitParam: (instrumentId: Id, key: string, value: number) => void
-  setDrumKitParamFast: (instrumentId: Id, key: string, value: number) => void
   setDrumKitKeyRange: (instrumentId: Id, keyLo: number, keyHi: number) => void
   setDrumKitParamSilent: (instrumentId: Id, key: string, value: number) => void
 }
@@ -47,20 +45,6 @@ export function drumkitOps(get: () => DocState): DrumkitOps {
         inst.slots = inst.slots.filter((s) => s.id !== slotId)
       }),
 
-    setDrumKitSlotParam: (instrumentId, slotId, key, value) => {
-      get().mutate((draft) => {
-        const inst = draft.entities.instruments[instrumentId]
-        if (inst?.kind !== 'drumkit') return
-        const slot = inst.slots.find((s) => s.id === slotId)
-        if (!slot) return
-        slot[key] = value
-        // If the note changed, re-sort slots to keep them in note order.
-        if (key === 'note') {
-          inst.slots.sort((a, b) => a.note - b.note)
-        }
-      })
-      updateParamRef(`${instrumentId}:slot:${slotId}:${key}`, value)
-    },
 
     setOrPromoteSlotParam: (instrumentId, note, key, value) => {
       let effectiveSlotId: string | undefined
@@ -115,10 +99,6 @@ export function drumkitOps(get: () => DocState): DrumkitOps {
       updateParamRef(`${instrumentId}:${key}`, value)
     },
 
-    /** Update drumkit param ref immediately without triggering a recompile. */
-    setDrumKitParamFast: (instrumentId: Id, key: string, value: number) => {
-      updateParamRef(`${instrumentId}:${key}`, value)
-    },
 
     setDrumKitKeyRange: (instrumentId, keyLo, keyHi) =>
       get().mutate((draft) => {

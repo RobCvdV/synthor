@@ -16,8 +16,6 @@ import { mixerOps, type MixerOps } from './mixerOps'
 enablePatches()
 
 interface CoreOps {
-  /** Bump to trigger a render via store subscription. */
-  bumpCompile: () => void
   /** Like mutate, but sets silentBatch so subscribers can skip the compile.
    *  Use for slider release — persist to store + undo without recompile. */
   mutateSilent: (recipe: (draft: Doc) => void) => void
@@ -39,8 +37,6 @@ export interface DocState extends CoreOps, TrackerOps, TrackOps, InstrumentOps, 
   trackClipboard: TrackSnapshot | null
   /** Non-undoable scratch space for rectangular cell copy/paste. */
   rectClipboard: RectClipboard | null
-  /** Counter bumped to force a render (e.g. after host.start() mounts refs). */
-  compileTick: number
   /** When true, docStore subscribers skip their side effects — used by
    *  mutateSilent to persist values without triggering graph recompiles. */
   silentBatch: boolean
@@ -57,10 +53,8 @@ export const useDocStore = create<DocState>((set, get) => ({
   trackClipboard: null,
   rectClipboard: null,
   vfsLoadedHashes: null,
-  compileTick: 0,
   silentBatch: false,
 
-  bumpCompile: () => set((s) => ({ compileTick: s.compileTick + 1 })),
 
   mutateSilent: (recipe) => {
     set({ silentBatch: true })
