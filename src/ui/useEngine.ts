@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { AudioHost } from '../audio/host'
+import { AudioHost, OUTPUT_WARMUP_MS } from '../audio/host'
 import { compileGraph } from '../engine/compile'
 import { buildArrangement } from '../engine/arrangement'
 import { buildPlaybackData, mapPatternTracksToSlots, type PlaybackData, type VoiceSlotData } from '../player/playbackData'
@@ -180,6 +180,19 @@ export function useEngine(): AudioHost {
         }
       }
 
+      /** Hold the first clock start until the output stream has settled — a
+       *  fresh AudioContext's first ~500ms can still gate a transient.
+       *  Skips instantly once the stream is old enough; bails if the
+       *  transport stopped or a newer session superseded this one. */
+      const startWhenOutputSettled = async (epoch: number) => {
+        while (host.outputAgeMs < OUTPUT_WARMUP_MS) {
+          await new Promise((r) => setTimeout(r, 50))
+          const t = useTransportStore.getState()
+          if (!t.playing || t.playEpoch !== epoch) return
+        }
+        startPlayback(epoch)
+      }
+
       /** Start the scheduler clock once the graph is live. Deferred past the
        *  latest render so rows never advance against a dead graph. Re-reads
        *  the store fresh: a stop during the wait cancels, and a newer play
@@ -282,8 +295,8 @@ export function useEngine(): AudioHost {
             lastEpochRef.current = transport.playEpoch
             const epoch = transport.playEpoch
             const settle = renderSettleRef.current
-            if (settle) settle.then(() => startPlayback(epoch))
-            else startPlayback(epoch)
+            if (settle) settle.then(() => startWhenOutputSettled(epoch))
+            else startWhenOutputSettled(epoch)
           } else {
             for (const [nodeIdx, sch] of schNodes.entries()) {
               const batch = batchedSlots.get(nodeIdx) ?? []

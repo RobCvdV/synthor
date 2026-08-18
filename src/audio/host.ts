@@ -7,6 +7,10 @@ import { VoicePool, LIVE_VOICE_COUNT } from '../engine/voicePool'
 import type { DrumKitInstrument } from '../domain/types'
 import { SchedulerNode } from '../player/SchedulerNode'
 
+/** How long a freshly created AudioContext needs before its output stream
+ *  can be trusted to pass transients cleanly (device establishment window). */
+export const OUTPUT_WARMUP_MS = 500
+
 /**
  * Owns the AudioContext + Elementary WebRenderer and pushes compiled graphs to
  * the AudioWorklet. Stateless beyond the audio plumbing: it just renders
@@ -18,6 +22,7 @@ export class AudioHost {
   private analyser: AnalyserNode | null = null
   private ready = false
   private starting: Promise<void> | null = null
+  private ctxStartTime = 0
   private renderBusy = false
   private pendingGraph: StereoOut | null = null
   /** Resolves when the current render queue fully drains — awaited before the
@@ -169,6 +174,12 @@ export class AudioHost {
     return this.ctx?.currentTime ?? 0
   }
 
+  /** Milliseconds the output stream has been flowing — fresh contexts need
+   *  a settling window before the first sound lands cleanly. */
+  get outputAgeMs(): number {
+    return this.ctx ? (this.ctx.currentTime - this.ctxStartTime) * 1000 : 0
+  }
+
   get isReady(): boolean {
     return this.ready
   }
@@ -251,6 +262,7 @@ export class AudioHost {
       noiseSrc.start()
 
       await this.ctx.resume()
+      this.ctxStartTime = this.ctx.currentTime
       this.ready = true
       this.starting = null
       this.onReady?.()
