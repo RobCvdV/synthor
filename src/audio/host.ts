@@ -238,6 +238,18 @@ export class AudioHost {
       node.connect(this.analyser)
       this.analyser.connect(this.ctx.destination)
 
+      // Inaudible keep-alive: some output devices gate or delay the first
+      // sound after a silence gap. A constant −80 dB noise floor keeps the
+      // pipeline continuously active so transients always punch through.
+      const noiseBuf = this.ctx.createBuffer(1, this.ctx.sampleRate, this.ctx.sampleRate)
+      const noiseData = noiseBuf.getChannelData(0)
+      for (let i = 0; i < noiseData.length; i++) noiseData[i] = (Math.random() * 2 - 1) * 1e-4
+      const noiseSrc = this.ctx.createBufferSource()
+      noiseSrc.buffer = noiseBuf
+      noiseSrc.loop = true
+      noiseSrc.connect(this.ctx.destination)
+      noiseSrc.start()
+
       await this.ctx.resume()
       this.ready = true
       this.starting = null
