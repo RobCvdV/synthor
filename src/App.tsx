@@ -5,6 +5,7 @@ import { PLAY_MODES, useAppStore, clampCursor, type TrackerCursor } from './stat
 import { useEngine } from './ui/useEngine'
 import { useAutosave } from './ui/useAutosave'
 import { codeToSemitone, isEditableTarget, keyToHex } from './ui/keymap'
+import { Dialog } from './ui/Dialog'
 import { TrackerGrid, type Selection } from './ui/TrackerGrid'
 import { TrackerRightPane } from './ui/TrackerRightPane'
 import { InstrumentsView } from './ui/InstrumentsView'
@@ -898,18 +899,20 @@ export default function App() {
 
       {/* Rename dialog */}
       {renameDialog && (
-        <div className="dialog-overlay" onClick={cancelRename}>
-          <div className="dialog-box" onClick={(e) => e.stopPropagation()}>
-            <p>
-              "<strong>{titleDraft}</strong>" is not the current song name.
-            </p>
-            <div className="dialog-actions">
+        <Dialog
+          onClose={cancelRename}
+          actions={
+            <>
               <button className="octbtn" onClick={doNewSong}>Create New Song</button>
               <button className="octbtn" onClick={doRenameSong}>Rename Current</button>
               <button className="octbtn" onClick={cancelRename}>Cancel</button>
-            </div>
-          </div>
-        </div>
+            </>
+          }
+        >
+          <p>
+            "<strong>{titleDraft}</strong>" is not the current song name.
+          </p>
+        </Dialog>
       )}
 
       {ready && (view === 'tracker' ? (
