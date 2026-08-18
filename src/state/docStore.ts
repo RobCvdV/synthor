@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { applyPatches, enablePatches, type Patch, produceWithPatches } from 'immer'
+import { applyPatches, enablePatches, produceWithPatches } from 'immer'
 import type { Cell, Connection, Doc, DrumKitSlot, EffectLaneDef, Id, Instrument, Module, ModuleType, Pattern, Port, SampleEntity } from '../domain/types'
 import { getSlotForNote, MASTER_CHANNEL_ID } from '../domain/types'
 import { clearParamRefs, updateParamRef } from '../audio/paramRefs'
@@ -18,31 +18,27 @@ import {
   nextEffName,
 } from '../domain/factory'
 import { defaultParams, isStereoEffect, MODULE_DEFS } from '../domain/moduleDefs'
+import type { HistoryEntry, RectClipboard, TrackSnapshot } from './docStoreTypes'
 
 enablePatches()
 
-/** One undoable step: forward patches and their inverse. */
-interface HistoryEntry {
-  patches: Patch[]
-  inverse: Patch[]
+interface CoreOps {
+  /** Bump to trigger a render via store subscription. */
+  bumpCompile: () => void
+  /** Like mutate, but sets silentBatch so subscribers can skip the compile.
+   *  Use for slider release — persist to store + undo without recompile. */
+  mutateSilent: (recipe: (draft: Doc) => void) => void
+  /** Store which sample hashes loaded into VFS after a sync. */
+  setVfsLoaded: (hashes: Set<string>) => void
+  /** Run an Immer recipe against the doc, recording it as one undoable edit. */
+  mutate: (recipe: (draft: Doc) => void) => void
+  undo: () => void
+  redo: () => void
+  /** Replace the whole document (e.g. loading a saved song). Resets history. */
+  loadDoc: (doc: Doc) => void
 }
 
-/** A detached copy of a track + its instrument, for copy/paste. Stores the full
- *  instrument; paste clones it with fresh ids. */
-interface TrackSnapshot {
-  instrument: Instrument
-  cells: Cell[]
-  effectLanes: EffectLaneDef[]
-}
-
-interface RectClipboard {
-  cells: Cell[][]
-  /** Effect lane definitions per source track column, so pasting into
-   *  a different track/pattern auto-creates matching lanes. */
-  trackLanes: EffectLaneDef[][]
-}
-
-interface DocState {
+export interface DocState extends CoreOps {
   doc: Doc
   past: HistoryEntry[]
   future: HistoryEntry[]
@@ -52,27 +48,11 @@ interface DocState {
   rectClipboard: RectClipboard | null
   /** Counter bumped to force a render (e.g. after host.start() mounts refs). */
   compileTick: number
-  /** Bump to trigger a render via store subscription. */
-  bumpCompile: () => void
   /** When true, docStore subscribers skip their side effects — used by
    *  mutateSilent to persist values without triggering graph recompiles. */
   silentBatch: boolean
-  /** Like mutate, but sets silentBatch so subscribers can skip the compile.
-   *  Use for slider release — persist to store + undo without recompile. */
-  mutateSilent: (recipe: (draft: Doc) => void) => void
-
   /** Hashes of samples that loaded successfully into VFS. null = not yet synced. */
   vfsLoadedHashes: Set<string> | null
-
-  /** Store which sample hashes loaded into VFS after a sync. */
-  setVfsLoaded: (hashes: Set<string>) => void
-
-  /** Run an Immer recipe against the doc, recording it as one undoable edit. */
-  mutate: (recipe: (draft: Doc) => void) => void
-  undo: () => void
-  redo: () => void
-  /** Replace the whole document (e.g. loading a saved song). Resets history. */
-  loadDoc: (doc: Doc) => void
 
   // --- Cell editing ---
   setCellNote: (trackId: Id, row: number, note: number | null) => void
