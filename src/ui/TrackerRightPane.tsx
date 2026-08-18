@@ -7,6 +7,8 @@ import { currentSongFile, saveCurrentSong } from '../persist/saveCurrent'
 import { serializeSong, type SongFile } from '../persist/serialize'
 import { exportSongZip, importSongZip } from '../persist/songExport'
 import { Legend } from './Legend'
+import { downloadBlob } from './download'
+import { saveLabel } from './format'
 import type { Doc, Id } from '../domain/types'
 
 type TabId = 'arrange' | 'store' | 'legend'
@@ -650,12 +652,7 @@ function StoreTab({ slug }: { slug: string }) {
     try {
       const file = currentSongFile()
       const blob = await exportSongZip(file, slug)
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `${name || 'song'}.synthor`
-      a.click()
-      URL.revokeObjectURL(url)
+      downloadBlob(blob, `${name || 'song'}.synthor`)
     } catch (err) {
       console.error('Export failed:', err)
       alert(`Export failed: ${(err as Error).message}`)
@@ -665,12 +662,7 @@ function StoreTab({ slug }: { slug: string }) {
   const exportJson = () => {
     const file = currentSongFile()
     const blob = new Blob([serializeSong(file)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${name || 'song'}.synthor.json`
-    a.click()
-    URL.revokeObjectURL(url)
+    downloadBlob(blob, `${name || 'song'}.synthor.json`)
   }
 
   const importSong = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -687,22 +679,11 @@ function StoreTab({ slug }: { slug: string }) {
     }
   }
 
-  const saveLabel =
-    status === 'saving'
-      ? 'Saving…'
-      : status === 'error'
-        ? '⚠ Save failed'
-        : status === 'dirty'
-          ? 'Unsaved'
-          : lastSavedAt
-            ? `Saved ${new Date(lastSavedAt).toLocaleTimeString()}`
-            : 'Not saved yet'
-
   return (
     <div className="store-tab">
       <div className="store-status">
         <span className={'store-status-label' + (status === 'error' ? ' error' : '') + (status === 'dirty' ? ' dirty' : '')}>
-          {saveLabel}
+          {saveLabel(status, lastSavedAt)}
         </span>
       </div>
 

@@ -3,6 +3,7 @@ import { useDocStore } from '../state/docStore'
 import { usePreviewStore } from '../state/previewStore'
 import { useAppStore } from '../state/appStore'
 import { codeToSemitone, isEditableTarget } from './keymap'
+import { downloadBlob } from './download'
 import { ModularEditor } from './ModularEditor'
 import { DrumKitEditor } from './DrumKitEditor'
 import { InstrumentSettings } from './InstrumentSettings'
@@ -95,13 +96,7 @@ export function InstrumentsView({ host, keyboardPlayer }: { host: AudioHost; key
   const exportInstrument = () => {
     if (!selected) return
     const json = JSON.stringify({ schemaVersion: 1, instrument: selected }, null, 2)
-    const blob = new Blob([json], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${selected.name}.synthor.inst.json`
-    a.click()
-    URL.revokeObjectURL(url)
+    downloadBlob(new Blob([json], { type: 'application/json' }), `${selected.name}.synthor.inst.json`)
   }
 
   /** Parse an instrument file and add it to the current song with fresh ids. */

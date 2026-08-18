@@ -7,6 +7,7 @@ import { readSampleAsset, writeSampleAsset, deleteSampleAsset } from '../persist
 import { newSampleEntity } from '../domain/factory'
 import { samplePlaybackRate } from '../domain/notes'
 import { codeToSemitone, isEditableTarget } from './keymap'
+import { formatDuration, formatSize } from './format'
 import { CreateSampleDialog, SampleEditor, sampleDialogOpenRef } from './SampleEditor'
 import type { AudioHost } from '../audio/host'
 import type { SampleEntity } from '../domain/types'
@@ -179,19 +180,6 @@ export function SampleLibraryView({ host }: Props) {
     [vfsLoadedHashes],
   )
 
-  const formatDuration = (sr: number, frames: number) => {
-    const secs = frames / sr
-    if (secs < 1) return `${Math.round(secs * 1000)}ms`
-    return `${secs.toFixed(1)}s`
-  }
-
-  const formatSize = (frames: number, channels: number) => {
-    const bytes = frames * channels * 4
-    if (bytes < 1024) return `${bytes} B`
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-  }
-
   return (
     <div className={'sample-library-view' + (editingId ? ' has-editor' : '')}>
       <div className="slv-toolbar">
@@ -270,7 +258,7 @@ export function SampleLibraryView({ host }: Props) {
                       </span>
                     </td>
                     <td className="muted">
-                      {s.sampleRate.toLocaleString()} Hz · {formatDuration(s.sampleRate, s.frames)}
+                      {s.sampleRate.toLocaleString()} Hz · {formatDuration(s.sampleRate, s.frames, 1)}
                     </td>
                     <td className="muted">{formatSize(s.frames, s.channels)}</td>
                     <td className="slv-actions">

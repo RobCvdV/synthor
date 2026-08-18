@@ -15,6 +15,8 @@ import { generateWaveform, WAVE_SHAPES, type WaveShape } from '../audio/waveGen'
 import { newSampleEntity } from '../domain/factory'
 import { WAVEFORM_MAX_LENGTH_SECONDS } from '../domain/moduleDefs'
 import { isEditableTarget } from './keymap'
+import { formatDuration } from './format'
+import { downloadBytes } from './download'
 import type { AudioHost } from '../audio/host'
 import type { Id } from '../domain/types'
 
@@ -673,12 +675,6 @@ export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: 
     return () => window.removeEventListener('keydown', h, true)
   }, [play, doCopy, doCut, doPaste])
 
-  const formatDuration = (sr: number, fr: number) => {
-    const secs = fr / sr
-    if (secs < 1) return `${Math.round(secs * 1000)}ms`
-    return `${secs.toFixed(2)}s`
-  }
-
   const missing = !entity || loadError !== null || (!pcm && !busy)
   const hasSel = sel !== null
   const tooLongForWave = meta !== null && meta.frames / meta.sampleRate > WAVEFORM_MAX_LENGTH_SECONDS
@@ -822,16 +818,6 @@ export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: 
 }
 
 // ── Dialogs ────────────────────────────────────────────────────────────────
-
-function downloadBytes(bytes: ArrayBuffer, filename: string) {
-  const blob = new Blob([bytes], { type: 'application/octet-stream' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  a.click()
-  URL.revokeObjectURL(url)
-}
 
 function SaveAsDialog({
   defaultName,
