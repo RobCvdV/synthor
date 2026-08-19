@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { AudioHost, OUTPUT_WARMUP_MS, PRIME_SETTLE_MS } from '../audio/host'
+import { AudioHost, OUTPUT_WARMUP_MS } from '../audio/host'
 import { compileGraph } from '../engine/compile'
 import { buildArrangement } from '../engine/arrangement'
 import { buildPlaybackData, mapPatternTracksToSlots, type PlaybackData, type VoiceSlotData } from '../player/playbackData'
@@ -185,17 +185,7 @@ export function useEngine(): AudioHost {
        *  Skips instantly once the stream is old enough; bails if the
        *  transport stopped or a newer session superseded this one. */
       const startWhenOutputSettled = async (epoch: number) => {
-        // Spend the device's first-transient hit on a soft wake-up burst
-        // during the wait, so the first musical note lands clean.
-        let primeAt = 0
-        if (host.outputAgeMs < OUTPUT_WARMUP_MS) {
-          host.primeOutput()
-          primeAt = performance.now()
-        }
-        while (
-          host.outputAgeMs < OUTPUT_WARMUP_MS ||
-          (primeAt > 0 && performance.now() - primeAt < PRIME_SETTLE_MS)
-        ) {
+        while (host.outputAgeMs < OUTPUT_WARMUP_MS) {
           await new Promise((r) => setTimeout(r, 50))
           const t = useTransportStore.getState()
           if (!t.playing || t.playEpoch !== epoch) return

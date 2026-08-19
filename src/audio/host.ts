@@ -8,11 +8,10 @@ import type { DrumKitInstrument } from '../domain/types'
 import { SchedulerNode } from '../player/SchedulerNode'
 
 /** How long a freshly created AudioContext needs before its output stream
- *  can be trusted to pass transients cleanly (device establishment window). */
-export const OUTPUT_WARMUP_MS = 500
-/** How long after the wake-up burst the device needs to finish its
- *  first-transient ramp before real audio can land. */
-export const PRIME_SETTLE_MS = 500
+ *  can be trusted to pass transients cleanly. Measured: a click followed by
+ *  ~1s of idle plays perfectly from row 0; anything less eats the first
+ *  few rows on the first play. */
+export const OUTPUT_WARMUP_MS = 1500
 
 /**
  * Owns the AudioContext + Elementary WebRenderer and pushes compiled graphs to
@@ -181,28 +180,6 @@ export class AudioHost {
    *  a settling window before the first sound lands cleanly. */
   get outputAgeMs(): number {
     return this.ctx ? (this.ctx.currentTime - this.ctxStartTime) * 1000 : 0
-  }
-
-  private primed = false
-
-  /** One-time wake-up burst through the output. Some devices eat the first
-   *  loud transient after start-up; a short, softly enveloped noise burst
-   *  fired during the armed wait window takes that hit instead of the first
-   *  musical note. */
-  primeOutput(): void {
-    if (!this.ctx || this.primed) return
-    this.primed = true
-    const frames = Math.floor(this.ctx.sampleRate * 0.12)
-    const buf = this.ctx.createBuffer(1, frames, this.ctx.sampleRate)
-    const d = buf.getChannelData(0)
-    for (let i = 0; i < frames; i++) {
-      // Sine-shaped envelope: no hard edges, ~-26 dBFS peak.
-      d[i] = (Math.random() * 2 - 1) * 0.05 * Math.sin((Math.PI * i) / frames)
-    }
-    const src = this.ctx.createBufferSource()
-    src.buffer = buf
-    src.connect(this.ctx.destination)
-    src.start()
   }
 
   get isReady(): boolean {
