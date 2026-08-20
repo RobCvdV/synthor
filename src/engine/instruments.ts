@@ -2,6 +2,7 @@ import { el, type NodeRepr_t } from '@elemaudio/core'
 import type { DrumKitSlot, Id, Instrument } from '../domain/types'
 import { midiToFreq } from '../domain/notes'
 import { compileModular, type StereoOut } from './modular'
+import { makeSampleOneShot } from './samplePlay'
 
 /**
  * An instrument is a node factory: given the control signals a track drives
@@ -103,14 +104,18 @@ export function renderDrumKitSlot(
       if (meta) {
         const key = `${voiceKey}:slot:${slot.id}:${hash}`
 
-        // el.mc.sample — v4 native API, reliable gate + proper multi-channel.
-        // playbackRate sets the base pitch; per-note offset within the slot's
-        // range is not yet supported with mc.sample (no signal-rate rate).
+        // One-shot via table + edge-reset phase. mc.sample's built-in fade
+        // and alternating readers drop the first ms of the attack after
+        // silence; the table plays deterministically from sample 0 on every
+        // gate edge. The table index is normalized 0..1 (1 = full buffer),
+        // so the phase advances playbackRate/frames per sample — but only
+        // while the `running` window is open (edge → end of sample), never
+        // free-running between hits.
         const baseFreq = 261.6255653005986 // midiToFreq(60)
         const playbackRate = midiToFreq(slot.baseNote) / baseFreq
-        const ch = el.mc.sample(
-          { key: `${key}:sample`, path: hash, channels: meta.channels, playbackRate },
-          slotGate,
+        const ch = makeSampleOneShot(
+          key, hash, meta.channels, slotGate,
+          playbackRate / meta.frames, meta.frames, playbackRate,
         )
         rawL = ch[0]
         rawR = ch[meta.channels >= 2 ? 1 : 0]

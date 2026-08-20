@@ -20,12 +20,18 @@ import { useMidi } from './midi/useMidi'
 import { useMidiStore } from './state/midiStore'
 import { usePreviewStore } from './state/previewStore'
 import { KeyboardPlayer } from './audio/keyboardPlayer'
+import { installWarmup } from './audio/warmup'
+import { useAudioStore } from './state/audioStore'
 
 export default function App() {
   const host = useEngine()
   useAutosave()
   useMidi(host) // connect to Web MIDI API
   const keyboardPlayer = useMemo(() => new KeyboardPlayer(host), [host])
+
+  // Start the audio host on the first user interaction so the first play
+  // press finds a warm, silent graph instead of a cold compile.
+  useEffect(() => installWarmup(host), [host])
 
   // Don't render the default placeholder doc — wait until either a persisted
   // song is loaded or a fresh default is created, then apply the rest of the
@@ -100,6 +106,8 @@ export default function App() {
   const setProjectName = useProjectStore((s) => s.setName)
   const resetProject = useProjectStore((s) => s.reset)
   const playing = useTransportStore((s) => s.playing)
+  const audioStatus = useAudioStore((s) => s.status)
+  const playbackStarted = useAudioStore((s) => s.playbackStarted)
   const bpm = useTransportStore((s) => s.bpm)
   const linesPerBeat = useTransportStore((s) => s.linesPerBeat)
   const setBpm = useTransportStore((s) => s.setBpm)
@@ -300,7 +308,9 @@ export default function App() {
 
   // Visual playhead with pattern transition support for section/song modes.
   useEffect(() => {
-    if (!playing) {
+    // Hold until the scheduler clock actually starts — otherwise the playhead
+    // runs ahead during warm-up and snaps back when audio begins.
+    if (!playing || !playbackStarted) {
       setPlayhead(null)
       return
     }
@@ -345,7 +355,7 @@ export default function App() {
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [playing, bpm, linesPerBeat, pattern.length, host, playMode, totalArrangementRows, arrangement, doc.entities.patterns, doc.patternId])
+  }, [playing, playbackStarted, bpm, linesPerBeat, pattern.length, host, playMode, totalArrangementRows, arrangement, doc.entities.patterns, doc.patternId])
 
   const liveTrackCount = () => useDocStore.getState().doc.entities.patterns[doc.patternId].trackIds.length
 
@@ -379,22 +389,18 @@ export default function App() {
       // --- Transport (spacebar) ---
       if (e.code === 'Space' && !e.ctrlKey && !e.metaKey && !isEditableTarget(e.target)) {
         e.preventDefault()
-        void host.start().then(() => {
-          host.playStartTime = host.currentTime
-          host.playStartRow = cursorRef.current.row
-          toggle(host.currentTime, cursorRef.current.row)
-        })
+        // start() is idempotent; useEngine defers the actual scheduler start
+        // until the graph is live (play from cursor).
+        void host.start()
+        toggle(host.currentTime, cursorRef.current.row)
         return
       }
 
       // --- Transport: Ctrl+Space (play from top) ---
       if (e.code === 'Space' && e.ctrlKey && !e.metaKey && !isEditableTarget(e.target)) {
         e.preventDefault()
-        void host.start().then(() => {
-          host.playStartTime = host.currentTime
-          host.playStartRow = 0
-          toggle(host.currentTime, 0)
-        })
+        void host.start()
+        toggle(host.currentTime, 0)
         return
       }
 
@@ -411,6 +417,7 @@ export default function App() {
         e.preventDefault()
         keyboardPlayer.clearHeld()
         host.panic()
+        useAudioStore.getState().setPlaybackStarted(false)
         return
       }
 
@@ -745,12 +752,11 @@ export default function App() {
     <div className="app">
       <Toolbar
         playing={playing}
+        audioStatus={audioStatus}
+        playbackStarted={playbackStarted}
         onTogglePlay={() => {
-          void host.start().then(() => {
-            host.playStartTime = host.currentTime
-            host.playStartRow = cursorRef.current.row
-            toggle(host.currentTime, cursorRef.current.row)
-          })
+          void host.start()
+          toggle(host.currentTime, cursorRef.current.row)
         }}
         playMode={playMode}
         onSetPlayMode={setPlayMode}
@@ -786,6 +792,7 @@ export default function App() {
           host.panic()
           host.stopSamplePreviews()
           usePreviewStore.getState().panic()
+          useAudioStore.getState().setPlaybackStarted(false)
         }}
         view={view}
         onSetView={setView}

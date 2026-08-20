@@ -100,7 +100,7 @@ describe('wave module structure', () => {
     const refs = mockParamRefs()
     const { left } = compile(makeWavePatch({ sampleIndex: 0, finetune: 0, gain: 1 }), 440, [META_SHORT], refs)
     const nodes = collect(left)
-    const table = nodes.find((n) => n.kind === 'table')
+    const table = nodes.find((n) => ['table', 'mc.table'].includes(n.kind as string))
     expect(table).toBeDefined()
     expect(table!.props.path).toBe('wavehash')
     expect(nodes.some((n) => n.kind === 'phasor')).toBe(true)
@@ -128,24 +128,24 @@ describe('wave module structure', () => {
 
   it('falls back to silence without an eligible sample', () => {
     const { left } = compile(makeWavePatch({ sampleIndex: 0, finetune: 0, gain: 1 }), 440, [])
-    expect(collect(left).some((n) => n.kind === 'table')).toBe(false)
+    expect(collect(left).some((n) => ['table', 'mc.table'].includes(n.kind as string))).toBe(false)
   })
 
   it('filters out samples longer than the max waveform length', () => {
     // The long sample is ineligible, so index 0 resolves to nothing.
     const { left } = compile(makeWavePatch({ sampleIndex: 0, finetune: 0, gain: 1 }), 440, [META_LONG])
-    expect(collect(left).some((n) => n.kind === 'table')).toBe(false)
+    expect(collect(left).some((n) => ['table', 'mc.table'].includes(n.kind as string))).toBe(false)
 
     // With both, the index maps into the FILTERED list: 0 → short, 1 → none.
     const both0 = compile(makeWavePatch({ sampleIndex: 0, finetune: 0, gain: 1 }), 440, [META_SHORT, META_LONG])
-    expect(collect(both0.left).find((n) => n.kind === 'table')?.props.path).toBe('wavehash')
+    expect(collect(both0.left).find((n) => ['table', 'mc.table'].includes(n.kind as string))?.props.path).toBe('wavehash')
     const both1 = compile(makeWavePatch({ sampleIndex: 1, finetune: 0, gain: 1 }), 440, [META_SHORT, META_LONG])
-    expect(collect(both1.left).some((n) => n.kind === 'table')).toBe(false)
+    expect(collect(both1.left).some((n) => ['table', 'mc.table'].includes(n.kind as string))).toBe(false)
   })
 
   it('switching sampleIndex swaps the table path', () => {
     const { left } = compile(makeWavePatch({ sampleIndex: 1, finetune: 0, gain: 1 }), 440, [META_SHORT, META_SHORT_2])
-    expect(collect(left).find((n) => n.kind === 'table')?.props.path).toBe('wavehash2')
+    expect(collect(left).find((n) => ['table', 'mc.table'].includes(n.kind as string))?.props.path).toBe('wavehash2')
   })
 })
 

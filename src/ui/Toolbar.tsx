@@ -1,9 +1,12 @@
 import type { RefObject } from 'react'
 import { PLAY_MODES, type PlayMode, type View } from '../state/appStore'
+import type { AudioStatus } from '../state/audioStore'
 import type { Instrument } from '../domain/types'
 
 interface ToolbarProps {
   playing: boolean
+  audioStatus: AudioStatus
+  playbackStarted: boolean
   onTogglePlay: () => void
   playMode: PlayMode
   onSetPlayMode: (mode: PlayMode) => void
@@ -39,6 +42,8 @@ interface ToolbarProps {
 /** App header: transport, song title/tempo, instrument select, octave, panic, views. */
 export function Toolbar({
   playing,
+  audioStatus,
+  playbackStarted,
   onTogglePlay,
   playMode,
   onSetPlayMode,
@@ -74,11 +79,20 @@ export function Toolbar({
     <header className="toolbar">
       {/* Left: transport controls */}
       <button
-        className={'toolbar-play' + (playing ? ' playing' : '')}
-        title={playing ? 'Stop (Space)' : 'Play (Space)'}
+        className={
+          'toolbar-play' +
+          (playing ? ' playing' : '') +
+          (audioStatus === 'warming' ? ' warming' : '') +
+          (playing && !playbackStarted ? ' armed' : '')
+        }
+        title={
+          playing
+            ? playbackStarted ? 'Stop (Space)' : 'Starting audio…'
+            : audioStatus === 'warming' ? 'Preparing audio…' : 'Play (Space)'
+        }
         onClick={onTogglePlay}
       >
-        {playing ? '■' : '▶'}
+        {playing && playbackStarted ? '■' : '▶'}
       </button>
       <span className="toolbar-mode-group" title="Play mode — Tab to cycle">
         {PLAY_MODES.map((mode) => (
