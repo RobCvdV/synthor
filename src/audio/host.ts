@@ -222,9 +222,10 @@ export class AudioHost {
       // Multiple scheduler nodes to overcome the browser's 32-channel
       // AudioWorkletNode limit.  Each handles up to 32 control channels;
       // Elementary reads from all inputs as one flat channel space.
-      // Max 3 inputs: connecting a source to all 4 inputs silences every
-      // input (Chromium bug, reproduced on Electron 35 and 43), so we
-      // stay at 3 × 32 = 96 control channels.
+      // Chromium bugs constrain the wiring (verified empirically):
+      //  - numberOfInputs: 3 → all inputs silent
+      //  - numberOfInputs: 4 with 4 sources connected → all inputs silent
+      // So: declare 4 inputs, connect only 3 schedulers (96 channels) to 0-2.
       const CHANNELS_PER_NODE = 32
       const NUM_SCHEDULER_NODES = 3
       const TOTAL_CONTROL_CHANNELS = CHANNELS_PER_NODE * NUM_SCHEDULER_NODES
@@ -237,7 +238,8 @@ export class AudioHost {
       this.schedulerNodes = schNodes
 
       const node = await this.core.initialize(this.ctx, {
-        numberOfInputs: NUM_SCHEDULER_NODES,
+        // Declared inputs stay at 4 even though only 3 are connected — see above.
+        numberOfInputs: 4,
         numberOfOutputs: 1,
         outputChannelCount: [2],
         processorOptions: {
