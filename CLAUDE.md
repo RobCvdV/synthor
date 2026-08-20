@@ -32,7 +32,7 @@ Chains are ordered; each hop is verified. Skipping the tail is how features half
 |---|---|
 | New module type (osc / filter / fx node in the modular editor) | `domain/types.ts` `ModuleType` → `domain/moduleDefs.ts` `MODULE_DEFS` entry (`group` is what puts it in the Add palette) → `engine/modular.ts` `render` case → `persist/serialize.ts` version bump. `ModularEditor` renders from `MODULE_DEFS` — only touch it for a control that isn't a slider |
 | New param on an existing module | `domain/moduleDefs.ts` `params` (the slider is automatic) → read it in that module's `engine/modular.ts` case; via `paramRefs` if it must apply without recompiling |
-| New effect lane (tracker column) | `domain/effects.ts` (`BUILTIN_LANE_TYPES` + `LANE_DEFS`) → `engine/voiceSlotLayout.ts` channel counts → `player/playbackData.ts` (fill the channel + its neutral default) → `player/SchedulerNode.ts` inlined processor, only if it needs sub-row behaviour → `engine/compile.ts` (`el.in` read + apply) → `ui/TrackerGrid.tsx` column. **Not `engine/effects.ts`** |
+| New effect lane (tracker column) | `domain/effects.ts` (`BUILTIN_LANE_TYPES` + `LANE_DEFS`) → `engine/voiceSlotLayout.ts` channel counts → `player/playbackData.ts` (fill the channel + its neutral default) → `player/SchedulerNode.ts` inlined processor, only if it needs sub-row behaviour → `engine/compile.ts` (`el.in` read + apply) → `ui/TrackerGrid.tsx` column |
 | New persisted UI preference | `state/appStore.ts`: state + action + **`partialize`** — a key missing from `partialize` silently doesn't persist |
 | Transport / BPM / note timing | `state/transportStore.ts` + `player/` — must not cause a recompile |
 | New keyboard shortcut | the owning keydown handler: `App.tsx` (global; tracker + mixer) or the view's own (`InstrumentsView`, `SampleLibraryView`, `ModularEditor`, `SampleEditor`). `ui/keymap.ts` is only the note layout |
@@ -54,7 +54,6 @@ Chains are ordered; each hop is verified. Skipping the tail is how features half
 ## Rules that prevent recurring mistakes
 
 - **The live worklet is the inlined `PROCESSOR_CODE` string in `player/SchedulerNode.ts`.** `player/scheduler-processor.ts` is compiled for type-checking only and is never loaded — editing it alone changes nothing. Change both, keep them in sync.
-- **`engine/effects.ts` is dead** (`buildEffectSignals`, `panGains` — only its own test imports it). Effect lanes actually run through `playbackData` → scheduler → `compile.ts`. Don't extend it; don't reason from it.
 - **Voice-slot channel indices move in lockstep:** `engine/voiceSlotLayout.ts` (`REGULAR_CH`, `DRUMKIT_CH`, `DRUMKIT_EXTRA_CHANNELS`), `player/playbackData.ts`, the inlined processor, and `engine/compile.ts` — which still hardcodes the named-inlet base as `offset + 11 + ni`. Adding a lane means updating every one of them.
 - **Recompiles wipe param refs** (`paramRefs.clear()` resets them audible). After any structural recompile, mutes must be re-applied — `useEngine.applyMuteRefs` does this; keep calling it after `host.render`.
 - **Never hand-roll track→slot mapping.** Use `mapPatternTracksToSlots` from `playbackData` — the per-pattern per-instrument counter increments even when a slot exceeds `slotCount`. Mute application and playback data must not drift.
