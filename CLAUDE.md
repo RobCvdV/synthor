@@ -44,7 +44,7 @@ Chains are ordered; each hop is verified. Skipping the tail is how features half
 
 - **Engine is a pure function** — unit-testable and reusable for offline bounce/headless playback.
 - **Playback runs in the audio thread.** The scheduler worklet drives note events (gate/freq) straight into Elementary via `el.in`; the main thread is not in the audio path. Note edits, transport, and BPM changes never recompile. The graph recompiles only on structural edits, detected by a `structuralKey` hash in `useEngine`.
-- **Four SchedulerNodes** — browsers cap AudioWorkletNode at 32 channels; the scheduler spans 4×32 control channels.
+- **Three SchedulerNodes** — browsers cap AudioWorkletNode at 32 channels; the scheduler spans 3×32 control channels. Never go back to 4 inputs: connecting a source to all 4 inputs of an AudioWorkletNode silences every input (Chromium bug, reproduced on Electron 35 and 43).
 - **`paramRefs`** — `createRef`-backed nodes so sliders/mutes/CC updates hit Elementary live without recompile. `setValue` on an unmounted ref is queued and flushed after the next render.
 - **Voice slots are pre-allocated** per instrument (max concurrent tracks in any pattern); tracks in non-overlapping pattern windows share slots. Mute refs are per slot: `tracker:{instId}:ts:{si}:mute`.
 - **docStore** — Immer `mutate` recipes with undo; `mutateSilent` persists without triggering recompiles (slider drags). Only the `Doc` autosaves (OPFS `song.json`).
