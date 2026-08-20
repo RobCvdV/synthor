@@ -2,6 +2,8 @@
   "name": "synthor",
   "private": true,
   "version": "0.0.0",
+  "description": "Modular web-based tracker synth on Elementary Audio",
+  "author": "Rob Coenen",
   "type": "module",
   "main": "electron-dist/main.js",
   "scripts": {
@@ -14,8 +16,8 @@
     "electron:compile": "tsc -p tsconfig.electron.json",
     "electron:dev": "npm run electron:compile && vite --config vite.electron.config.ts",
     "electron:start": "electron .",
-    "electron:build": "npm run electron:compile && vite build && electron-builder",
-    "electron:dist": "npm run electron:compile && vite build && electron-builder --dir",
+    "electron:build": "npm run electron:compile && vite build --config vite.electron.config.ts && electron-builder",
+    "electron:dist": "npm run electron:compile && vite build --config vite.electron.config.ts && electron-builder --dir",
     "deploy": "node scripts/deploy.js",
     "build-deploy": "npm run build && npm run deploy"
   },

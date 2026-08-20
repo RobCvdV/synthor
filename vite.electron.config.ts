@@ -14,6 +14,11 @@ export default defineConfig({
   server: {
     port: 5193,
     strictPort: true,
+    // Cross-origin isolation required for SharedArrayBuffer (Elementary).
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+    },
   },
   build: {
     outDir: 'dist',
