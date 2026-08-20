@@ -17,14 +17,14 @@ export function InstrumentStrip({
   const subChannels = Object.values(channels).filter((c) => c.kind === 'sub')
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 72, padding: '4px 3px', border: '1px solid #444', borderRadius: 4, background: '#1a1a2e', flexShrink: 0, gap: 2, position: 'relative' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 80, padding: '4px 3px', border: '1px solid #444', borderRadius: 4, background: '#1a1a2e', flexShrink: 0, gap: 4, position: 'relative' }}>
       <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: 1 }}>
         {onMoveUp && <button className="octbtn" onClick={onMoveUp} style={{ padding: '0 2px', fontSize: 9, lineHeight: '12px' }}>◀</button>}
         {onMoveDown && <button className="octbtn" onClick={onMoveDown} style={{ padding: '0 2px', fontSize: 9, lineHeight: '12px' }}>▶</button>}
-        <div style={{ flex: 1, fontSize: 9, fontWeight: 'bold', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{inst.name}</div>
-        <button className="octbtn" onClick={onHide} title="Hide from mixer" style={{ fontSize: 10, padding: '0 2px', lineHeight: '14px', position: 'absolute', top: 3, right: 3 }}>👁</button>
+      <button className="octbtn" onClick={onHide} title="Hide from mixer" style={{ fontSize: 10, padding: '0 2px', lineHeight: '14px', position: 'absolute', top: 3, right: 3 }}>👁 Hide</button>
       </div>
       <div style={{ fontSize: 8, color: '#888' }}>{kindLabel}</div>
+      <div style={{ fontSize: 11, fontWeight: 'bold', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'wrap' }}>{inst.name}</div>
       <div style={{ flex: 1, minHeight: 4 }} />
       {/* Per-instrument metering deferred — needs Elementary snapshot support */}
       <div style={{ display: 'flex', gap: 4, marginTop: 2 }}>
