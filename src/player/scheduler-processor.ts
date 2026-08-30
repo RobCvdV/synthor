@@ -226,8 +226,12 @@ class SchedulerProcessor extends AudioWorkletProcessor {
       }
     }
 
-    // Report current row back to main thread for UI.
-    this.port.postMessage({ type: 'row', row: wrappedRow, sessionId })
+    // Report current row back to main thread for UI — only on row changes,
+    // not every block (a per-block flood starves the audio thread).
+    if (wrappedRow !== this._lastPostedRow) {
+      this._lastPostedRow = wrappedRow
+      this.port.postMessage({ type: 'row', row: wrappedRow, sessionId })
+    }
 
     currentRow += rowsPerBlock
 

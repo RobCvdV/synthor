@@ -140,11 +140,23 @@ class SchedulerProcessor extends AudioWorkletProcessor {
       }
     }
 
-    this.port.postMessage({ type: 'row', row: wrappedRow, sessionId: this.sessionId });
+    if (wrappedRow !== this._lastPostedRow) {
+      this._lastPostedRow = wrappedRow
+      this.port.postMessage({ type: 'row', row: wrappedRow, sessionId: this.sessionId });
+    }
     this.currentRow += rowsPerBlock;
     if (this.totalRows > 0 && this.currentRow >= this.totalRows) {
       this.currentRow -= this.totalRows;
       this.port.postMessage({ type: 'loop', sessionId: this.sessionId });
+    }
+
+    // TEMP DEBUG heartbeat.
+    if (!this._hbT) this._hbT = Date.now();
+    this._hbN = (this._hbN || 0) + 1;
+    const _hbNow = Date.now();
+    if (_hbNow - this._hbT > 2000) {
+      this.port.postMessage({ type: 'log', text: 'HB playing=' + this.playing + ' slots=' + this.slots.length + ' ch0=' + (out[0] ? out[0][0] : 'none') + ' ch1=' + (out[1] ? out[1][0] : 'none') + ' row=' + this.currentRow.toFixed(1) });
+      this._hbT = _hbNow; this._hbN = 0;
     }
     return true;
   }

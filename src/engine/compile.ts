@@ -94,6 +94,11 @@ export interface RenderContext {
   paramRefs?: import('../audio/paramRefs').ParamRefRegistry
   ccBindings?: import('../audio/ccBindings').CcBindings
   arrangement?: ArrangementItem[]
+  /** 32-channel node base for the split Elementary rendering. Only tracker
+   *  slots whose channels fall in [channelBase, channelBase+32) are compiled,
+   *  with el.in reads remapped to node-local channels (offset - channelBase).
+   *  Live keyboard/MIDI voices compile only on channelBase 0. */
+  channelBase?: number
 }
 
 /**
@@ -175,6 +180,7 @@ function compileTrackerVoiceSlots(
   sampleMeta: ReturnType<typeof buildSampleMeta>,
   sampleHashById: Record<Id, string>,
   rowHzNode: NodeRepr_t,
+  channelBase: number,
 ): Map<Id, StereoOut[]> {
   const zero = el.const({ value: 0 })
   const one = el.const({ value: 1 })
@@ -192,6 +198,9 @@ function compileTrackerVoiceSlots(
 
     for (let si = 0; si < layout.slotCount; si++) {
       const offset = layout.slotBaseChannels[si]
+      // Only compile slots owned by this node's 32-channel block.
+      if (offset < channelBase || offset >= channelBase + 32) continue
+      const local = offset - channelBase
       const trackerKey = `${inst.id}:ts:${si}`
 
       // ── Named inlet signals (shared between regular and drumkit) ──
@@ -200,12 +209,12 @@ function compileTrackerVoiceSlots(
         const drumSounds = layout.drumSounds ?? 0
         for (let ni = 0; ni < layout.namedInletIds.length; ni++) {
           inletSignals[layout.namedInletIds[ni]] = el.in({
-            channel: offset + 2 * drumSounds + DRUMKIT_EXTRA_CHANNELS + ni,
+            channel: local + 2 * drumSounds + DRUMKIT_EXTRA_CHANNELS + ni,
           })
         }
       } else {
         for (let ni = 0; ni < layout.namedInletIds.length; ni++) {
-          inletSignals[layout.namedInletIds[ni]] = el.in({ channel: offset + 11 + ni })
+          inletSignals[layout.namedInletIds[ni]] = el.in({ channel: local + 11 + ni })
         }
       }
 
@@ -232,18 +241,18 @@ function compileTrackerVoiceSlots(
         const drumGates: NodeRepr_t[] = []
         const drumFreqs: NodeRepr_t[] = []
         for (let d = 0; d < drumSounds; d++) {
-          drumGates.push(el.in({ channel: offset + d }))
-          drumFreqs.push(el.in({ channel: offset + drumSounds + d }))
+          drumGates.push(el.in({ channel: local + d }))
+          drumFreqs.push(el.in({ channel: local + drumSounds + d }))
         }
 
         // ── Effect channels ──
-        const dkVol = el.in({ channel: offset + effBase + DRUMKIT_CH.vol })
-        const portamento = el.in({ channel: offset + effBase + DRUMKIT_CH.portamento })
+        const dkVol = el.in({ channel: local + effBase + DRUMKIT_CH.vol })
+        const portamento = el.in({ channel: local + effBase + DRUMKIT_CH.portamento })
         const freqMul = buildPortamento(portamento, effSettings?.portamento ?? 4)
-        const volMod = el.in({ channel: offset + effBase + DRUMKIT_CH.volumeSlide })
-        const pan = el.in({ channel: offset + effBase + DRUMKIT_CH.panning })
-        const tremRate = el.in({ channel: offset + effBase + DRUMKIT_CH.tremoloRate })
-        const tremDepth = el.in({ channel: offset + effBase + DRUMKIT_CH.tremoloDepth })
+        const volMod = el.in({ channel: local + effBase + DRUMKIT_CH.volumeSlide })
+        const pan = el.in({ channel: local + effBase + DRUMKIT_CH.panning })
+        const tremRate = el.in({ channel: local + effBase + DRUMKIT_CH.tremoloRate })
+        const tremDepth = el.in({ channel: local + effBase + DRUMKIT_CH.tremoloDepth })
 
         // Tremolo on drumkit mix.
         let dkEffVol = buildTremolo(
@@ -276,19 +285,19 @@ function compileTrackerVoiceSlots(
         getChannel(inst.channelId ?? MASTER_CHANNEL_ID).push(dkVoice)
       } else {
         // ── Regular instrument slot ──
-        const gate = el.in({ channel: offset + REGULAR_CH.gate })
-        const freq = el.in({ channel: offset + REGULAR_CH.freq })
-        const vol = el.in({ channel: offset + REGULAR_CH.vol })
+        const gate = el.in({ channel: local + REGULAR_CH.gate })
+        const freq = el.in({ channel: local + REGULAR_CH.freq })
+        const vol = el.in({ channel: local + REGULAR_CH.vol })
 
         // Effect channels.
-        const portamento = el.in({ channel: offset + REGULAR_CH.portamento })
+        const portamento = el.in({ channel: local + REGULAR_CH.portamento })
         const freqMul = buildPortamento(portamento, effSettings?.portamento ?? 4)
-        const volMod = el.in({ channel: offset + REGULAR_CH.volumeSlide })
-        const pan = el.in({ channel: offset + REGULAR_CH.panning })
-        const vibRate = el.in({ channel: offset + REGULAR_CH.vibratoRate })
-        const vibDepth = el.in({ channel: offset + REGULAR_CH.vibratoDepth })
-        const tremRate = el.in({ channel: offset + REGULAR_CH.tremoloRate })
-        const tremDepth = el.in({ channel: offset + REGULAR_CH.tremoloDepth })
+        const volMod = el.in({ channel: local + REGULAR_CH.volumeSlide })
+        const pan = el.in({ channel: local + REGULAR_CH.panning })
+        const vibRate = el.in({ channel: local + REGULAR_CH.vibratoRate })
+        const vibDepth = el.in({ channel: local + REGULAR_CH.vibratoDepth })
+        const tremRate = el.in({ channel: local + REGULAR_CH.tremoloRate })
+        const tremDepth = el.in({ channel: local + REGULAR_CH.tremoloDepth })
 
         // Frequency modulation: portamento + vibrato.
         let effFreq = el.mul(freq, freqMul)
@@ -340,7 +349,10 @@ function compileTrackerVoiceSlots(
  * AudioContext — pure, unit-testable, and reusable for offline bounce.
  */
 export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
-  ctx.ccBindings?.clear()
+  const channelBase = ctx.channelBase ?? 0
+  // CC bindings are registered during compile — clear only on the first
+  // pass, or the second/third split compiles would wipe them.
+  if (channelBase === 0) ctx.ccBindings?.clear()
 
   const sampleMeta = buildSampleMeta(doc.entities.samples, ctx.vfsLoadedHashes, ctx.l1Sums)
   const sampleHashById = buildSampleHashById(doc.entities.samples)
@@ -353,10 +365,13 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
 
   // Live voice slots for every instrument — keyboard, MIDI and tracker
   // all write to VoicePool refs. No recompile for any note event.
-  const liveOut = compileAllVoiceSlots(
-    doc, ctx.paramRefs, sampleMeta, sampleHashById,
-    ctx.midiCcValues, ctx.ccBindings, rowHzNode,
-  )
+  // Only on the first split node — duplicating them would triple the gain.
+  const liveOut = channelBase === 0
+    ? compileAllVoiceSlots(
+        doc, ctx.paramRefs, sampleMeta, sampleHashById,
+        ctx.midiCcValues, ctx.ccBindings, rowHzNode,
+      )
+    : null
 
   // Compute slot layouts from the document.  This determines how many
   // slots each instrument needs and their channel offsets.
@@ -365,7 +380,7 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
   // Tracker voice slots — one slot per concurrent track, with fixed
   // el.in channel positions.  Data flows from scheduler → el.in → voice.
   const channelVoices = slotLayouts.length > 0
-    ? compileTrackerVoiceSlots(doc, slotLayouts, ctx, sampleMeta, sampleHashById, rowHzNode)
+    ? compileTrackerVoiceSlots(doc, slotLayouts, ctx, sampleMeta, sampleHashById, rowHzNode, channelBase)
     : new Map<Id, StereoOut[]>()
 
   if (slotLayouts.length > 0) {

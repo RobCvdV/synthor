@@ -174,7 +174,63 @@ describe('compileGraph', () => {
     expect(out).toBeDefined()
   })
 
+  // ── Split-node channelBase ─────────────────────────────────
+  it('channelBase 0 compiles only first-block slots with local channels', () => {
+    // 3 instruments × 1 slot × 11ch: slots at [0-10], [11-21], [32-42]
+    // (the third slot is aligned past the 32-channel boundary).
+    const { doc } = makeDoc([
+      { id: 'p1', name: 'P1', length: 16 },
+      { id: 'p2', name: 'P2', length: 16 },
+      { id: 'p3', name: 'P3', length: 16 },
+    ])
+    const out = compileGraph(doc, defaultCtx({ channelBase: 0 }))
+    const chans = collectInChannels(out)
+    expect(chans).toContain(0) // inst 1 gate
+    expect(chans).toContain(11) // inst 2 gate
+    expect(chans.some((c) => c >= 32)).toBe(false) // third block excluded
+  })
+
+  it('channelBase 32 remaps second-block slots to local channels', () => {
+    const { doc } = makeDoc([
+      { id: 'p1', name: 'P1', length: 16 },
+      { id: 'p2', name: 'P2', length: 16 },
+      { id: 'p3', name: 'P3', length: 16 },
+    ])
+    const out = compileGraph(doc, defaultCtx({ channelBase: 32 }))
+    const chans = collectInChannels(out)
+    expect(chans).toContain(0) // inst 3 gate, remapped 32 → 0
+    expect(chans.some((c) => c >= 32)).toBe(false)
+    expect(chans.some((c) => c >= 11 && c < 32)).toBe(false) // first block's other slots excluded
+  })
+
+  it('channelBase 32 omits live voice refs', () => {
+    const { doc } = makeDoc([{ id: 'p1', name: 'P1', length: 16 }])
+    const refs = mockParamRefs()
+    compileGraph(doc, defaultCtx({ channelBase: 32, paramRefs: refs as unknown as RenderContext['paramRefs'] }))
+    expect([...refs.keys].some((k) => k.includes(':v:'))).toBe(false)
+  })
+
 })
+
+/** Collect all el.in channel indices in a compiled graph. */
+function collectInChannels(out: { left: unknown; right: unknown }): number[] {
+  const chans: number[] = []
+  const visit = (n: unknown) => {
+    if (!n || typeof n !== 'object') return
+    const node = n as Record<string, unknown>
+    if (node.symbol === '__ELEM_NODE__') {
+      const props = node.props as Record<string, unknown> | undefined
+      if (node.kind === 'in' && typeof props?.channel === 'number') chans.push(props.channel)
+      visit(node.children)
+      return
+    }
+    // Linked-list pair.
+    if (node.hd) { visit(node.hd); visit(node.tl) }
+  }
+  visit(out.left)
+  visit(out.right)
+  return chans
+}
 
 // ── compileLiveVoices (with paramRefs) ──────────────────────────
 

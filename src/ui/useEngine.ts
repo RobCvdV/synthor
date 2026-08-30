@@ -239,7 +239,10 @@ export function useEngine(): AudioHost {
 
           host.paramRefs.clear()
 
-          const stereo = compileGraph(doc, {
+          // One split graph per Elementary node: each node carries the
+          // tracker slots of its own 32-channel block and the full (linear)
+          // master chain; the live keyboard/MIDI voices go on the first node.
+          const compileBase = (channelBase: number) => compileGraph(doc, {
             rowHz: rowHz(bpm, linesPerBeat),
             playing: playing ? 1 : 0,
             startRow,
@@ -250,8 +253,10 @@ export function useEngine(): AudioHost {
             paramRefs: host.paramRefs,
             ccBindings: host.ccBindings,
             arrangement: effectiveArrangement,
+            channelBase,
           })
-          renderSettleRef.current = host.render(stereo)
+          const stereos = [0, 1, 2].map((ni) => compileBase(ni * 32))
+          renderSettleRef.current = host.render(stereos)
           renderSettleRef.current.then(markAudioReady)
           applyMuteRefs()
         }
