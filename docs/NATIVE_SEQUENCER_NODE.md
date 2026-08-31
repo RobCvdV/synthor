@@ -64,15 +64,55 @@ more expressive than MIDI, and internal.
 - the ref-based live voices (`compileAllVoiceSlots`, `VoicePool`)
 - transport store, playEpoch session logic, the output-settle warm-up
 
-## Phases
+## Phase 0 — spike results (done)
 
-0. **Spike — verify the SDK.** Custom-node toolchain (emscripten/CMake,
-   `@elemaudio/node-renderer`), load a built node module into the web
-   renderer + vite, confirm: property updates on custom nodes, bulk data
-   ingestion (shared resources or param protocol), offline-renderer support
-   for tests, and a mechanism for row feedback to the UI playhead (native
-   node events or a row output channel). Deliverable: a trivial native node
-   running in the app + one offline test.
+All SDK questions answered **yes**; a `txspike` node runs in the app and
+passes an offline test.
+
+- **Toolchain**: `emsdk 3.1.52` (pinned, matches upstream's Docker image).
+  Bleeding-edge emscripten (brew, 6.x) breaks the vendored `nlohmann/json`
+  (`auto* const = iterator` — old libc++ implicit conversion). Build:
+  `ELEM_BUILD_ASYNC=0/1 emcmake cmake -G Ninja -DCMAKE_BUILD_TYPE=Release
+  -DONLY_BUILD_WASM=ON …` in `wasm/`; output is one closure-compiled JS file
+  with the wasm embedded base64. Requires `--closure 1` → java. Ninja
+  incremental rebuilds are ~seconds; full builds a few minutes. Submodules
+  must be initialized first (`FFTConvolver`, `signalsmith-stretch`).
+- **Custom nodes load in the web renderer** — the browser runtime is just
+  `wasm/Main.cpp` (embind `ElementaryAudioProcessor`) + the extension nodes
+  registered in `prepare()` (`convolve`, `fft`, `metro`, `time` — all built
+  exactly like ours). We rebuild the `@elemaudio/web-renderer` and
+  `@elemaudio/offline-renderer` packages from source with our wasm
+  (`raw/elementary-wasm.js` / `elementary-wasm.cjs` replaced, then `tsup`).
+  Both dists embed the module, so a plain node_modules swap works today; a
+  proper vendored fork (submodule + build script) lands in phase 2.
+- **Props → signal**: `setProperty(key, js::Value)` on the non-RT thread,
+  atomics into `process`. Verified live in the browser via
+  `core.createRef('txspike', …)` → `setTx({value})` — a 4× level jump on the
+  analyser, no recompile. This is the paramRefs-equivalent path for
+  play/stop/BPM/per-channel controls.
+- **Bulk data ingestion**: shared resources — `renderer.updateVirtualFileSystem`
+  (web) / `virtualFileSystem` option + `addSharedResource` (offline) upload
+  `Float32Array`s by name; the node pulls them in
+  `setProperty(key, val, SharedResourceMap&)` (the `el.table` pattern:
+  `resources.get(name)` → lock-free queue → `process`). Data is **copied**
+  into `AudioBufferResource` (no zero-copy). Update via content-hash keys
+  (same as the current VFS) — resources cannot be overwritten.
+- **Playhead feedback**: native-node **events** — override `processEvents`
+  (non-RT thread, atomic flag from `process`, `MetronomeNode` pattern) and
+  the renderer emits them on its EventEmitter (`core.on('txspike', …)`).
+  Web renderer polls the worklet every `eventInterval` ms (default 16);
+  offline processes per block. Row events are strictly coarser than
+  block-accurate — fine for a UI playhead; keep the row math deterministic
+  on the main thread anyway.
+- **Offline tests**: `OfflineRenderer` runs the same wasm under vitest
+  (node ≥18); events are testable synchronously inside `process()`.
+  `src/engine/nativeNodeSpike.test.ts` covers all three paths.
+- **Root semantics** (affects phase 2 design): root output sums only the
+  root's **channel 0** (`RootRenderSequence::process`); a root has a 20ms
+  fade-in on `active` (measured: 0.5×ramp at block 1). The sequencer node
+  should output one channel, or sum in-graph (`el.add`) before the root.
+
+## Phases
 1. **Native sequencer core.** Port the scheduler processor to C++: row clock,
    play/stop/panic, tempo, per-slot signal fill, loop wrap.
 2. **Graph rewire.** `compile.ts` consumes the native node's outputs;
@@ -87,7 +127,12 @@ more expressive than MIDI, and internal.
 
 ## Risks
 
-- SDK capability gaps (spike first — it decides the data-ingestion and
-  playhead-feedback designs).
-- C++ build loop slows dev iteration; mitigate with a local build script.
-- Custom node in the offline-renderer (needed for engine tests).
+- **Forked renderer packages** — we now depend on locally built
+  `@elemaudio/web-renderer`/`offline-renderer` (custom wasm inside).
+  Upgrading either package means rebuilding the fork; keep the elementary
+  repo as a vendored submodule + one build script (phase 2).
+- **emsdk in CI** — the wasm build needs emsdk 3.1.52 + java (closure) +
+  git submodules; pin it in the deploy workflow.
+- **Native-node API drift** — `GraphNode`/`SharedResource`/event APIs are
+  stable upstream today, but Elementary can change them between releases;
+  the pinned fork insulates us.
