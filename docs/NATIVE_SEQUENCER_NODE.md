@@ -115,6 +115,18 @@ passes an offline test.
 ## Phases
 1. **Native sequencer core.** Port the scheduler processor to C++: row clock,
    play/stop/panic, tempo, per-slot signal fill, loop wrap.
+
+   **Done.** `src/native/TxSeq.h` (registered in `src/native/Main.cpp`) plays
+   packed per-slot sequences from one shared resource; commands arrive as a
+   single `cmd` prop ({type: play|update|stop|panic, …}); `rowsPerSec` is a
+   live tempo prop; `txseq` events report wrapped rows + loop. Offline
+   verified in `src/engine/txSeq.test.ts` (gate rows, loop, stop/panic,
+   block-quantized staccato, live tempo, mid-play update). The packing
+   contract lives in `src/player/txSeqData.ts` (`buildTxSeqData`).
+   Fork tooling: `vendor/elementary` submodule pinned at 60e7234
+   (web/offline v4.0.3) + `scripts/build-elementary-wasm.sh` rebuilds the
+   wasm and both renderer packages. The app does not use txSeq yet — that is
+   phase 2.
 2. **Graph rewire.** `compile.ts` consumes the native node's outputs;
    delete `el.in`, `channelBase`, the splits; single Elementary node, zero
    inputs; host simplification.

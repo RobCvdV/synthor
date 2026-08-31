@@ -1,0 +1,3 @@
+[submodule "vendor/elementary"]
+	path = vendor/elementary
+	url = https://github.com/elemaudio/elementary.git
