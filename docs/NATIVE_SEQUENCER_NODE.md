@@ -155,9 +155,13 @@ passes an offline test.
 5. **Verification.** Browser matrix (Chrome/Edge/Safari/Firefox), Electron,
    offline tests, the demo song and the user's 87-channel song.
 
-   **Chrome verified** (live app): the full song plays — meter follows the
-   notes (up to 0.33 RMS), row clock exact at 120 BPM with loop wrap, stop
-   clean. Edge/Safari/Firefox + Electron remain to check before merging.
+   **Verified live**: Chrome + Safari play the full song cleanly (meter
+   follows the notes, row clock exact at 120 BPM, loop wrap, stop). Edge
+   runs the graph (meters live) but needs a local output-device/permission
+   check — its output stage, not the app. Firefox is a known limitation:
+   its AudioWorklet underruns at 128-sample blocks on the SAB-heavy
+   Elementary runtime (slow-motion, bitcrushed audio) — out of scope.
+   Electron + the deploy flows remain.
 
 ## Risks
 
