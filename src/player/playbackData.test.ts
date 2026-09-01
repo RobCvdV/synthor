@@ -57,7 +57,6 @@ describe('buildPlaybackData', () => {
     const slot = data.slots[0]
     expect(slot.instId).toBe(inst.id)
     expect(slot.slotIndex).toBe(0)
-    expect(slot.channelOffset).toBe(0)
     expect(slot.drumGateCount).toBe(0)
 
     // Gate=1 on row 0, 0 elsewhere.
@@ -89,8 +88,6 @@ describe('buildPlaybackData', () => {
     // Slot 0 gets track t1's data, slot 1 gets track t2's data.
     const s0 = data.slots.find((s) => s.slotIndex === 0)!
     const s1 = data.slots.find((s) => s.slotIndex === 1)!
-    expect(s0.channelOffset).toBe(0)
-    expect(s1.channelOffset).toBe(11)
 
     // t1 note at row 0 → slot 0 gate[0] = 1.
     expect(s0.signals[REGULAR_CH.gate][0]).toBe(1)

@@ -2,7 +2,8 @@ import { useEffect, useRef } from 'react'
 import { AudioHost, OUTPUT_WARMUP_MS } from '../audio/host'
 import { compileGraph } from '../engine/compile'
 import { buildArrangement } from '../engine/arrangement'
-import { buildPlaybackData, mapPatternTracksToSlots, type PlaybackData, type VoiceSlotData } from '../player/playbackData'
+import { buildPlaybackData, mapPatternTracksToSlots, type PlaybackData } from '../player/playbackData'
+import { buildTxSeqData } from '../player/txSeqData'
 import { syncSamplesToVfs } from '../audio/vfsLoader'
 import { computeSlotLayouts } from '../engine/voiceSlotLayout'
 import { useDocStore } from '../state/docStore'
@@ -13,11 +14,14 @@ import { useAppStore } from '../state/appStore'
 import { useAudioStore } from '../state/audioStore'
 
 /**
- * Wires reactive stores to the audio host + scheduler AudioWorklet.
+ * Wires reactive stores to the audio host + the txSeq native sequencer.
  *
- * Playback is driven by the audio-thread scheduler — note events (gate/freq)
- * flow directly from the scheduler worklet to Elementary via el.in. No main
- * thread, no recompile for note edits / play / stop / BPM changes.
+ * Playback runs entirely inside the Elementary runtime: the txSeq node holds
+ * the per-slot sequences (uploaded as one shared resource), runs the row
+ * clock on the audio thread, and the graph reads its outputs directly.
+ * Note edits, transport, and BPM changes never recompile — they arrive as a
+ * new data upload plus a cmd/rowsPerSec prop update on the keyed txSeq ref.
+ * txSeq events feed the UI row counter.
  *
  * The graph is only recompiled for structural edits (instrument changes,
  * track add/remove, effect structure, sample changes).
@@ -50,13 +54,18 @@ export function useEngine(): AudioHost {
   const lastEpochRef = useRef(0)
 
   /** Latest playback data from the most recent pass — a deferred play-start
-   *  must send the data matching the live graph, not its own stale pass. */
+   *  must upload the data matching the live graph, not its own stale pass. */
   const latestPlaybackRef = useRef<PlaybackData | null>(null)
-  const latestBatchRef = useRef<Map<number, VoiceSlotData[]>>(new Map())
-  /** Promise of the most recent host.render(). Awaited before sch.play so the
-   *  row clock never starts on a graph still uploading. Never nulled — a
+  /** Promise of the most recent host.render(). Awaited before the play cmd so
+   *  the row clock never starts on a graph still uploading. Never nulled — a
    *  resolved promise awaits instantly. */
   const renderSettleRef = useRef<Promise<void> | null>(null)
+
+  /** The keyed txSeq ref, created once per host.  Its identity survives
+   *  recompiles, so the node (and its row clock) persists across them. */
+  const txSeqNodeRef = useRef<unknown>(null)
+  const setTxSeqRef = useRef<((props: Record<string, unknown>) => Promise<unknown>) | null>(null)
+  const txSeqUploadRevRef = useRef(0)
 
   useEffect(() => {
     let frame = 0
@@ -123,7 +132,7 @@ export function useEngine(): AudioHost {
       // Instrument slot layouts — captures named inlet changes and slot counts.
       const slotLayouts = computeSlotLayouts(doc)
       for (const l of slotLayouts) {
-        parts.push(`slots:${l.instId}:${l.slotCount}:${l.channelsPerSlot}:${l.slotBaseChannels.join(',')}:in[${l.namedInletIds.join(',')}]`)
+        parts.push(`slots:${l.instId}:${l.slotCount}:${l.channelsPerSlot}:in[${l.namedInletIds.join(',')}]`)
       }
 
       return parts.join('|')
@@ -160,6 +169,42 @@ export function useEngine(): AudioHost {
       if (audio.status !== 'ready') audio.setStatus('ready')
     }
 
+    /** Upload the latest playback data and drive the txSeq node.  Play starts
+     *  a new session; update swaps data while the row keeps advancing. */
+    const sendTxSeq = async (data: PlaybackData, epoch: number, isNewEpoch: boolean): Promise<void> => {
+      const setTxSeq = setTxSeqRef.current
+      if (!setTxSeq) return
+      const t = useTransportStore.getState()
+      if (!t.playing || t.playEpoch !== epoch) return
+
+      const packed = buildTxSeqData(data)
+      const dataKey = `txseq:${txSeqUploadRevRef.current++}`
+      await host.updateVfs({ [dataKey]: packed })
+
+      const rowsPerSec = rowHz(t.bpm, t.linesPerBeat)
+      const cmd = isNewEpoch
+        ? {
+            type: 'play',
+            sessionId: epoch,
+            rowsPerSec,
+            startRow: t.startRow,
+            totalRows: data.totalRows,
+            dataPath: dataKey,
+          }
+        : {
+            type: 'update',
+            sessionId: epoch,
+            rowsPerSec,
+            totalRows: data.totalRows,
+            dataPath: dataKey,
+          }
+
+      await setTxSeq({ cmd, dataPath: dataKey })
+
+      // Safe now: the node holds the new data; drop superseded uploads.
+      void host.pruneVfs()
+    }
+
     const render = () => {
       frame = 0
       if (!host.isReady) return
@@ -180,7 +225,7 @@ export function useEngine(): AudioHost {
         }
       }
 
-      /** Hold the first clock start until the output stream has settled — a
+      /** Hold the first play command until the output stream has settled — a
        *  fresh AudioContext's first ~500ms can still gate a transient.
        *  Skips instantly once the stream is old enough; bails if the
        *  transport stopped or a newer session superseded this one. */
@@ -193,11 +238,10 @@ export function useEngine(): AudioHost {
         startPlayback(epoch)
       }
 
-      /** Start the scheduler clock once the graph is live. Deferred past the
-       *  latest render so rows never advance against a dead graph. Re-reads
+      /** Start the txSeq clock once the graph is live.  Deferred past the
+       *  latest render so rows never advance against a dead graph.  Re-reads
        *  the store fresh: a stop during the wait cancels, and a newer play
-       *  session (higher epoch) supersedes this deferred pass. Synchronous
-       *  from the guard to sch.play, so nothing can interleave. */
+       *  session (higher epoch) supersedes this deferred pass. */
       const startPlayback = (epoch: number) => {
         const t = useTransportStore.getState()
         const latest = latestPlaybackRef.current
@@ -205,15 +249,7 @@ export function useEngine(): AudioHost {
         host.playStartTime = host.currentTime
         host.playStartRow = t.startRow
         host.paramRefs.setValue('transport:playing', 1)
-        for (const [nodeIdx, sch] of host.schedulerNodes.entries()) {
-          const batch = latestBatchRef.current.get(nodeIdx) ?? []
-          sch.play(
-            { slots: batch, totalRows: latest.totalRows, arrangement: latest.arrangement },
-            t.bpm,
-            t.linesPerBeat,
-            t.startRow,
-          )
-        }
+        void sendTxSeq(latest, epoch, true)
         const audio = useAudioStore.getState()
         audio.setPlaybackStarted(true)
         if (audio.status !== 'ready') audio.setStatus('ready')
@@ -250,60 +286,31 @@ export function useEngine(): AudioHost {
             paramRefs: host.paramRefs,
             ccBindings: host.ccBindings,
             arrangement: effectiveArrangement,
+            txSeq: txSeqNodeRef.current as never,
           })
           renderSettleRef.current = host.render(stereo)
           renderSettleRef.current.then(markAudioReady)
           applyMuteRefs()
         }
 
-        // Split slots into batches, one per scheduler node (32 channels each).
-        const CHANNELS_PER_NODE = 32
-        const batchedSlots = new Map<number, typeof playbackData.slots>()
-        for (const slot of playbackData.slots) {
-          const nodeIdx = Math.floor(slot.channelOffset / CHANNELS_PER_NODE)
-          if (!batchedSlots.has(nodeIdx)) batchedSlots.set(nodeIdx, [])
-          batchedSlots.get(nodeIdx)!.push({
-            ...slot,
-            channelOffset: slot.channelOffset - nodeIdx * CHANNELS_PER_NODE,
-          })
-        }
-
-        if (playbackData.slots.length > 0) {
-          const batchInfo = [...batchedSlots.entries()].map(
-            ([ni, slots]) => {
-              const names = slots.map((s) => {
-                const name = doc.entities.instruments[s.instId]?.name ?? s.instId.slice(0, 8)
-                return `${name}/${s.slotIndex}`
-              }).join(', ')
-              return `  Scheduler ${ni}: ${slots.length} slots, ch 0-${slots.reduce((m, s) => Math.max(m, s.channelOffset + s.signals.length), 0) - 1} (${names})`
-            },
-          )
-          console.log('[useEngine] batching:\n' + batchInfo.join('\n'))
-        }
-
-        // Every pass overwrites these: a deferred play-start (below) must
-        // read the latest batch, not the data captured by its own pass.
+        // Every pass overwrites this: a deferred play-start (below) must
+        // upload the latest data, not the data captured by its own pass.
         latestPlaybackRef.current = playbackData
-        latestBatchRef.current = batchedSlots
 
-        // Send data to schedulers.
+        // Upload + drive the node, once the (possibly in-flight) render lands.
         const transport = useTransportStore.getState()
-        const schNodes = host.schedulerNodes
-        if (transport.playing && schNodes.length > 0) {
+        const settle = renderSettleRef.current
+        if (transport.playing) {
           if (transport.playEpoch !== lastEpochRef.current) {
             console.log('[useEngine] new play session playEpoch=', transport.playEpoch)
             lastEpochRef.current = transport.playEpoch
             const epoch = transport.playEpoch
-            const settle = renderSettleRef.current
-            if (settle) settle.then(() => startWhenOutputSettled(epoch))
-            else startWhenOutputSettled(epoch)
+            ;(settle ?? Promise.resolve()).then(() => startWhenOutputSettled(epoch))
           } else {
-            for (const [nodeIdx, sch] of schNodes.entries()) {
-              const batch = batchedSlots.get(nodeIdx) ?? []
-              sch.update({ slots: batch, totalRows: playbackData.totalRows, arrangement: playbackData.arrangement })
-            }
+            const epoch = transport.playEpoch
+            ;(settle ?? Promise.resolve()).then(() => void sendTxSeq(playbackData, epoch, false))
           }
-        } else if (!transport.playing) {
+        } else {
           lastEpochRef.current = 0
         }
       }
@@ -339,7 +346,7 @@ export function useEngine(): AudioHost {
 
       if (!state.playing && prev.playing) {
         host.paramRefs.setValue('transport:playing', 0)
-        for (const sch of host.schedulerNodes) sch.stop()
+        void setTxSeqRef.current?.({ cmd: { type: 'stop', sessionId: prev.playEpoch } })
         lastEpochRef.current = 0
         useAudioStore.getState().setPlaybackStarted(false)
         return
@@ -348,8 +355,8 @@ export function useEngine(): AudioHost {
       if (state.bpm !== prev.bpm || state.linesPerBeat !== prev.linesPerBeat) {
         // Keep tempo-synced delay/echo times live without a recompile.
         host.paramRefs.setValue('transport:rowHz', rowHz(state.bpm, state.linesPerBeat))
-        if (state.playing && host.schedulerNodes.length > 0) {
-          for (const sch of host.schedulerNodes) sch.setTempo(state.bpm, state.linesPerBeat)
+        if (state.playing) {
+          void setTxSeqRef.current?.({ rowsPerSec: rowHz(state.bpm, state.linesPerBeat) })
         }
       }
     })
@@ -362,11 +369,29 @@ export function useEngine(): AudioHost {
     })
 
     host.onReady = () => {
-      const sch0 = host.schedulerNodes[0]
-      if (sch0) {
-        sch0.onRow = (row) => {
-          useTransportStore.getState().setCurrentRow(row)
-        }
+      const core = host.core
+      if (core) {
+        // One stable txSeq ref for the host's lifetime — its identity (and
+        // row clock) survives recompiles.
+        const [txSeqNode, setTxSeq] = core.createRef('txseq', {
+          key: 'txseq',
+          emitEvery: 4,
+          name: 'txseq',
+        }, [])
+        txSeqNodeRef.current = txSeqNode
+        setTxSeqRef.current = setTxSeq as (props: Record<string, unknown>) => Promise<unknown>
+
+        // Row feedback: the native node reports the row it just rendered.
+        ;(core as unknown as {
+          on: (type: string, fn: (event: { row?: number; sessionId?: number }) => void) => void
+        }).on('txseq', (e) => {
+          const t = useTransportStore.getState()
+          // playing check: a late in-flight event must not repaint the row
+          // after stop() has reset it.
+          if (t.playing && e.sessionId === t.playEpoch && typeof e.row === 'number') {
+            t.setCurrentRow(e.row)
+          }
+        })
       }
       schedule()
     }

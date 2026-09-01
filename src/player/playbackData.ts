@@ -11,7 +11,7 @@
 
 import type { Doc, Id } from '../domain/types'
 import { buildSequences, buildDrumKitSlotSequences } from '../engine/sequences'
-import { computeSlotLayouts, getSlotChannelOffset, REGULAR_CH, DRUMKIT_CH, DRUMKIT_EXTRA_CHANNELS } from '../engine/voiceSlotLayout'
+import { computeSlotLayouts, REGULAR_CH, DRUMKIT_CH, DRUMKIT_EXTRA_CHANNELS } from '../engine/voiceSlotLayout'
 import type { InstrumentSlotLayout } from '../engine/voiceSlotLayout'
 import type { ArrangementItem } from '../engine/arrangement'
 
@@ -31,8 +31,6 @@ export interface VoiceSlotData {
    *            panning, vibratoRate, vibratoDepth, tremoloRate, tremoloDepth,
    *            staccato, ...namedInlets] */
   signals: number[][]
-  /** Global channel offset assigned during graph compilation. */
-  channelOffset: number
   /** Number of drum gate channels (0 for regular instrument slots). */
   drumGateCount: number
 }
@@ -119,7 +117,7 @@ function createSlotData(
     }
   }
 
-  return { instId, slotIndex, signals, channelOffset: 0, drumGateCount: layout.isDrumkit ? (layout.drumSounds ?? 0) : 0 }
+  return { instId, slotIndex, signals, drumGateCount: layout.isDrumkit ? (layout.drumSounds ?? 0) : 0 }
 }
 
 /** Copy track sequence data into a regular-instrument slot's signals arrays
@@ -212,9 +210,7 @@ export function buildPlaybackData(
   const allSlots: VoiceSlotData[] = []
   for (const layout of layouts) {
     for (let si = 0; si < layout.slotCount; si++) {
-      const slot = createSlotData(layout.instId, si, totalRows, layout)
-      slot.channelOffset = getSlotChannelOffset(layouts, layout.instId, si)
-      allSlots.push(slot)
+      allSlots.push(createSlotData(layout.instId, si, totalRows, layout))
     }
   }
 
@@ -294,7 +290,7 @@ export function buildPlaybackData(
       const activeEnd = activeRow != null && activeRow >= 0
         ? s.signals[0]?.lastIndexOf(1)
         : undefined
-      return `${name} slot ${s.slotIndex}: ch ${s.channelOffset}, ` +
+      return `${name} slot ${s.slotIndex}: ` +
         `gate rows ${activeRow ?? 'none'}${activeEnd != null && activeEnd !== activeRow ? `-${activeEnd}` : ''}${s.drumGateCount > 0 ? ` (dk ${s.drumGateCount})` : ''}`
     })
     console.log('[playbackData]', lines.join('\n  '), `\n  totalRows: ${totalRows}`)

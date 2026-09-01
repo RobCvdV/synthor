@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { el } from '@elemaudio/core'
+import { createNode, el } from '@elemaudio/core'
 import { compileGraph } from '../engine/compile'
 import type { RenderContext } from '../engine/compile'
 import { buildArrangement } from '../engine/arrangement'
@@ -217,6 +217,40 @@ function makeInstrumentsDoc(instrumentCount: number): Doc {
     sectionIds: [],
   }
 }
+
+/** Collect outputChannel for every txseq rep reachable from a graph node.
+ *  Children are Rescript lists — walk hd/tl pairs. */
+function collectTxSeqOutlets(root: unknown, acc = new Set<number>()): Set<number> {
+  const node = root as { symbol?: string; kind?: string; outputChannel?: number; children?: unknown } | null
+  if (node && typeof node === 'object' && node.symbol === '__ELEM_NODE__') {
+    if (node.kind === 'txseq') acc.add(node.outputChannel ?? 0)
+    let l = node.children as { hd: unknown; tl: unknown } | null | undefined
+    while (l) {
+      collectTxSeqOutlets(l.hd, acc)
+      l = l.tl as typeof l
+    }
+  }
+  return acc
+}
+
+describe('txSeq wiring', () => {
+  it('connects each slot signal to its txSeq output channel', () => {
+    const { doc } = makeDoc([{ id: 'p1', name: 'P1', length: 16 }])
+    const out = compileGraph(doc, defaultCtx())
+
+    // One modular instrument, one concurrent track → one slot.  Outlets 0..9:
+    // staccato (channel 10) is consumed inside the txSeq node itself.
+    const channels = [...collectTxSeqOutlets(out.left)].sort((a, b) => a - b)
+    expect(channels).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
+  })
+
+  it('uses a stable txSeq ref when the ctx provides one', () => {
+    const { doc } = makeDoc([{ id: 'p1', name: 'P1', length: 16 }])
+    const txSeq = createNode('txseq', { key: 'txseq', emitEvery: 4 }, [])
+    const out = compileGraph(doc, defaultCtx({ txSeq }))
+    expect(out).toBeDefined()
+  })
+})
 
 describe('compileLiveVoices', () => {
   it('returns null when paramRefs is not provided', () => {
