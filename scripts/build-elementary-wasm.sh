@@ -52,10 +52,19 @@ for pkg in web-renderer offline-renderer; do
     [[ -d node_modules ]] || npm install --no-audit --no-fund
     npm run build >/dev/null
   )
+  # vendor/elementary-js is the source of truth — package.json depends on it
+  # via file:, so node_modules follows (symlink, or npm install refreshes copies).
   cp "$ELEM/js/packages/$pkg/dist/index.js" \
      "$ELEM/js/packages/$pkg/dist/index.cjs" \
      "$ELEM/js/packages/$pkg/dist/index.d.ts" \
-     "$ROOT/node_modules/@elemaudio/$pkg/dist/"
+     "$ROOT/vendor/elementary-js/$pkg/dist/"
+  # Refresh any copied (non-symlinked) installs too.
+  if [[ ! -L "$ROOT/node_modules/@elemaudio/$pkg" ]]; then
+    cp "$ELEM/js/packages/$pkg/dist/index.js" \
+       "$ELEM/js/packages/$pkg/dist/index.cjs" \
+       "$ELEM/js/packages/$pkg/dist/index.d.ts" \
+       "$ROOT/node_modules/@elemaudio/$pkg/dist/"
+  fi
 done
 
 echo "done — restart the dev server (vite caches the old dep bundle)"
