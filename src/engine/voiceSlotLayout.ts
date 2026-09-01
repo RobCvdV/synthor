@@ -11,6 +11,10 @@
 import type { Doc, Id } from '../domain/types'
 import { isBuiltinLaneType } from '../domain/effects'
 
+/** Output channels reserved per slot on the txSeq native node
+ *  (src/native/TxSeq.h).  Channel for slot s signal c = s * MAX + c. */
+export const MAX_SLOT_SIGNALS = 32
+
 /** Fixed layout per slot for a regular (modular) instrument.
  *  Channels: gate, freq, vol, portamento, volumeSlide, panning,
  *  vibratoRate, vibratoDepth, tremoloRate, tremoloDepth, staccato = 11 base. */
@@ -209,4 +213,20 @@ export function getSlotChannelOffset(
     }
   }
   return 0
+}
+
+/** Global slot ordinal (0-based across all instruments, in layout order).
+ *  This is the slot's index into the txSeq upload and its output-channel base
+ *  (channel = globalIndex * MAX_SLOT_SIGNALS + signalIndex). */
+export function slotGlobalIndex(
+  layouts: InstrumentSlotLayout[],
+  instId: Id,
+  slotIndex: number,
+): number {
+  let global = 0
+  for (const l of layouts) {
+    if (l.instId === instId) return global + slotIndex
+    global += l.slotCount
+  }
+  return -1
 }

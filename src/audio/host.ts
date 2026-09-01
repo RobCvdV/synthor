@@ -5,7 +5,6 @@ import { ParamRefRegistry, setActiveParamRefs } from './paramRefs'
 import { CcBindings } from './ccBindings'
 import { VoicePool, LIVE_VOICE_COUNT } from '../engine/voicePool'
 import type { DrumKitInstrument } from '../domain/types'
-import { SchedulerNode } from '../player/SchedulerNode'
 
 /** How long a freshly created AudioContext needs before its output stream
  *  can be trusted to pass transients cleanly. Measured: a click followed by
@@ -20,7 +19,9 @@ export const OUTPUT_WARMUP_MS = 1500
  */
 export class AudioHost {
   private ctx: AudioContext | null = null
-  private core: WebRenderer | null = null
+  /** The Elementary renderer — public so useEngine can createRef the txSeq
+   *  node and subscribe to its events. */
+  core: WebRenderer | null = null
   private analyser: AnalyserNode | null = null
   private ready = false
   private starting: Promise<void> | null = null
@@ -28,18 +29,9 @@ export class AudioHost {
   private renderBusy = false
   private pendingGraph: StereoOut | null = null
   /** Resolves when the current render queue fully drains — awaited before the
-   *  scheduler clock starts so rows never advance against a dead graph. */
+   *  txSeq play command so rows never advance against a dead graph. */
   private settlePromise: Promise<void> | null = null
   private settleResolve: (() => void) | null = null
-
-  /** The audio-thread scheduler nodes. One per 32-channel batch.
-   *  Multiple nodes overcome the browser's 32-channel AudioWorkletNode limit. */
-  schedulerNodes: SchedulerNode[] = []
-
-  /** Convenience accessor for the first scheduler node (pattern-mode and legacy). */
-  get schedulerNode(): SchedulerNode | null {
-    return this.schedulerNodes[0] ?? null
-  }
 
   /** Registry of createRef-backed param nodes for zero-recompile value updates. */
   readonly paramRefs = new ParamRefRegistry()
@@ -93,7 +85,6 @@ export class AudioHost {
   panic(): void {
     for (const pool of this.voicePools.values()) pool.panic()
     this.paramRefs.panic()
-    for (const sch of this.schedulerNodes) sch.panic()
   }
 
   /**
@@ -166,7 +157,7 @@ export class AudioHost {
     src.start(0, Math.max(0, Math.min(offsetSeconds, buffer.duration)))
   }
 
-  /** Precise AudioContext time captured at the moment the scheduler clock
+  /** Precise AudioContext time captured at the moment the txSeq clock
    *  actually started for the current playback session. Set by useEngine. */
   playStartTime = 0
   /** Pattern row at which the current playback session started. */
@@ -219,33 +210,14 @@ export class AudioHost {
       this.paramRefs.attach(this.core)
       setActiveParamRefs(this.paramRefs)
       this.ccBindings.attach(this.paramRefs)
-      // Multiple scheduler nodes to overcome the browser's 32-channel
-      // AudioWorkletNode limit.  Each handles up to 32 control channels;
-      // Elementary reads from all inputs as one flat channel space.
-      const CHANNELS_PER_NODE = 32
-      const NUM_SCHEDULER_NODES = 4
-      const TOTAL_CONTROL_CHANNELS = CHANNELS_PER_NODE * NUM_SCHEDULER_NODES
 
-      console.log('[host] creating', NUM_SCHEDULER_NODES, 'SchedulerNodes (', TOTAL_CONTROL_CHANNELS, 'total channels)...')
-      const schNodes: SchedulerNode[] = []
-      for (let i = 0; i < NUM_SCHEDULER_NODES; i++) {
-        schNodes.push(await SchedulerNode.create(this.ctx, CHANNELS_PER_NODE))
-      }
-      this.schedulerNodes = schNodes
-
+      // Zero inputs: sequencing happens inside the Elementary runtime via the
+      // txSeq native node; the graph reads its outputs directly.
       const node = await this.core.initialize(this.ctx, {
-        numberOfInputs: NUM_SCHEDULER_NODES,
+        numberOfInputs: 0,
         numberOfOutputs: 1,
         outputChannelCount: [2],
-        processorOptions: {
-          numberOfInputChannels: TOTAL_CONTROL_CHANNELS,
-        },
       })
-
-      // Route each scheduler to its own Elementary input port.
-      for (let i = 0; i < NUM_SCHEDULER_NODES; i++) {
-        schNodes[i].connect(node, 0, i)
-      }
 
       this.analyser = this.ctx.createAnalyser()
       node.connect(this.analyser)
@@ -355,6 +327,16 @@ export class AudioHost {
       await this.core.updateVirtualFileSystem(vfs)
     } catch (err) {
       console.error('Elementary VFS update error:', err)
+    }
+  }
+
+  /** Drop shared resources no node references (superseded txSeq uploads). */
+  async pruneVfs(): Promise<void> {
+    if (!this.core) return
+    try {
+      await this.core.pruneVirtualFileSystem()
+    } catch (err) {
+      console.error('Elementary VFS prune error:', err)
     }
   }
 }

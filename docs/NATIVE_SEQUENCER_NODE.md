@@ -130,8 +130,20 @@ passes an offline test.
 2. **Graph rewire.** `compile.ts` consumes the native node's outputs;
    delete `el.in`, `channelBase`, the splits; single Elementary node, zero
    inputs; host simplification.
+
+   **Done.** Slot s reads signal c from txSeq outlet `s*MAX_SLOT_SIGNALS+c`
+   via `unpack(node, channels)[ch]` (`outputChannel` connection); the
+   renderer initializes with `numberOfInputs: 0`. SchedulerNode + processor
+   deleted; host exposes `core` + `pruneVfs`.
 3. **Main-thread integration.** `useEngine` drives play/update/stop/tempo
    through the host API; keep the settle window and UI row reporting.
+
+   **Done.** One keyed txSeq ref per host (row clock survives recompiles);
+   note edits upload new packed data + `cmd update`; play/stop/rowsPerSec go
+   through the ref setter (diffed props, no root activation); txseq events
+   feed the UI row. Verified live in the browser: tracker audio, meter
+   activity, 8 rows/sec at 120 BPM, loop wrap, stop. Phase 4 cleanup
+   (stale docs/logs, delete txspike) remains.
 4. **Cleanup + tests.** Remove the scheduler files; port engine tests to the
    native-node API; update CLAUDE.md.
 5. **Verification.** Browser matrix (Chrome/Edge/Safari/Firefox), Electron,

@@ -11,9 +11,10 @@
  */
 
 import type { PlaybackData } from './playbackData'
+import { MAX_SLOT_SIGNALS } from '../engine/voiceSlotLayout'
 
 export const TXSEQ_VERSION = 1
-export const MAX_SLOT_SIGNALS = 32
+export { MAX_SLOT_SIGNALS }
 
 /** Output channel index for one signal of one slot. */
 export function slotChannel(slotIndex: number, signalIndex: number): number {
