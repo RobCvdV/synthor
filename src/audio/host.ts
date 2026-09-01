@@ -5,7 +5,6 @@ import { ParamRefRegistry, setActiveParamRefs } from './paramRefs'
 import { CcBindings } from './ccBindings'
 import { VoicePool, LIVE_VOICE_COUNT } from '../engine/voicePool'
 import type { DrumKitInstrument } from '../domain/types'
-import { SchedulerNode } from '../player/SchedulerNode'
 
 /** How long a freshly created AudioContext needs before its output stream
  *  can be trusted to pass transients cleanly. Measured: a click followed by
@@ -20,32 +19,19 @@ export const OUTPUT_WARMUP_MS = 1500
  */
 export class AudioHost {
   private ctx: AudioContext | null = null
-  /** One Elementary node per 32-channel scheduler batch. Multi-input wiring is
-   *  broken in current Chromium — a node fed by a single source delivers its
-   *  channels correctly, so each batch gets its own node and the outputs sum. */
-  private cores: WebRenderer[] = []
-  /** TEMP DEBUG: the per-batch Elementary nodes, for probe access. */
-  get elmNodes(): AudioWorkletNode[] { return this._elmNodes }
-  private _elmNodes: AudioWorkletNode[] = []
+  /** The Elementary renderer — public so useEngine can createRef the txSeq
+   *  node and subscribe to its events. */
+  core: WebRenderer | null = null
   private analyser: AnalyserNode | null = null
   private ready = false
   private starting: Promise<void> | null = null
   private ctxStartTime = 0
   private renderBusy = false
-  private pendingGraph: StereoOut[] | null = null
+  private pendingGraph: StereoOut | null = null
   /** Resolves when the current render queue fully drains — awaited before the
-   *  scheduler clock starts so rows never advance against a dead graph. */
+   *  txSeq play command so rows never advance against a dead graph. */
   private settlePromise: Promise<void> | null = null
   private settleResolve: (() => void) | null = null
-
-  /** The audio-thread scheduler nodes. One per 32-channel batch.
-   *  Multiple nodes overcome the browser's 32-channel AudioWorkletNode limit. */
-  schedulerNodes: SchedulerNode[] = []
-
-  /** Convenience accessor for the first scheduler node (pattern-mode and legacy). */
-  get schedulerNode(): SchedulerNode | null {
-    return this.schedulerNodes[0] ?? null
-  }
 
   /** Registry of createRef-backed param nodes for zero-recompile value updates. */
   readonly paramRefs = new ParamRefRegistry()
@@ -99,7 +85,6 @@ export class AudioHost {
   panic(): void {
     for (const pool of this.voicePools.values()) pool.panic()
     this.paramRefs.panic()
-    for (const sch of this.schedulerNodes) sch.panic()
   }
 
   /**
@@ -172,7 +157,7 @@ export class AudioHost {
     src.start(0, Math.max(0, Math.min(offsetSeconds, buffer.duration)))
   }
 
-  /** Precise AudioContext time captured at the moment the scheduler clock
+  /** Precise AudioContext time captured at the moment the txSeq clock
    *  actually started for the current playback session. Set by useEngine. */
   playStartTime = 0
   /** Pattern row at which the current playback session started. */
@@ -221,53 +206,22 @@ export class AudioHost {
     if (this.starting) return this.starting
     this.starting = (async () => {
       this.ctx = new AudioContext()
-      // Resume first: worklet nodes and their connections created while the
-      // context is suspended negotiate channel counts wrong (input delivery
-      // breaks). Verified empirically — creating everything after resume fixes
-      // scheduler → Elementary delivery.
-      await this.ctx.resume()
+      this.core = new WebRenderer()
+      this.paramRefs.attach(this.core)
       setActiveParamRefs(this.paramRefs)
       this.ccBindings.attach(this.paramRefs)
-      // Multiple scheduler nodes to overcome the browser's 32-channel
-      // AudioWorkletNode limit.  Each handles up to 32 control channels.
-      // Current Chromium breaks multi-input AudioWorkletNode delivery, so
-      // each scheduler feeds its own Elementary node (single input, explicit
-      // 32 channels) and the node outputs sum into the analyser.
-      const CHANNELS_PER_NODE = 32
-      const NUM_SCHEDULER_NODES = 3
-      const TOTAL_CONTROL_CHANNELS = CHANNELS_PER_NODE * NUM_SCHEDULER_NODES
 
-      console.log('[host] creating', NUM_SCHEDULER_NODES, 'SchedulerNodes (', TOTAL_CONTROL_CHANNELS, 'total channels)...')
-      const schNodes: SchedulerNode[] = []
-      for (let i = 0; i < NUM_SCHEDULER_NODES; i++) {
-        schNodes.push(await SchedulerNode.create(this.ctx, CHANNELS_PER_NODE))
-      }
-      this.schedulerNodes = schNodes
+      // Zero inputs: sequencing happens inside the Elementary runtime via the
+      // txSeq native node; the graph reads its outputs directly.
+      const node = await this.core.initialize(this.ctx, {
+        numberOfInputs: 0,
+        numberOfOutputs: 1,
+        outputChannelCount: [2],
+      })
 
       this.analyser = this.ctx.createAnalyser()
+      node.connect(this.analyser)
       this.analyser.connect(this.ctx.destination)
-
-      for (let i = 0; i < NUM_SCHEDULER_NODES; i++) {
-        const core = new WebRenderer()
-        this.paramRefs.attach(core)
-        // Chromium quirk (verified empirically): numberOfInputs 1 breaks input
-        // delivery even for a single source; 4 declared inputs with exactly
-        // one source connected delivers all 32 channels correctly.
-        const node = await core.initialize(this.ctx, {
-          numberOfInputs: 4,
-          numberOfOutputs: 1,
-          outputChannelCount: [2],
-          channelCount: CHANNELS_PER_NODE,
-          channelCountMode: 'explicit',
-          processorOptions: {
-            numberOfInputChannels: TOTAL_CONTROL_CHANNELS,
-          },
-        })
-        this.cores.push(core)
-        this._elmNodes.push(node)
-        schNodes[i].connect(node, 0, 0)
-        node.connect(this.analyser)
-      }
 
       // Keep-alive: a constant −80 dB noise floor keeps the output pipeline
       // from idling between sounds, so the device never gates on silence.
@@ -295,22 +249,19 @@ export class AudioHost {
     return this.starting
   }
 
-  /** Render the per-node split graphs (one StereoOut per Elementary node).
-   *  Accepts a single pair for backward-compatible callers.  Drops frames
-   *  when busy to avoid overwhelming Elementary with concurrent render()
-   *  calls (which crashes the WASM worklet with Aborted()). Returns a
-   *  promise that resolves once this render — and anything queued behind
-   *  it — has landed on every node. */
-  render(stereos: StereoOut | StereoOut[]): Promise<void> {
-    if (!this.ready || this.cores.length === 0) return Promise.resolve()
-    const list = Array.isArray(stereos) ? stereos : [stereos]
+  /** Render a stereo pair to the output.  Drops frames when busy to avoid
+   *  overwhelming Elementary with concurrent render() calls (which crashes
+   *  the WASM worklet with Aborted()). Returns a promise that resolves once
+   *  this graph — and anything queued behind it — has landed. */
+  render(stereo: StereoOut): Promise<void> {
+    if (!this.ready || !this.core) return Promise.resolve()
 
     // If a render is already in flight, store this graph as pending.  When the
     // current render finishes it will pick up the latest pending graph.  This
     // way rapid MIDI / slider bursts only trigger one extra render, not a
     // cascade of concurrent ones.
     if (this.renderBusy) {
-      this.pendingGraph = list
+      this.pendingGraph = stereo
       return this.settlePromise ?? Promise.resolve()
     }
 
@@ -339,15 +290,10 @@ export class AudioHost {
 
     const doRender = () => {
       try {
-        const renders = list.map((stereo, i) =>
-          i >= this.cores.length
-            ? Promise.resolve()
-            : this.cores[i].render(
-                el.mul(stereo.left, el.const({ key: 'ch:l', value: 1 })),
-                el.mul(stereo.right, el.const({ key: 'ch:r', value: 1 })),
-              ),
-        )
-        Promise.all(renders).then(finish).catch((err: unknown) => {
+        this.core!.render(
+          el.mul(stereo.left, el.const({ key: 'ch:l', value: 1 })),
+          el.mul(stereo.right, el.const({ key: 'ch:r', value: 1 })),
+        ).then(finish).catch((err: unknown) => {
           console.error('[host] Elementary render error:', err)
           if (err && typeof err === 'object') {
             const e = err as Record<string, unknown>
@@ -372,16 +318,25 @@ export class AudioHost {
   }
 
   /**
-   * Update Elementary's Virtual File System with new / changed sample data
-   * on every Elementary node.  Keys are content hashes; values are mono
-   * Float32Array or stereo [L, R].
+   * Update Elementary's Virtual File System with new / changed sample data.
+   * Keys are content hashes; values are mono Float32Array or stereo [L, R].
    */
   async updateVfs(vfs: Record<string, Float32Array | Float32Array[]>): Promise<void> {
-    if (this.cores.length === 0) return
+    if (!this.core) return
     try {
-      await Promise.all(this.cores.map((core) => core.updateVirtualFileSystem(vfs)))
+      await this.core.updateVirtualFileSystem(vfs)
     } catch (err) {
       console.error('Elementary VFS update error:', err)
+    }
+  }
+
+  /** Drop shared resources no node references (superseded txSeq uploads). */
+  async pruneVfs(): Promise<void> {
+    if (!this.core) return
+    try {
+      await this.core.pruneVirtualFileSystem()
+    } catch (err) {
+      console.error('Elementary VFS prune error:', err)
     }
   }
 }

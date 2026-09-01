@@ -20,41 +20,30 @@ export function clearParamRefs(): void {
   activeRegistry?.clear()
 }
 
-type Setter = (props: Record<string, unknown>) => void
-
 /**
  * Registry of Elementary `createRef` nodes so slider / MIDI CC values can be
  * updated directly (no graph recompilation) after the initial render.
- *
- * Multi-core: the split rendering uses one Elementary node per 32-channel
- * scheduler batch. Each core creates refs in lockstep call order, so ref
- * nodes share identical `__refKey` ids across cores — one compiled graph
- * works on every core, and setValue broadcasts to each core's setter.
  */
 export class ParamRefRegistry {
-  private refs = new Map<string, { node: NodeRepr_t; setters: Setter[]; applys?: ((value: number) => void)[] }>()
-  private cores: WebRenderer[] = []
+  private refs = new Map<string, { node: NodeRepr_t; setter: (props: Record<string, unknown>) => void; apply?: (value: number) => void }>()
+  private core: WebRenderer | null = null
   /** Values queued while refs were unmounted — flushed after render completes.
    *  Array preserves order so rapid on→off sequences aren't collapsed. */
   private pending: { key: string; value: number }[] = []
 
-  attach(core: WebRenderer): void { this.cores.push(core) }
+  attach(core: WebRenderer): void { this.core = core }
 
-  /** Return a ref node for the given key, creating one per core on first call.
+  /** Return a ref node for the given key, creating one on first call.
    *  Does NOT sync the value on existing refs — the setter handles that. */
   getOrCreate(key: string, value: number): NodeRepr_t {
     const existing = this.refs.get(key)
     if (existing) return existing.node
-    if (this.cores.length === 0) return el.const({ key, value })
-    let node: NodeRepr_t | null = null
-    const setters: Setter[] = []
-    for (const core of this.cores) {
-      const pair = core.createRef('const', { value }, [])
-      node ??= pair[0] as NodeRepr_t
-      setters.push(pair[1] as Setter)
-    }
-    this.refs.set(key, { node: node!, setters })
-    return node!
+    if (!this.core) return el.const({ key, value })
+    const pair = this.core.createRef('const', { value }, [])
+    const node = pair[0] as NodeRepr_t
+    const setter = pair[1] as (props: Record<string, unknown>) => void
+    this.refs.set(key, { node, setter })
+    return node
   }
 
   /** Like getOrCreate but for any node kind (not just const).
@@ -70,19 +59,13 @@ export class ParamRefRegistry {
   ): NodeRepr_t {
     const existing = this.refs.get(key)
     if (existing) return existing.node
-    if (this.cores.length === 0) return createNode(kind, props, children) as unknown as NodeRepr_t
-    let node: NodeRepr_t | null = null
-    const setters: Setter[] = []
-    const applys: ((value: number) => void)[] = []
-    for (const core of this.cores) {
-      const pair = core.createRef(kind, props, children)
-      node ??= pair[0] as NodeRepr_t
-      const setter = pair[1] as Setter
-      setters.push(setter)
-      applys.push(makeApply?.(setter) ?? ((value) => setter({ value })))
-    }
-    this.refs.set(key, { node: node!, setters, applys })
-    return node!
+    if (!this.core) return createNode(kind, props, children) as unknown as NodeRepr_t
+    const pair = this.core.createRef(kind, props, children)
+    const node = pair[0] as NodeRepr_t
+    const setter = pair[1] as (props: Record<string, unknown>) => void
+    const apply = makeApply?.(setter)
+    this.refs.set(key, { node, setter, apply })
+    return node
   }
 
   /** Update a ref's value without recompiling.  If the ref isn't mounted yet
@@ -99,13 +82,11 @@ export class ParamRefRegistry {
     }
     // Remove stale pending entries — this direct write supersedes them.
     this.pending = this.pending.filter((p) => p.key !== key)
-    for (let i = 0; i < ref.setters.length; i++) {
-      try {
-        if (ref.applys) ref.applys[i](value)
-        else ref.setters[i]({ value })
-      } catch {
-        // Ref not mounted on this core — queue for the next flush.
-      }
+    try {
+      if (ref.apply) ref.apply(value)
+      else ref.setter({ value })
+    } catch {
+      this.pending.push({ key, value })
     }
   }
 
@@ -116,11 +97,10 @@ export class ParamRefRegistry {
     this.pending = []
     for (const { key, value } of batch) {
       const ref = this.refs.get(key)
-      if (!ref) continue
-      for (let i = 0; i < ref.setters.length; i++) {
+      if (ref) {
         try {
-          if (ref.applys) ref.applys[i](value)
-          else ref.setters[i]({ value })
+          if (ref.apply) ref.apply(value)
+          else ref.setter({ value })
         } catch { /* still unmounted */ }
       }
     }
@@ -135,9 +115,7 @@ export class ParamRefRegistry {
   panic(): void {
     for (const [key, ref] of this.refs) {
       if (key.endsWith(':gate') || key.endsWith(':vel')) {
-        for (const setter of ref.setters) {
-          try { setter({ value: 0 }) } catch { /* ignore unmounted refs */ }
-        }
+        try { ref.setter({ value: 0 }) } catch { /* ignore unmounted refs */ }
       }
     }
   }

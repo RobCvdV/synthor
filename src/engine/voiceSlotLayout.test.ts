@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { computeSlotLayouts, totalChannels, getSlotChannelOffset } from '../engine/voiceSlotLayout'
+import { computeSlotLayouts, slotGlobalIndex } from '../engine/voiceSlotLayout'
 import { newModularInstrument, newDrumKitInstrument, newTrack } from '../domain/factory'
 import type { Doc, Id, Pattern } from '../domain/types'
 import { MASTER_CHANNEL_ID } from '../domain/types'
@@ -53,9 +53,8 @@ describe('computeSlotLayouts', () => {
     expect(layouts[0].instId).toBe(inst.id)
     expect(layouts[0].slotCount).toBe(1)
     expect(layouts[0].isDrumkit).toBe(false)
-    // Regular: 11 base channels, no named inlets.
+    // Regular: 11 base signals, no named inlets.
     expect(layouts[0].channelsPerSlot).toBe(11)
-    expect(layouts[0].baseChannel).toBe(0)
   })
 
   it('computes 2 slots when two tracks use the same instrument in one pattern', () => {
@@ -68,8 +67,9 @@ describe('computeSlotLayouts', () => {
     const layouts = computeSlotLayouts(doc)
     expect(layouts).toHaveLength(1)
     expect(layouts[0].slotCount).toBe(2)
-    // 2 slots × 11 channels = 22 total.
-    expect(totalChannels(layouts)).toBe(22)
+    // Global slot ordinals: 0 and 1 for the two slots of this instrument.
+    expect(slotGlobalIndex(layouts, inst.id, 0)).toBe(0)
+    expect(slotGlobalIndex(layouts, inst.id, 1)).toBe(1)
   })
 
   it('takes max concurrent tracks across multiple patterns', () => {
@@ -133,12 +133,14 @@ describe('computeSlotLayouts', () => {
     expect(drumLayout.drumSounds).toBe(4)
     expect(drumLayout.channelsPerSlot).toBe(18) // 2*4 + 10
 
-    // Channel assignment depends on sorted inst IDs; with UUIDs the order varies.
-    // All we assert is each instrument gets its expected slot count and the
-    // total accounts for 32-channel boundary alignment.
-    const total = totalChannels(layouts)
-    expect(total).toBeGreaterThanOrEqual(47) // at least 11+22+14 without padding
-    expect(total).toBeLessThanOrEqual(78)    // max with worst-case padding
+    // Slot ordering depends on sorted inst IDs; with UUIDs the order varies.
+    // All we assert is each instrument gets its expected slot count and that
+    // slotGlobalIndex stays consistent with the layout order.
+    let global = 0
+    for (const l of layouts) {
+      expect(slotGlobalIndex(layouts, l.instId, 0)).toBe(global)
+      global += l.slotCount
+    }
   })
 
   it('includes named inlets from effect lanes', () => {
@@ -196,23 +198,9 @@ describe('computeSlotLayouts', () => {
   })
 })
 
-describe('getSlotChannelOffset', () => {
-  it('returns the correct global offset for a slot', () => {
-    const inst = newSynth('Lead')
-    const t1 = newTrack(inst.id, 64)
-    const t2 = newTrack(inst.id, 64)
-    const pattern: Pattern = { id: 'pat_1', name: 'P1', length: 64, trackIds: [t1.id, t2.id] }
-    const doc = makeDoc({ [inst.id]: inst }, { [t1.id]: t1, [t2.id]: t2 }, { [pattern.id]: pattern })
-
-    const layouts = computeSlotLayouts(doc)
-    // 2 slots × 11ch = 22ch. 0 % 32 + 22 = 22 ≤ 32, so no alignment needed.
-    // Slot 0 → channel 0, Slot 1 → channel 11.
-    expect(getSlotChannelOffset(layouts, inst.id, 0)).toBe(0)
-    expect(getSlotChannelOffset(layouts, inst.id, 1)).toBe(11)
-  })
-
-  it('returns 0 for unknown instrument', () => {
+describe('slotGlobalIndex', () => {
+  it('returns -1 for unknown instruments', () => {
     const layouts = computeSlotLayouts(makeDoc({}, {}, {}))
-    expect(getSlotChannelOffset(layouts, 'nope', 0)).toBe(0)
+    expect(slotGlobalIndex(layouts, 'nope', 0)).toBe(-1)
   })
 })
