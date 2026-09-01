@@ -1,0 +1,26 @@
+{
+  "name": "@elemaudio/offline-renderer",
+  "version": "4.0.3-synthor.1",
+  "description": "Official package for rendering Elementary Audio applications offline (synthor fork \u2014 txSeq native node compiled into the wasm)",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.cjs",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "author": "Nick Thompson <nick@elementary.audio>",
+  "license": "MIT",
+  "dependencies": {
+    "@elemaudio/core": "^4.0.1",
+    "invariant": "^2.2.4"
+  }
+}

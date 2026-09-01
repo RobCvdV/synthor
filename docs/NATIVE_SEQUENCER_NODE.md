@@ -83,8 +83,11 @@ passes an offline test.
   exactly like ours). We rebuild the `@elemaudio/web-renderer` and
   `@elemaudio/offline-renderer` packages from source with our wasm
   (`raw/elementary-wasm.js` / `elementary-wasm.cjs` replaced, then `tsup`).
-  Both dists embed the module, so a plain node_modules swap works today; a
-  proper vendored fork (submodule + build script) lands in phase 2.
+  Both dists embed the module. The fork is committed as
+  `vendor/elementary-js/` (local packages, version `4.0.3-synthor.1`) and
+  wired via `file:` dependencies — fresh installs and CI get the custom
+  wasm without emsdk; `scripts/build-elementary-wasm.sh` regenerates the
+  dists from `vendor/elementary`.
 - **Props → signal**: `setProperty(key, js::Value)` on the non-RT thread,
   atomics into `process`. Verified live in the browser via
   `core.createRef('txspike', …)` → `setTx({value})` — a 4× level jump on the

@@ -22,7 +22,7 @@
   "dependencies": {
     "@dagrejs/dagre": "^3.1.1",
     "@elemaudio/core": "^4.0.1",
-    "@elemaudio/web-renderer": "^4.0.3",
+    "@elemaudio/web-renderer": "file:vendor/elementary-js/web-renderer",
     "@xyflow/react": "^12.11.2",
     "fflate": "^0.8.3",
     "immer": "^11.1.11",
@@ -31,7 +31,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
-    "@elemaudio/offline-renderer": "^4.0.3",
+    "@elemaudio/offline-renderer": "file:vendor/elementary-js/offline-renderer",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-basic-ssl": "^2.3.0",
