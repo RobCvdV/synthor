@@ -26,7 +26,7 @@ function seqFixture(totalRows: number, gateRows: number[], staccato = 1): Float3
   vol.fill(0.5)
   stac.fill(staccato)
   const data: PlaybackData = {
-    slots: [{ instId: 'i1', slotIndex: 0, signals, channelOffset: 0, drumGateCount: 0 }],
+    slots: [{ instId: 'i1', slotIndex: 0, signals, drumGateCount: 0 }],
     totalRows,
     arrangement: [],
   }

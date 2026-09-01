@@ -15,7 +15,6 @@ function fixture(): PlaybackData {
           [1, 0, 1, 0], // gate (4 rows)
           [440, 220, 440, 220], // freq
         ],
-        channelOffset: 0,
         drumGateCount: 0,
       },
       {
@@ -25,7 +24,6 @@ function fixture(): PlaybackData {
           [0, 1, 0, 0], // drum gate 0
           [0, 0, 1, 0], // drum gate 1
         ],
-        channelOffset: 0,
         drumGateCount: 2,
       },
     ],

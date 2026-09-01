@@ -146,8 +146,18 @@ passes an offline test.
    (stale docs/logs, delete txspike) remains.
 4. **Cleanup + tests.** Remove the scheduler files; port engine tests to the
    native-node API; update CLAUDE.md.
+
+   **Done.** txspike removed from the wasm and repo (spike test + dev harness
+   deleted); the 32-channel alignment machinery (`slotBaseChannels`,
+   `baseChannel`, `getSlotChannelOffset`, `totalChannels`, `channelOffset`)
+   is gone from voiceSlotLayout/playbackData; tests ported (`slotGlobalIndex`,
+   txSeq wiring assertions); CLAUDE.md rewritten for the native sequencer.
 5. **Verification.** Browser matrix (Chrome/Edge/Safari/Firefox), Electron,
    offline tests, the demo song and the user's 87-channel song.
+
+   **Chrome verified** (live app): the full song plays — meter follows the
+   notes (up to 0.33 RMS), row clock exact at 120 BPM with loop wrap, stop
+   clean. Edge/Safari/Firefox + Electron remain to check before merging.
 
 ## Risks
 

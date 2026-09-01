@@ -8,7 +8,6 @@
 #include "Metro.h"
 #include "SampleTime.h"
 #include "TxSeq.h"
-#include "TxSpike.h"
 
 
 using namespace emscripten;
@@ -66,9 +65,6 @@ public:
             return std::make_shared<elem::TxSeqNode<double>>(id, fs, bs);
         });
 
-        runtime->registerNodeType("txspike", [](elem::NodeId const id, double fs, int const bs) {
-            return std::make_shared<elem::TxSpikeNode<double>>(id, fs, bs);
-        });
     }
 
     //==============================================================================

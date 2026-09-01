@@ -2,10 +2,11 @@
  * Pure functions to compute voice-slot layouts for tracker playback.
  *
  * Each instrument gets a fixed number of voice slots — enough for the maximum
- * number of tracks using that instrument in any single pattern.  Slots have
- * predetermined `el.in` channel positions so the graph is compiled once and the
- * scheduler routes track data to the right slot at the right time.  No recompile
- * for notes, effects, pattern switches, or play-mode changes.
+ * number of tracks using that instrument in any single pattern.  Slots are
+ * indexed in layout order (see slotGlobalIndex): the txSeq upload packs slot
+ * data in the same order and the graph reads slot s signal c from txSeq
+ * output channel s*MAX_SLOT_SIGNALS+c.  No recompile for notes, effects,
+ * pattern switches, or play-mode changes.
  */
 
 import type { Doc, Id } from '../domain/types'
@@ -60,14 +61,8 @@ export const DRUMKIT_CH = {
 export interface InstrumentSlotLayout {
   instId: Id
   slotCount: number
-  /** Channels consumed by one slot of this instrument. */
+  /** Signals consumed by one slot of this instrument. */
   channelsPerSlot: number
-  /** First channel of the first slot (global offset). */
-  baseChannel: number
-  /** Per-slot global channel offsets (length === slotCount).  Each slot is
-   *  individually aligned to 32-channel scheduler-node boundaries so no
-   *  single slot's channels straddle two nodes. */
-  slotBaseChannels: number[]
   /** Named inlet names in channel order (alphabetical for determinism). */
   namedInletIds: Id[]
   isDrumkit: boolean
@@ -120,16 +115,15 @@ function analyzeInstrumentUsage(doc: Doc): Map<Id, InstUsage> {
 }
 
 /**
- * Compute channel layouts for all voice slots across all instruments.
- * Channels are assigned sequentially; layouts are returned in deterministic
- * order (by instrument id, then slot index).
+ * Compute slot layouts for all voice slots across all instruments, in
+ * deterministic order (by instrument id, then slot index).
  */
 export function computeSlotLayouts(doc: Doc): InstrumentSlotLayout[] {
   const usage = analyzeInstrumentUsage(doc)
   const layouts: InstrumentSlotLayout[] = []
-  let nextChannel = 0
 
-  // Stable sort by instrument id for deterministic channel assignment.
+  // Stable sort by instrument id for deterministic slot ordering (the txSeq
+  // upload and the graph both derive slot indexes from this order).
   const sortedInstIds = [...usage.keys()].sort()
 
   for (const instId of sortedInstIds) {
@@ -146,25 +140,10 @@ export function computeSlotLayouts(doc: Doc): InstrumentSlotLayout[] {
       ? 2 * (drumSounds ?? 0) + DRUMKIT_EXTRA_CHANNELS + namedInletIds.length
       : REGULAR_BASE_CHANNELS + namedInletIds.length
 
-    // Assign each slot individually, aligning to 32-channel scheduler-node
-    // boundaries so no single slot straddles two nodes.
-    const SLOT_BOUNDARY = 32
-    const slotBaseChannels: number[] = []
-    for (let si = 0; si < u.maxConcurrent; si++) {
-      if ((nextChannel % SLOT_BOUNDARY) + channelsPerSlot > SLOT_BOUNDARY) {
-        nextChannel = Math.ceil(nextChannel / SLOT_BOUNDARY) * SLOT_BOUNDARY
-      }
-      slotBaseChannels.push(nextChannel)
-      nextChannel += channelsPerSlot
-    }
-    const baseChannel = slotBaseChannels[0]
-
     layouts.push({
       instId,
       slotCount: u.maxConcurrent,
       channelsPerSlot,
-      baseChannel,
-      slotBaseChannels,
       namedInletIds,
       isDrumkit,
       drumSounds,
@@ -177,42 +156,14 @@ export function computeSlotLayouts(doc: Doc): InstrumentSlotLayout[] {
       '[slotLayout]',
       layouts.map((l) => {
         const name = doc.entities.instruments[l.instId]?.name ?? l.instId.slice(0, 8)
-        const chs = l.slotBaseChannels.map((c) => `${c}-${c + l.channelsPerSlot - 1}`).join(', ')
-        return `${name}: ${l.slotCount} slots × ${l.channelsPerSlot}ch = [${chs}]`
+        return `${name}: ${l.slotCount} slots × ${l.channelsPerSlot} signals${l.isDrumkit ? ' (dk)' : ''}`
       }).join('\n  '),
-      `\n  Total channels: ${nextChannel}`,
     )
   } else {
     console.log('[slotLayout] no instruments — empty doc')
   }
 
   return layouts
-}
-
-/** Total channels needed across all slots.  Use to determine scheduler node count. */
-export function totalChannels(layouts: InstrumentSlotLayout[]): number {
-  let total = 0
-  for (const l of layouts) {
-    for (let si = 0; si < l.slotCount; si++) {
-      const ch = l.slotBaseChannels[si] ?? l.baseChannel + si * l.channelsPerSlot
-      total = Math.max(total, ch + l.channelsPerSlot)
-    }
-  }
-  return total
-}
-
-/** Look up the global channel offset for a specific instrument slot. */
-export function getSlotChannelOffset(
-  layouts: InstrumentSlotLayout[],
-  instId: Id,
-  slotIndex: number,
-): number {
-  for (const l of layouts) {
-    if (l.instId === instId) {
-      return l.slotBaseChannels[slotIndex] ?? l.baseChannel + slotIndex * l.channelsPerSlot
-    }
-  }
-  return 0
 }
 
 /** Global slot ordinal (0-based across all instruments, in layout order).

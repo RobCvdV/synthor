@@ -378,8 +378,7 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
     console.log(
       '[compile] slots:',
       slotLayouts.map((l) => {
-        const chs = l.slotBaseChannels.map((c) => `${c}-${c + l.channelsPerSlot - 1}`).join(',')
-        return `${l.instId}: ${l.slotCount} slots × ${l.channelsPerSlot}ch = [${chs}] (${l.isDrumkit ? 'dk' : 'reg'})`
+        return `${l.instId}: ${l.slotCount} slots × ${l.channelsPerSlot} signals (${l.isDrumkit ? 'dk' : 'reg'})`
       }).join(', '),
     )
   }
