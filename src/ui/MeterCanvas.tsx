@@ -7,7 +7,7 @@ export function MeterCanvas({ width, height }: { width: number; height: number }
   const levelRef = useRef(0)
 
   useEffect(() => {
-    // The useEngine hook wires `globalThis.__host` in dev mode; poll that.
+    // useEngine wires `globalThis.__host` in every build; poll that.
     const getHost = (): AudioHost | null => {
       const g = globalThis as Record<string, unknown>
       return (g.__host as AudioHost | undefined) ?? null

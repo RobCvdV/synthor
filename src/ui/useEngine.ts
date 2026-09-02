@@ -35,10 +35,12 @@ export function useEngine(): AudioHost {
   if (hostRef.current === null) hostRef.current = new AudioHost()
   const host = hostRef.current
 
+  // The master meter (MeterCanvas) polls this in every build, dev or packaged.
+  const g = globalThis as Record<string, unknown>
+  g.__host = host
+
   // Dev-only handles for debugging.
   if (import.meta.env.DEV) {
-    const g = globalThis as Record<string, unknown>
-    g.__host = host
     g.__docStore = useDocStore
     g.__transportStore = useTransportStore
     g.__midiStore = useMidiStore
