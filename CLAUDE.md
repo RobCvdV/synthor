@@ -67,6 +67,15 @@ Chains are ordered; each hop is verified. Skipping the tail is how features half
 - **The host is inert until a user gesture** (autoplay policy) — synthetic/synthesized key events won't start the AudioContext.
 - **Elementary VFS keys are content hashes**; changing a conv/wave/sample module's `sampleIndex` is a structural change (forces recompile + VFS path change).
 
+## Electron build (feature/electron-build)
+
+- `npm run electron:build` builds with `vite.electron.config.ts` (base `./`); `electron:dist` packages via electron-builder.
+- The renderer needs COOP/COEP headers — `electron/main.ts` injects them for `file://` responses inside `app.whenReady().then(…)` (touching `session.defaultSession` earlier hangs the main process).
+- `index.html` guards the service-worker registration with `location.protocol !== 'file:'`.
+- The Electron bundle should hash-match the web build of the same commit (`index-*.js`) — a mismatch means a stale vite dep cache (`node_modules/.vite`): clear it and rebuild.
+- OPFS storage is per-origin — the Electron (`file://`) app does not share songs with the https site.
+- Deploys: push a `deploy-vx.y.z` tag → web deploy (FTP) + Electron release (GitHub Releases) workflows.
+
 ## Testing — required on every code change
 
 - Changes in `domain/`, `engine/`, `state/`, `persist/`, `player/playbackData` **ship a vitest** in the same folder. These are pure and have no excuse. Extend the existing `*.test.ts` next to the file rather than starting a parallel one.

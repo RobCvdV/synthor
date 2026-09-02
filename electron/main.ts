@@ -5,13 +5,18 @@
  * In production the renderer is loaded from the bundled `dist/` directory.
  */
 
-import { app, BrowserWindow, Menu, shell } from 'electron'
+import { app, BrowserWindow, Menu, session, shell } from 'electron'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 const isDev = !app.isPackaged
+
+// CDP debugging hook for packaged builds (Synthor.app --env SYNTHOR_CDP_PORT=9223).
+if (process.env.SYNTHOR_CDP_PORT) {
+  app.commandLine.appendSwitch('remote-debugging-port', process.env.SYNTHOR_CDP_PORT)
+}
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -36,7 +41,7 @@ function createWindow(): void {
   })
 
   if (isDev) {
-    // Vite dev server — use the ELECTRON_DEV_PORT env var or default to 5173.
+    // Vite dev server — use the ELECTRON_DEV_PORT env var or default to 5193.
     const port = process.env.ELECTRON_DEV_PORT || '5193'
     void win.loadURL(`http://localhost:${port}`)
     win.webContents.openDevTools({ mode: 'detach' })
@@ -86,6 +91,22 @@ const template: Electron.MenuItemConstructorOptions[] = [
 ]
 
 void app.whenReady().then(() => {
+  // Cross-origin isolation so the renderer gets SharedArrayBuffer (Elementary
+  // needs it). loadFile can't set headers, so inject them on file:// responses.
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    if (details.url.startsWith('file://')) {
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          'Cross-Origin-Opener-Policy': ['same-origin'],
+          'Cross-Origin-Embedder-Policy': ['require-corp'],
+        },
+      })
+    } else {
+      callback({ responseHeaders: details.responseHeaders })
+    }
+  })
+
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
   createWindow()
 

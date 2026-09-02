@@ -1,0 +1,87 @@
+name: Build Electron release
+
+on:
+  push:
+    tags:
+      - 'deploy-v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            artifact: AppImage
+          - os: macos-latest
+            platform: mac
+            artifact: dmg
+          - os: windows-latest
+            platform: windows
+            artifact: nsis
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Extract version from tag
+        id: version
+        shell: bash
+        run: echo "version=${GITHUB_REF_NAME#deploy-v}" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Electron app (${{ matrix.platform }})
+        env:
+          # No signing identities on CI — skip macOS signing/notarization.
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npm run electron:build -- --publish never --config.extraMetadata.version=${{ steps.version.outputs.version }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: electron-${{ matrix.platform }}
+          path: |
+            release/*.AppImage
+            release/*.dmg
+            release/*.exe
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: electron-*
+          merge-multiple: true
+          path: release-artifacts
+
+      - name: List release files
+        run: ls -la release-artifacts
+
+      - name: Create release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          files: release-artifacts/*
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          make_latest: true
