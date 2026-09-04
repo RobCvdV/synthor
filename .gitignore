@@ -11,4 +11,6 @@ screenshot.png
 electron-dist
 release
 certs
-.claude/snapshot.txt
+.claude/**/snapshot*
+.claude/**/*.png
+/build/
