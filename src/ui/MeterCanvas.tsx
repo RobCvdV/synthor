@@ -4,7 +4,6 @@ import { CLIP_THRESHOLD } from './scope'
 
 export function MeterCanvas({ width, height }: { width: number; height: number }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const levelRef = useRef(0)
 
   useEffect(() => {
     // useEngine wires `globalThis.__host` in every build; poll that.
@@ -20,19 +19,14 @@ export function MeterCanvas({ width, height }: { width: number; height: number }
       const ctx = canvas.getContext('2d')
       if (!ctx) return
       const host = getHost()
-      const level = host ? host.getLevel() : 0
-      levelRef.current = level
-
+      const [leftLevel, rightLevel] = host ? host.getLevels() : [0, 0]
+      
       const w = canvas.width
       const h = canvas.height
       const barW = (w - 6) / 2
       const clipR = h * 0.12
 
       ctx.clearRect(0, 0, w, h)
-
-      // Left and right bars (approximate stereo from mono level)
-      const l = level
-      const r = level * 0.95
 
       const drawBar = (val: number, x: number, label: string) => {
         const barH = Math.max(0, (h - clipR - 4) * val)
@@ -70,8 +64,8 @@ export function MeterCanvas({ width, height }: { width: number; height: number }
         }
       }
 
-      drawBar(l, 2, 'L')
-      drawBar(r, 4 + barW, 'R')
+      drawBar(leftLevel, 2, 'L')
+      drawBar(rightLevel, 4 + barW, 'R')
 
       frame = requestAnimationFrame(draw)
     }

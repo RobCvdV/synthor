@@ -114,7 +114,7 @@ function compileOneEffect(
 
     // ── Gain ────────────────────────────────────────────────
     case 'gain': {
-      const level = k('level', p.level ?? 0.8)
+      const level = k('level', p.level ?? 1.0)
       return bypassable(sided(input, (sig) => el.mul(sig, level)))
     }
 

@@ -22,7 +22,7 @@ export class AudioHost {
   /** The Elementary renderer — public so useEngine can createRef the txSeq
    *  node and subscribe to its events. */
   core: WebRenderer | null = null
-  private analyser: AnalyserNode | null = null
+  private analysers: [AnalyserNode, AnalyserNode] | null = null
   private ready = false
   private starting: Promise<void> | null = null
   private ctxStartTime = 0
@@ -178,21 +178,31 @@ export class AudioHost {
   }
 
   /** RMS of the current output block, 0..~1. Useful as a master meter. */
-  getLevel(): number {
-    if (!this.analyser) return 0
-    const buf = new Float32Array(this.analyser.fftSize)
-    this.analyser.getFloatTimeDomainData(buf)
-    let sum = 0
-    for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i]
-    return Math.sqrt(sum / buf.length)
+  getLevels(): [number, number] {
+    if (!this.analysers) return [0, 0]
+    const [leftAnalyser, rightAnalyser] = this.analysers
+    const leftBuf = new Float32Array(leftAnalyser.fftSize)
+    const rightBuf = new Float32Array(rightAnalyser.fftSize)
+    leftAnalyser.getFloatTimeDomainData(leftBuf)
+    rightAnalyser.getFloatTimeDomainData(rightBuf)
+    let leftSum = 0
+    let rightSum = 0
+    for (let i = 0; i < leftBuf.length; i++) {
+      leftSum += leftBuf[i] * leftBuf[i]
+      rightSum += rightBuf[i] * rightBuf[i]
+    }
+    return [Math.sqrt(leftSum / leftBuf.length), Math.sqrt(rightSum / rightBuf.length)]
   }
 
   /** Raw time-domain waveform from the analyser (for oscilloscope display). */
-  getWaveform(): Float32Array {
-    if (!this.analyser) return new Float32Array(0)
-    const buf = new Float32Array(this.analyser.fftSize)
-    this.analyser.getFloatTimeDomainData(buf)
-    return buf
+  getWaveforms(): [Float32Array, Float32Array] {
+    if (!this.analysers) return [new Float32Array(0), new Float32Array(0)]
+    const [leftAnalyser, rightAnalyser] = this.analysers
+    const leftBuf = new Float32Array(leftAnalyser.fftSize)
+    const rightBuf = new Float32Array(rightAnalyser.fftSize)
+    leftAnalyser.getFloatTimeDomainData(leftBuf)
+    rightAnalyser.getFloatTimeDomainData(rightBuf)
+    return [leftBuf, rightBuf]
   }
 
   /** Must be called from a user gesture (browser autoplay policy).
@@ -219,9 +229,15 @@ export class AudioHost {
         outputChannelCount: [2],
       })
 
-      this.analyser = this.ctx.createAnalyser()
-      node.connect(this.analyser)
-      this.analyser.connect(this.ctx.destination)
+      const splitter = this.ctx.createChannelSplitter(2)
+      node.connect(splitter)
+      const leftAnalyser = this.ctx.createAnalyser()
+      const rightAnalyser = this.ctx.createAnalyser()
+      leftAnalyser.fftSize = 2048
+      rightAnalyser.fftSize = 2048
+      splitter.connect(leftAnalyser, 0)
+      splitter.connect(rightAnalyser, 1)
+      this.analysers = [leftAnalyser, rightAnalyser]
 
       // Keep-alive: a constant −80 dB noise floor keeps the output pipeline
       // from idling between sounds, so the device never gates on silence.

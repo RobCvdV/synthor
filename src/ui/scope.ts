@@ -8,8 +8,8 @@ export const CLIP_THRESHOLD = 0.95
 
 /** Draw the host's current waveform onto a canvas (one frame, called from rAF). */
 export function drawScope(canvas: HTMLCanvasElement, host: AudioHost) {
-  const buf = host.getWaveform()
-  if (buf.length === 0) return
+  const [bufL, bufR] = host.getWaveforms()
+  if (bufL.length === 0 || bufR.length === 0) return
   const dpr = window.devicePixelRatio || 1
   const w = canvas.clientWidth
   const h = canvas.clientHeight
@@ -22,11 +22,19 @@ export function drawScope(canvas: HTMLCanvasElement, host: AudioHost) {
   ctx.strokeStyle = SCOPE_COLOR
   ctx.lineWidth = 1
   ctx.beginPath()
-  const mid = h / 2
-  const n = buf.length
+  let mid = h / 4
+  const size = mid
+  const n = bufL.length
   for (let x = 0; x < w; x++) {
     const idx = Math.floor((x / w) * n)
-    const y = mid + buf[idx] * mid * 0.85
+    const y = mid + bufL[idx] * size * 0.85
+    if (x === 0) ctx.moveTo(x, y)
+    else ctx.lineTo(x, y)
+  }
+  mid = h * 0.75
+  for (let x = 0; x < w; x++) {
+    const idx = Math.floor((x / w) * n)
+    const y = mid + bufR[idx] * size * 0.85
     if (x === 0) ctx.moveTo(x, y)
     else ctx.lineTo(x, y)
   }

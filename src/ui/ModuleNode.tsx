@@ -87,14 +87,14 @@ export function ModuleNode({ data }: NodeProps) {
 
   // --- oscilloscope / clip LED for the output node --------------------
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const levelRef = useRef(0)
+  const levelsRef = useRef([0, 0])
 
   useEffect(() => {
     if (!isOutput || !host) return
     let raf = 0
     const tick = () => {
-      const lvl = host.getLevel()
-      levelRef.current = lvl
+      const [lvlL, lvlR] = host.getLevels()
+      levelsRef.current = [lvlL, lvlR]
       const canvas = canvasRef.current
       if (canvas) drawScope(canvas, host)
       raf = requestAnimationFrame(tick)
@@ -122,7 +122,8 @@ export function ModuleNode({ data }: NodeProps) {
   // EARLY RETURN only after ALL hooks have been called.
   if (!module || !def) return null
 
-  const clip = levelRef.current > CLIP_THRESHOLD
+  const [lvlL, lvlR] = levelsRef.current
+  const clip = lvlL > CLIP_THRESHOLD || lvlR > CLIP_THRESHOLD
 
   return (
     <div className={'mod-node' + (bypassed ? ' bypassed' : '' + (isInput ? ' input' : '') + (isOutput ? ' output' : ''))}>
