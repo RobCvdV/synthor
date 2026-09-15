@@ -113,12 +113,11 @@ export function ModuleNode({ data }: NodeProps) {
     return () => clearInterval(id)
   }, [isOutput, host])
 
-  // Live CC readout for effect modules — must be above the early return
-  // because hooks must never be skipped between renders.
-  const ccValues = useMidiStore((s) => s.ccValues)
+  // Live CC readout for effect modules — scope to this node's CC number
+  // so only the relevant node re-renders when a knob turns.
   const isEff = module?.type === 'eff'
   const effCc = isEff ? (module?.params.cc ?? 0) : 0
-  const effCcVal = effCc > 0 ? (ccValues[effCc] ?? 0) / 127 : 0
+  const effCcVal = useMidiStore((s) => (effCc > 0 ? (s.ccValues[effCc] ?? 0) : 0)) / 127
 
   // EARLY RETURN only after ALL hooks have been called.
   if (!module || !def) return null

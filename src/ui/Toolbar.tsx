@@ -1,4 +1,4 @@
-import type { RefObject } from 'react'
+import { memo, type RefObject } from 'react'
 import { PLAY_MODES, type PlayMode, type View } from '../state/appStore'
 import type { AudioStatus } from '../state/audioStore'
 import type { Instrument } from '../domain/types'
@@ -40,7 +40,7 @@ interface ToolbarProps {
 }
 
 /** App header: transport, song title/tempo, instrument select, octave, panic, views. */
-export function Toolbar({
+export const Toolbar = memo(function Toolbar({
   playing,
   audioStatus,
   playbackStarted,
@@ -228,4 +228,4 @@ export function Toolbar({
       </button>
     </header>
   )
-}
+})

@@ -297,6 +297,13 @@ export default function App() {
 
   const onKeyDown = useCallback(
     (e: KeyboardEvent) => {
+      // Read the parts of state that change on every keystroke via getState so
+      // the listener is never torn down mid-edit. View and zustand actions are
+      // stable enough to stay in deps.
+      const doc = useDocStore.getState().doc
+      const pattern = doc.entities.patterns[doc.patternId]
+      if (!pattern) return
+
       // --- Transport (spacebar) ---
       if (e.code === 'Space' && !e.ctrlKey && !e.metaKey && !isEditableTarget(e.target)) {
         e.preventDefault()
@@ -638,7 +645,7 @@ export default function App() {
         }
       }
     },
-    [view, pattern, host, toggle, undo, redo, setCellNote, setCellHold, setCellVolume, setCellEffectLane, addEffectLane, removeEffectLane, addTrack, removeTrack, moveTrack, copyTrack, pasteTrack, duplicateTrack, shiftTrack, toggleMute, copyRect, cutRect, pasteRect, clearEntry, laneCountForTrack, cyclePlayMode],
+    [view, host, toggle, undo, redo, setCellNote, setCellHold, setCellVolume, setCellEffectLane, addEffectLane, removeEffectLane, addTrack, removeTrack, moveTrack, copyTrack, pasteTrack, duplicateTrack, shiftTrack, toggleMute, copyRect, cutRect, pasteRect, clearEntry, laneCountForTrack, cyclePlayMode],
   )
 
   const onKeyUp = useCallback(
