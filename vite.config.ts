@@ -75,6 +75,7 @@ export default defineConfig({
   test: {
     environment: 'node',
     globals: true,
+    setupFiles: ['./src/test/setup.ts'],
     // The vendored elementary repo ships its own jest suites.
     exclude: ['node_modules/**', 'vendor/**', 'dist/**'],
     coverage: {
