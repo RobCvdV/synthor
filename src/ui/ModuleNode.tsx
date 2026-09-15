@@ -7,6 +7,7 @@ import type { AudioHost } from '../audio/host'
 import type { Id } from '../domain/types'
 import { CLIP_THRESHOLD, drawScope } from './scope'
 import { round } from './format'
+import { ParamSlider } from './components/ParamSlider'
 
 export interface ModuleNodeData {
   instrumentId: Id
@@ -292,14 +293,10 @@ export function ModuleNode({ data }: NodeProps) {
                 </span>
               </span>
               {!isCcParam && (
-                <input
+                <ParamSlider
                   className="nodrag"
-                  type="range"
-                  min={p.min}
-                  max={max}
-                  step={p.step}
-                  value={value}
-                  onChange={(e) => setModuleParamSilent(instrumentId, moduleId, p.key, Number(e.target.value))}
+                  value={value} min={p.min} max={max} step={p.step}
+                  onChange={(v) => setModuleParamSilent(instrumentId, moduleId, p.key, v)}
                 />
               )}
             </label>

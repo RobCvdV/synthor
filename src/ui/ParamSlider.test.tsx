@@ -1,14 +1,18 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { render } from '@testing-library/react'
 import { ParamSlider } from './components/ParamSlider'
+
+function getSlider(container: HTMLElement): HTMLInputElement {
+  return container.querySelector('input[type="range"]') as HTMLInputElement
+}
 
 describe('ParamSlider', () => {
   it('renders horizontal by default', () => {
     const { container } = render(
       <ParamSlider value={0.5} min={0} max={1} onChange={() => {}} />,
     )
-    const input = container.querySelector('input[type="range"]')!
+    const input = getSlider(container)
     expect(input).toBeTruthy()
     expect(input.value).toBe('0.5')
     expect(input.style.writingMode).toBeFalsy()
@@ -18,15 +22,14 @@ describe('ParamSlider', () => {
     const { container } = render(
       <ParamSlider value={0} min={-1} max={1} orientation="vertical" onChange={() => {}} />,
     )
-    const input = container.querySelector('input[type="range"]')!
-    expect(input.style.writingMode).toBe('vertical-lr')
+    expect(getSlider(container).style.writingMode).toBe('vertical-lr')
   })
 
   it('renders disabled with reduced opacity', () => {
     const { container } = render(
       <ParamSlider value={50} min={0} max={100} disabled onChange={() => {}} />,
     )
-    const input = container.querySelector('input[type="range"]')!
+    const input = getSlider(container)
     expect(input).toBeDisabled()
     expect(input.style.opacity).toBe('0.4')
   })
@@ -38,14 +41,10 @@ describe('ParamSlider', () => {
     expect(container.textContent).toContain('0.75')
   })
 
-  it('calls onChange on input change', () => {
-    const onChange = vi.fn()
+  it('renders the slider element', () => {
     const { container } = render(
-      <ParamSlider value={0} min={0} max={1} onChange={onChange} />,
+      <ParamSlider value={0} min={0} max={1} onChange={() => {}} />,
     )
-    const input = container.querySelector('input[type="range"]')!
-    // fireEvent.change does not update input.value in jsdom, so parseFloat returns NaN
-    // and onChange is not called — this is fine; the contract is tested manually.
-    expect(input).toBeTruthy()
+    expect(getSlider(container)).toBeTruthy()
   })
 })

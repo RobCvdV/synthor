@@ -10,10 +10,47 @@ export interface DrumkitOps {
   /** Set a param on the slot at the given note. If the slot is inherited,
    *  promotes it (copies parent source) and sets the param in one undo step. */
   setOrPromoteSlotParam: (instrumentId: Id, note: number, key: 'baseNote' | 'volume' | 'pan', value: number) => void
+  /** Silent variant — persists value and paramRef without scheduling a recompile.
+   *  Use during drag; commit with setOrPromoteSlotParam on release. */
+  setOrPromoteSlotParamSilent: (instrumentId: Id, note: number, key: 'baseNote' | 'volume' | 'pan', value: number) => void
   setDrumKitSlotSource: (instrumentId: Id, slotId: Id, sampleId: Id | null, slotInstrumentId: Id | null) => void
   setDrumKitParam: (instrumentId: Id, key: string, value: number) => void
   setDrumKitKeyRange: (instrumentId: Id, keyLo: number, keyHi: number) => void
   setDrumKitParamSilent: (instrumentId: Id, key: string, value: number) => void
+}
+
+/** Shared recipe: promote an inherited slot or set a param on an explicit one.
+ *  Returns the effective slot id for paramRef update, or undefined. */
+function applySlotParam(
+  draft: import('../domain/types').Doc,
+  instrumentId: Id,
+  note: number,
+  key: 'baseNote' | 'volume' | 'pan',
+  value: number,
+): string | undefined {
+  const inst = draft.entities.instruments[instrumentId]
+  if (inst?.kind !== 'drumkit') return undefined
+  const slot = getSlotForNote(inst, note)
+  if (!slot) return undefined
+  if (slot.note !== note) {
+    // Inherited — promote to an explicit slot.
+    const newSlot: DrumKitSlot = {
+      id: makeId('slot'),
+      note,
+      sampleId: slot.sampleId,
+      instrumentId: slot.instrumentId,
+      baseNote: slot.baseNote,
+      volume: slot.volume,
+      pan: slot.pan,
+    }
+    newSlot[key] = value
+    const idx = inst.slots.findIndex((s) => s.note > note)
+    if (idx === -1) inst.slots.push(newSlot)
+    else inst.slots.splice(idx, 0, newSlot)
+    return newSlot.id
+  }
+  slot[key] = value
+  return slot.id
 }
 
 export function drumkitOps(get: () => DocState): DrumkitOps {
@@ -49,31 +86,17 @@ export function drumkitOps(get: () => DocState): DrumkitOps {
     setOrPromoteSlotParam: (instrumentId, note, key, value) => {
       let effectiveSlotId: string | undefined
       get().mutate((draft) => {
-        const inst = draft.entities.instruments[instrumentId]
-        if (inst?.kind !== 'drumkit') return
-        const slot = getSlotForNote(inst, note)
-        if (!slot) return
-        if (slot.note !== note) {
-          // Inherited — promote to an explicit slot at this note, copying the
-          // parent's source and defaults, then overwriting the edited param.
-          const newSlot: DrumKitSlot = {
-            id: makeId('slot'),
-            note,
-            sampleId: slot.sampleId,
-            instrumentId: slot.instrumentId,
-            baseNote: slot.baseNote,
-            volume: slot.volume,
-            pan: slot.pan,
-          }
-          newSlot[key] = value
-          const idx = inst.slots.findIndex((s) => s.note > note)
-          if (idx === -1) inst.slots.push(newSlot)
-          else inst.slots.splice(idx, 0, newSlot)
-          effectiveSlotId = newSlot.id
-        } else {
-          slot[key] = value
-          effectiveSlotId = slot.id
-        }
+        effectiveSlotId = applySlotParam(draft, instrumentId, note, key, value)
+      })
+      if (effectiveSlotId) {
+        updateParamRef(`${instrumentId}:slot:${effectiveSlotId}:${key}`, value)
+      }
+    },
+
+    setOrPromoteSlotParamSilent: (instrumentId, note, key, value) => {
+      let effectiveSlotId: string | undefined
+      get().mutateSilent((draft) => {
+        effectiveSlotId = applySlotParam(draft, instrumentId, note, key, value)
       })
       if (effectiveSlotId) {
         updateParamRef(`${instrumentId}:slot:${effectiveSlotId}:${key}`, value)
