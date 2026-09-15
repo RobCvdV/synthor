@@ -57,8 +57,13 @@ export const useDocStore = create<DocState>((set, get) => ({
 
 
   mutateSilent: (recipe) => {
-    set({ silentBatch: true })
-    get().mutate(recipe)
+    const { doc, past } = get()
+    const [next, patches, inverse] = produceWithPatches(doc, recipe)
+    if (patches.length === 0) return
+    const trimmed = past.length >= HISTORY_LIMIT ? past.slice(1) : past
+    // Fold silentBatch into the doc change so useEngine's subscription skips
+    // the recompile on the one notification that carries the new doc.
+    set({ doc: next, past: [...trimmed, { patches, inverse }], future: [], silentBatch: true })
     set({ silentBatch: false })
   },
 
@@ -67,7 +72,7 @@ export const useDocStore = create<DocState>((set, get) => ({
     const [next, patches, inverse] = produceWithPatches(doc, recipe)
     if (patches.length === 0) return // no-op edit, don't pollute history
     const trimmed = past.length >= HISTORY_LIMIT ? past.slice(1) : past
-    set({ doc: next, past: [...trimmed, { patches, inverse }], future: [] })
+    set({ doc: next, past: [...trimmed, { patches, inverse }], future: [], silentBatch: false })
   },
 
   loadDoc: (doc) =>
