@@ -1,5 +1,5 @@
 node_modules
-dist
+/dist
 dist-ssr
 dev-dist
 *.local
@@ -11,4 +11,6 @@ screenshot.png
 electron-dist
 release
 certs
-.claude/snapshot.txt
+.claude/snapshot*
+.claude/*.png
+/build/

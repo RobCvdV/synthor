@@ -14,5 +14,8 @@ wasm**. `package.json` depends on these via `file:` so a fresh
 - Version `4.0.3-synthor.1` marks the fork; upstream API compatibility is
   preserved. Upgrading Elementary = bump `vendor/elementary`, rebuild,
   re-commit these dists.
+- **The `.gitignore` must keep the root-anchored `/dist` form** — a bare
+  `dist` silently ignores these directories too (the build's root `dist/` is
+  the only other one).
 
 See `docs/NATIVE_SEQUENCER_NODE.md`.
