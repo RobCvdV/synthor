@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useDocStore } from './state/docStore'
-import { rowHz, useTransportStore } from './state/transportStore'
+import { useTransportStore } from './state/transportStore'
 import { useAppStore, clampCursor, type TrackerCursor } from './state/appStore'
 import { useEngine } from './ui/useEngine'
 import { useAutosave } from './ui/useAutosave'
+import { usePatternSync } from './ui/usePlayhead'
 import { codeToSemitone, isEditableTarget, keyToHex } from './ui/keymap'
 import { Dialog } from './ui/Dialog'
 import { Toolbar } from './ui/Toolbar'
@@ -109,7 +110,6 @@ export default function App() {
   const audioStatus = useAudioStore((s) => s.status)
   const playbackStarted = useAudioStore((s) => s.playbackStarted)
   const bpm = useTransportStore((s) => s.bpm)
-  const linesPerBeat = useTransportStore((s) => s.linesPerBeat)
   const setBpm = useTransportStore((s) => s.setBpm)
   const toggle = useTransportStore((s) => s.toggle)
   const playMode = useAppStore((s) => s.playMode)
@@ -211,51 +211,9 @@ export default function App() {
   const cursor = trackerCursor
 
   const [selection, setSelection] = useState<Selection | null>(null)
-  const [playhead, setPlayhead] = useState<number | null>(null)
 
   // Compute keyboard note range for the octave display
   const noteRange = `${midiToName(octave * 12)} … ${midiToName(octave * 12 + 30)}`
-
-  // Compute the flattened arrangement for the current play mode.
-  // For section/song mode, returns an ordered list of patterns to play through.
-  const arrangement = useMemo(() => {
-    if (playMode === 'pattern') {
-      return [{ patternId: doc.patternId, startRow: 0 }]
-    }
-    if (playMode === 'section') {
-      const secId = doc.sectionIds.find((sid) => {
-        const sec = doc.entities.sections[sid]
-        return sec?.patternIds.includes(doc.patternId)
-      })
-      const section = secId ? doc.entities.sections[secId] : null
-      const patIds = section?.patternIds ?? [doc.patternId]
-      let offset = 0
-      return patIds.map((pid) => {
-        const p = doc.entities.patterns[pid]
-        const row = offset
-        offset += p?.length ?? 64
-        return { patternId: pid, startRow: row }
-      })
-    }
-    const items: { patternId: string; startRow: number }[] = []
-    let offset = 0
-    for (const sid of doc.sectionIds) {
-      const sec = doc.entities.sections[sid]
-      if (!sec) continue
-      for (const pid of sec.patternIds) {
-        const p = doc.entities.patterns[pid]
-        items.push({ patternId: pid, startRow: offset })
-        offset += p?.length ?? 64
-      }
-    }
-    return items.length > 0 ? items : [{ patternId: doc.patternId, startRow: 0 }]
-  }, [playMode, doc.patternId, doc.sectionIds, doc.entities.sections, doc.entities.patterns])
-
-  const totalArrangementRows = useMemo(() => {
-    if (playMode === 'pattern') return pattern.length
-    return arrangement.reduce((sum: number, a) =>
-      sum + (doc.entities.patterns[a.patternId]?.length ?? 64), 0)
-  }, [playMode, pattern.length, arrangement, doc.entities.patterns])
 
   const cursorRef = useRef(trackerCursor)
   cursorRef.current = trackerCursor
@@ -306,56 +264,9 @@ export default function App() {
     if (instId) useAppStore.getState().setSelectedInstrumentId(instId)
   }, [trackerCursor.track, trackCount, ready])
 
-  // Visual playhead with pattern transition support for section/song modes.
-  useEffect(() => {
-    // Hold until the scheduler clock actually starts — otherwise the playhead
-    // runs ahead during warm-up and snaps back when audio begins.
-    if (!playing || !playbackStarted) {
-      setPlayhead(null)
-      return
-    }
-    let raf = 0
-    let lastPatternId = doc.patternId
-    const tick = () => {
-      const elapsed = host.currentTime - host.playStartTime
-      const rowsPerSec = rowHz(bpm, linesPerBeat)
-      const globalRow = host.playStartRow + Math.floor(elapsed * rowsPerSec)
-
-      if (playMode === 'pattern') {
-        setPlayhead(globalRow % pattern.length)
-      } else {
-        // Section / song mode: map global row to arrangement position.
-        const totalRows = Math.max(1, totalArrangementRows)
-        const wrapped = ((globalRow % totalRows) + totalRows) % totalRows
-        // Find which pattern in the arrangement this row falls in.
-        const item = arrangement.find(
-          (a) => wrapped >= a.startRow && wrapped < a.startRow + (doc.entities.patterns[a.patternId]?.length ?? 64),
-        )
-        if (item) {
-          const localRow = wrapped - item.startRow
-          setPlayhead(localRow)
-          // Auto-switch the compiled pattern when crossing boundaries.
-          if (item.patternId !== lastPatternId) {
-            lastPatternId = item.patternId
-            // In section/song mode the audio graph spans the full arrangement,
-            // so this patternId change is purely for UI.  Suppress the recompile
-            // that the doc-store subscription would otherwise trigger.
-            if (playMode !== 'pattern' as typeof playMode) host.skipNextRecompile = true
-            // Update doc's current pattern without creating an undo entry
-            // by using the store setter directly.
-            useDocStore.setState((s) => ({
-              doc: { ...s.doc, patternId: item.patternId },
-            }))
-          }
-        } else {
-          setPlayhead(wrapped)
-        }
-      }
-      raf = requestAnimationFrame(tick)
-    }
-    raf = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(raf)
-  }, [playing, playbackStarted, bpm, linesPerBeat, pattern.length, host, playMode, totalArrangementRows, arrangement, doc.entities.patterns, doc.patternId])
+  // Let the playhead hook manage section/song pattern switching (txseq-driven,
+  // no rAF — transportStore.currentRow is audio-thread exact).
+  usePatternSync(host)
 
   const liveTrackCount = () => useDocStore.getState().doc.entities.patterns[doc.patternId].trackIds.length
 
@@ -823,7 +734,6 @@ export default function App() {
               doc={doc}
               pattern={pattern}
               cursor={cursor}
-              playhead={playhead}
               muted={mutedTrackNumbers}
               soloed={soloedTrackNumbers}
               selection={selection}

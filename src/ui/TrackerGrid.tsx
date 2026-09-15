@@ -3,6 +3,7 @@ import type { Doc, Id, Pattern } from '../domain/types'
 import { midiToName } from '../domain/notes'
 import { effInletNames, isBuiltinLaneType, LANE_DEFS, readableLaneLabel, valueHex } from '../domain/effects'
 import { useDocStore } from '../state/docStore'
+import { usePlayheadRow } from './usePlayhead'
 
 export interface Cursor {
   row: number
@@ -24,7 +25,6 @@ interface Props {
   doc: Doc
   pattern: Pattern
   cursor: Cursor
-  playhead: number | null
   /** Keyed by 1-based track position (Track #), global across patterns. */
   muted: Record<number, boolean>
   soloed: Record<number, boolean>
@@ -64,8 +64,9 @@ function inSelection(
   return row >= r0 && row <= r1 && track >= t0 && track <= t1
 }
 
-export function TrackerGrid({ doc, pattern, cursor, playhead, muted, soloed, selection, volumeEntry, laneEntry, onCellClick }: Props) {
+export function TrackerGrid({ doc, pattern, cursor, muted, soloed, selection, volumeEntry, laneEntry, onCellClick }: Props) {
   const tracks = pattern.trackIds.map((id) => doc.entities.tracks[id])
+  const playhead = usePlayheadRow()
   const setTrackInstrument = useDocStore((s) => s.setTrackInstrument)
   const addEffectLane = useDocStore((s) => s.addEffectLane)
   const removeEffectLane = useDocStore((s) => s.removeEffectLane)
