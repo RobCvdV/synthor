@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { codeToSemitone, isEditableTarget, keyToHex } from './keymap'
+import { codeToNote, codeToSemitone, isEditableTarget, keyToHex } from './keymap'
 
 /** Stand in for a DOM element under the node test environment. */
 const fakeTarget = (o: { tagName: string; type?: string }) => o as unknown as EventTarget
@@ -50,5 +50,18 @@ describe('isEditableTarget', () => {
 
   it('is false for null targets', () => {
     expect(isEditableTarget(null)).toBe(false)
+  })
+})
+
+describe('codeToNote', () => {
+  it('maps physical keys to MIDI notes for the given octave', () => {
+    expect(codeToNote('KeyZ', 5)).toBe(60)  // C4
+    expect(codeToNote('KeyQ', 5)).toBe(72)  // C5
+    expect(codeToNote('KeyM', 5)).toBe(71)  // B4
+  })
+
+  it('returns null for non-note keys', () => {
+    expect(codeToNote('Escape', 5)).toBeNull()
+    expect(codeToNote('KeyF', 5)).toBeNull()
   })
 })
