@@ -18,5 +18,6 @@ certs
 !/build/icon.icns
 !/build/icon.ico
 !/build/icon.png
+!/build/entitlements.mac.plist
 mise.toml
 /vendor/elementary/
