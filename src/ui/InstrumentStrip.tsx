@@ -1,6 +1,7 @@
 import { MASTER_CHANNEL_ID } from '../domain/types'
 import type { Id, Instrument, MixChannel } from '../domain/types'
 import { VerticalFader } from './VerticalFader'
+import { STRIP_FOOTER_HEIGHT, STRIP_GAP } from './mixerStrip'
 import { PanSlider } from './PanSlider'
 
 export function InstrumentStrip({
@@ -17,7 +18,7 @@ export function InstrumentStrip({
   const subChannels = Object.values(channels).filter((c) => c.kind === 'sub')
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 80, padding: '4px 3px', border: '1px solid #444', borderRadius: 4, background: '#1a1a2e', flexShrink: 0, gap: 4, position: 'relative' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 80, padding: '4px 3px', border: '1px solid #444', borderRadius: 4, background: '#1a1a2e', flexShrink: 0, gap: STRIP_GAP, position: 'relative' }}>
       <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: 1 }}>
         {onMoveUp && <button className="octbtn" onClick={onMoveUp} style={{ padding: '0 2px', fontSize: 9, lineHeight: '12px' }}>◀</button>}
         {onMoveDown && <button className="octbtn" onClick={onMoveDown} style={{ padding: '0 2px', fontSize: 9, lineHeight: '12px' }}>▶</button>}
@@ -35,7 +36,7 @@ export function InstrumentStrip({
       <PanSlider value={inst.pan ?? 0} onSilent={onPanSilent} onCommit={onPanCommit} />
       <VerticalFader value={gain} onDrag={onVolumeSilent} onCommit={onVolumeCommit} />
       <select value={inst.channelId ?? MASTER_CHANNEL_ID} onChange={(e) => onRoute(e.target.value)}
-        className="mixer-dropdown" style={{ fontSize: 9, width: '100%', marginTop: 2 }}>
+        className="mixer-dropdown" style={{ fontSize: 9, width: '100%', marginTop: 2, height: STRIP_FOOTER_HEIGHT, flexShrink: 0 }}>
         <option value={MASTER_CHANNEL_ID}>Master</option>
         {subChannels.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
       </select>

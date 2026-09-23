@@ -1,12 +1,11 @@
 import { createNode, el, unpack, type NodeRepr_t } from '@elemaudio/core'
 import type { Doc, Id, SampleEntity, Instrument } from '../domain/types'
-import { MASTER_CHANNEL_ID } from '../domain/types'
+import { MASTER_CHANNEL_ID, liveVoiceCount } from '../domain/types'
 import { midiToFreq } from '../domain/notes'
 import { renderDrumKitSlot, renderInstrument } from './instruments'
 import type { StereoOut } from './modular'
 import { applyPan, applyChannelMix, compileChannelEffects } from './mixer'
 import type { ArrangementItem } from './arrangement'
-import { LIVE_VOICE_COUNT } from './voicePool'
 import { computeSlotLayouts, slotGlobalIndex, MAX_SLOT_SIGNALS, REGULAR_CH, DRUMKIT_CH, DRUMKIT_EXTRA_CHANNELS } from './voiceSlotLayout'
 import type { InstrumentSlotLayout } from './voiceSlotLayout'
 
@@ -97,6 +96,10 @@ export interface RenderContext {
   /** The keyed txSeq ref node (created once by the host); falls back to a
    *  fresh node for pure compile tests. */
   txSeq?: NodeRepr_t
+  /** Instruments that get live (free play) voices. Undefined = all. */
+  liveVoiceInstIds?: Id[]
+  /** Instrument guaranteed a tracker slot (live notes via txSeq). */
+  ensureSlotInstId?: Id | null
 }
 
 /**
@@ -112,17 +115,22 @@ function compileAllVoiceSlots(
   midiCcValues?: Record<number, number>,
   ccBindings?: RenderContext['ccBindings'],
   rowHzNode: NodeRepr_t = el.const({ value: 8 }),
+  instIds?: Id[],
 ): StereoOut | null {
   if (!paramRefs) return null
 
-  const voiceCount = LIVE_VOICE_COUNT
   const lvZero = el.const({ key: 'lv:zero', value: 0 })
   const defaultFreq = midiToFreq(69)
 
   let allLeft: NodeRepr_t = lvZero
   let allRight: NodeRepr_t = lvZero
 
-  for (const inst of Object.values(doc.entities.instruments)) {
+  const instruments = instIds
+    ? instIds.map((id) => doc.entities.instruments[id]).filter((i) => i !== undefined)
+    : Object.values(doc.entities.instruments)
+  if (instruments.length === 0) return null
+
+  for (const inst of instruments) {
     if (inst.kind === 'drumkit') {
       const subVoicesPerSlot = 1
       let kitL: NodeRepr_t = lvZero
@@ -146,7 +154,7 @@ function compileAllVoiceSlots(
       allRight = el.add(allRight, el.mul(kitR, 0.3, masterGain))
     } else {
       const slotVoices: StereoOut[] = []
-      for (let i = 0; i < voiceCount; i++) {
+      for (let i = 0; i < liveVoiceCount(inst); i++) {
         const voiceKey = `${inst.id}:v:${i}`
         const freq = paramRefs.getOrCreate(`${voiceKey}:freq`, defaultFreq)
         const gate = paramRefs.getOrCreate(`${voiceKey}:gate`, 0)
@@ -158,7 +166,6 @@ function compileAllVoiceSlots(
     }
   }
 
-  if (Object.keys(doc.entities.instruments).length === 0) return null
   return { left: allLeft, right: allRight }
 }
 
@@ -357,16 +364,15 @@ export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
     ? ctx.paramRefs.getOrCreate('transport:rowHz', ctx.rowHz)
     : el.const({ value: ctx.rowHz })
 
-  // Live voice slots for every instrument — keyboard, MIDI and tracker
-  // all write to VoicePool refs. No recompile for any note event.
+  // Live (free play) voices — keyboard and MIDI write to VoicePool refs.
   const liveOut = compileAllVoiceSlots(
     doc, ctx.paramRefs, sampleMeta, sampleHashById,
-    ctx.midiCcValues, ctx.ccBindings, rowHzNode,
+    ctx.midiCcValues, ctx.ccBindings, rowHzNode, ctx.liveVoiceInstIds,
   )
 
   // Compute slot layouts from the document.  This determines how many
   // slots each instrument needs and their channel offsets.
-  const slotLayouts = computeSlotLayouts(doc)
+  const slotLayouts = computeSlotLayouts(doc, ctx.ensureSlotInstId)
 
   // Tracker voice slots — one slot per concurrent track, fed by txSeq
   // output channels (unpacked refs).

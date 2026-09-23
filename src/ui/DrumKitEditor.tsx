@@ -3,6 +3,7 @@ import { useDocStore } from '../state/docStore'
 import type { DrumKitInstrument, Id } from '../domain/types'
 import { getSlotForNote } from '../domain/types'
 import { midiToName } from '../domain/notes'
+import { ParamSlider } from './components/ParamSlider'
 
 /** Note name for display. */
 function noteLabel(midi: number): string {
@@ -58,8 +59,10 @@ export function DrumKitEditor({ inst }: { inst: DrumKitInstrument }) {
   const addSlot = useDocStore((s) => s.addDrumKitSlot)
   const removeSlot = useDocStore((s) => s.removeDrumKitSlot)
   const setOrPromoteSlotParam = useDocStore((s) => s.setOrPromoteSlotParam)
+  const setOrPromoteSlotParamSilent = useDocStore((s) => s.setOrPromoteSlotParamSilent)
   const setSlotSource = useDocStore((s) => s.setDrumKitSlotSource)
   const setKitParam = useDocStore((s) => s.setDrumKitParam)
+  const setKitParamSilent = useDocStore((s) => s.setDrumKitParamSilent)
   const setKeyRange = useDocStore((s) => s.setDrumKitKeyRange)
 
   const samples = useMemo(() => Object.values(sampleEntities).sort((a, b) => a.name.localeCompare(b.name)), [sampleEntities])
@@ -140,13 +143,10 @@ export function DrumKitEditor({ inst }: { inst: DrumKitInstrument }) {
           <span className="mod-param-label">
             Master<span className="mod-param-value">{inst.params.gain.toFixed(2)}</span>
           </span>
-          <input
-            type="range"
-            min={0}
-            max={2}
-            step={0.01}
-            value={inst.params.gain}
-            onChange={(e) => setKitParam(inst.id, 'gain', Number(e.target.value))}
+          <ParamSlider
+            value={inst.params.gain} min={0} max={2} step={0.01}
+            onChange={(v) => setKitParamSilent(inst.id, 'gain', v)}
+            onCommit={(v) => setKitParam(inst.id, 'gain', v)}
           />
         </label>
       </div>
@@ -271,36 +271,26 @@ export function DrumKitEditor({ inst }: { inst: DrumKitInstrument }) {
 
               {/* Volume */}
               <span className="dk-param-col dk-slider-col">
-                <input
-                  type="range"
-                  className="dk-slider"
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  value={eff.volume}
-                  readOnly={eff.inherited || !eff.slotId}
-                  onChange={(e) => doSetParam(note, 'volume', Number(e.target.value))}
-                  onClick={(e) => e.stopPropagation()}
+                <ParamSlider
+                  value={eff.volume} min={0} max={1} step={0.01}
+                  disabled={eff.inherited || !eff.slotId}
+                  onChange={(v) => setOrPromoteSlotParamSilent(inst.id, note, 'volume', v)}
+                  onCommit={(v) => setOrPromoteSlotParam(inst.id, note, 'volume', v)}
+                  formatValue={(v) => v.toFixed(2)}
                   title={`Volume: ${eff.volume.toFixed(2)}`}
                 />
-                <span className="dk-slider-val">{eff.volume.toFixed(2)}</span>
               </span>
 
               {/* Pan */}
               <span className="dk-param-col dk-slider-col">
-                <input
-                  type="range"
-                  className="dk-slider"
-                  min={-1}
-                  max={1}
-                  step={0.01}
-                  value={eff.pan}
-                  readOnly={eff.inherited || !eff.slotId}
-                  onChange={(e) => doSetParam(note, 'pan', Number(e.target.value))}
-                  onClick={(e) => e.stopPropagation()}
+                <ParamSlider
+                  value={eff.pan} min={-1} max={1} step={0.01}
+                  disabled={eff.inherited || !eff.slotId}
+                  onChange={(v) => setOrPromoteSlotParamSilent(inst.id, note, 'pan', v)}
+                  onCommit={(v) => setOrPromoteSlotParam(inst.id, note, 'pan', v)}
+                  formatValue={(v) => v > 0.05 ? 'R' : v < -0.05 ? 'L' : 'C'}
                   title={`Pan: ${eff.pan > 0.05 ? 'R' : eff.pan < -0.05 ? 'L' : 'C'} ${eff.pan.toFixed(2)}`}
                 />
-                <span className="dk-slider-val">{eff.pan > 0.05 ? 'R' : eff.pan < -0.05 ? 'L' : 'C'} {Math.abs(eff.pan).toFixed(2)}</span>
               </span>
             </div>
           )

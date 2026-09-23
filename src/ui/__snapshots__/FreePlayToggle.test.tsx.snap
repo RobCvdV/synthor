@@ -1,0 +1,3 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`FreePlayToggle > renders the on state 1`] = `"<button class="octbtn active" aria-pressed="true" title="Free play on — the current instrument has its own polyphonic voices">FREE</button>"`;

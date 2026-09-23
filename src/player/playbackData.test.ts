@@ -73,6 +73,20 @@ describe('buildPlaybackData', () => {
     expect(slot.signals[REGULAR_CH.vol][0]).toBe(1)
   })
 
+  it('ensureSlotInstId adds a silent slot for an instrument without tracks, in layout order', () => {
+    const inst = newSynth('Bass')
+    const idle = newSynth('Pad')
+    const track = newTrack(inst.id, 4)
+    setNote(track, 0, 60)
+    const pattern: Pattern = { id: 'pat_1', name: 'P1', length: 4, trackIds: [track.id] }
+    const doc = makeDoc({ [inst.id]: inst, [idle.id]: idle }, { [track.id]: track }, { [pattern.id]: pattern })
+
+    const data = buildPlaybackData(doc, [{ patternId: pattern.id, startRow: 0 }], idle.id)
+    expect(data.slots.map((s) => s.instId)).toEqual([inst.id, idle.id].sort())
+    const idleSlot = data.slots.find((s) => s.instId === idle.id)!
+    expect(idleSlot.signals[REGULAR_CH.gate]).toEqual([0, 0, 0, 0])
+  })
+
   it('builds slot data for two tracks using same instrument (2 slots)', () => {
     const inst = newSynth('Lead')
     const t1 = newTrack(inst.id, 4)

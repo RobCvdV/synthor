@@ -7,6 +7,7 @@ import type { AudioHost } from '../audio/host'
 import type { Id } from '../domain/types'
 import { CLIP_THRESHOLD, drawScope } from './scope'
 import { round } from './format'
+import { ParamSlider } from './components/ParamSlider'
 
 export interface ModuleNodeData {
   instrumentId: Id
@@ -112,12 +113,11 @@ export function ModuleNode({ data }: NodeProps) {
     return () => clearInterval(id)
   }, [isOutput, host])
 
-  // Live CC readout for effect modules — must be above the early return
-  // because hooks must never be skipped between renders.
-  const ccValues = useMidiStore((s) => s.ccValues)
+  // Live CC readout for effect modules — scope to this node's CC number
+  // so only the relevant node re-renders when a knob turns.
   const isEff = module?.type === 'eff'
   const effCc = isEff ? (module?.params.cc ?? 0) : 0
-  const effCcVal = effCc > 0 ? (ccValues[effCc] ?? 0) / 127 : 0
+  const effCcVal = useMidiStore((s) => (effCc > 0 ? (s.ccValues[effCc] ?? 0) : 0)) / 127
 
   // EARLY RETURN only after ALL hooks have been called.
   if (!module || !def) return null
@@ -292,14 +292,10 @@ export function ModuleNode({ data }: NodeProps) {
                 </span>
               </span>
               {!isCcParam && (
-                <input
+                <ParamSlider
                   className="nodrag"
-                  type="range"
-                  min={p.min}
-                  max={max}
-                  step={p.step}
-                  value={value}
-                  onChange={(e) => setModuleParamSilent(instrumentId, moduleId, p.key, Number(e.target.value))}
+                  value={value} min={p.min} max={max} step={p.step}
+                  onChange={(v) => setModuleParamSilent(instrumentId, moduleId, p.key, v)}
                 />
               )}
             </label>

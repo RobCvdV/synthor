@@ -120,6 +120,11 @@ function createSlotData(
   return { instId, slotIndex, signals, drumGateCount: layout.isDrumkit ? (layout.drumSounds ?? 0) : 0 }
 }
 
+/** One row of a slot at rest: gates off, every effect channel neutral. */
+export function neutralSlotValues(layout: InstrumentSlotLayout): number[] {
+  return createSlotData(layout.instId, 0, 1, layout).signals.map((s) => s[0])
+}
+
 /** Copy track sequence data into a regular-instrument slot's signals arrays
  *  for a pattern window.
  *
@@ -196,8 +201,9 @@ export function mapPatternTracksToSlots(
 export function buildPlaybackData(
   doc: Doc,
   arrangement: readonly ArrangementItem[],
+  ensureSlotInstId?: Id | null,
 ): PlaybackData {
-  const layouts = computeSlotLayouts(doc)
+  const layouts = computeSlotLayouts(doc, ensureSlotInstId)
   const totalRows = arrangement.reduce(
     (sum, a) => sum + (doc.entities.patterns[a.patternId]?.length ?? 0),
     0,

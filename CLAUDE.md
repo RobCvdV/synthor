@@ -79,7 +79,9 @@ Chains are ordered; each hop is verified. Skipping the tail is how features half
 ## Testing — required on every code change
 
 - Changes in `domain/`, `engine/`, `state/`, `persist/`, `player/playbackData` **ship a vitest** in the same folder. These are pure and have no excuse. Extend the existing `*.test.ts` next to the file rather than starting a parallel one.
-- `ui/`, `audio/host`, `midi/`, and `src/native/` (C++) are **not unit-tested** — WebRenderer, AudioContext and OPFS aren't available under vitest. Cover them by `npm run typecheck` plus running the app. The txSeq node itself IS covered via the offline renderer in `src/engine/txSeq.test.ts` (SDK-wasm based, like the spike test).
+- `src/native/` (C++) is **not unit-tested** — it ships with the vendored renderer. The txSeq node IS covered via the offline renderer in `src/engine/txSeq.test.ts` (SDK-wasm based).
+- UI components ship jsdom/RTL **snapshot tests** colocated in `src/ui/*.test.tsx` with `// @vitest-environment jsdom` and `src/test/setup.ts` stubs. Seed stores via `resetStores()` from `src/ui/test/testUtils.tsx`; avoid locale/date-dependent output. Currently excluded: `App`, `ModularEditor`/`ModuleNode` (xyflow native deps), `SampleEditor` + its dialogs (host/WASM flows), and canvas content (null-ctx guarded).
+- Cover `audio/host`, `midi/`, and any UI logic too coupled for jsdom by `npm run typecheck` plus running the app.
 - New logic that would be awkward to test belongs one layer down as a pure function, not inline in a view. That's what keeps coverage high.
 - A schema change ships a `migrate` test that loads an old-version fixture.
 - Before reporting done: `npm test` and `npm run typecheck`, both clean. Report failures, don't route around them.
@@ -88,5 +90,5 @@ Chains are ordered; each hop is verified. Skipping the tail is how features half
 
 - Function-first. Classes only for a mutable resource with a lifecycle (`AudioHost`, `KeyboardPlayer`, `ParamRefRegistry`); everything else is pure functions, stores and components. Don't wrap pure modules in classes.
 - Respect layer direction: UI → state → engine → domain. The engine imports no React and no AudioContext.
-- Don't grow `App.tsx` (~1000 lines) or `docStore.ts` (~1250) — new features get a new module or view, wired in from there.
+- Don't grow `App.tsx` (~850 lines) or `docStore.ts` (~100 lines) — new features get a new module or view, wired in from there.
 - Comments stay short, English, why-not-what.

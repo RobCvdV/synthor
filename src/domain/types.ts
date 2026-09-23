@@ -130,6 +130,8 @@ export interface ModularInstrument {
   pan: number
   /** MIDI channel (1-16) for external MIDI routing.  undefined = follow cursor. */
   midiChannel?: number
+  /** Live (free play) polyphony. Missing = DEFAULT_LIVE_VOICES. */
+  voices?: number
 }
 
 /** A managed sample asset — metadata only. Binary PCM data lives in OPFS. */
@@ -191,6 +193,15 @@ export interface DrumKitInstrument {
   pan: number
   /** MIDI channel (1-16) for external MIDI routing.  Defaults to 10 (drum channel). */
   midiChannel?: number
+}
+
+export const DEFAULT_LIVE_VOICES = 4
+export const MAX_LIVE_VOICES = 16
+
+/** Live voice count for free play, clamped to 1..MAX_LIVE_VOICES. */
+export function liveVoiceCount(inst: ModularInstrument): number {
+  const v = Math.round(inst.voices ?? DEFAULT_LIVE_VOICES)
+  return Math.max(1, Math.min(MAX_LIVE_VOICES, Number.isFinite(v) ? v : DEFAULT_LIVE_VOICES))
 }
 
 /** Find the slot that covers a given MIDI note (highest slot.note <= note).

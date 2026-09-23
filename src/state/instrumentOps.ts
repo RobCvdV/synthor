@@ -1,4 +1,4 @@
-import type { Id, Instrument } from '../domain/types'
+import { MAX_LIVE_VOICES, type Id, type Instrument } from '../domain/types'
 import { cloneInstrument, newDrumKitInstrument, newModularInstrument } from '../domain/factory'
 import type { DocState } from './docStore'
 
@@ -8,6 +8,8 @@ export interface InstrumentOps {
   renameInstrument: (instrumentId: Id, name: string) => void
   /** Set an effect range max value on an instrument. */
   setEffectSetting: (instrumentId: Id, key: string, value: number) => void
+  /** Live (free play) polyphony of a modular instrument, 1..MAX_LIVE_VOICES. */
+  setInstrumentVoices: (instrumentId: Id, voices: number) => void
   setTrackInstrument: (trackId: Id, instrumentId: Id) => void
   /** Duplicate an existing instrument (deep-clone with fresh ids). */
   duplicateInstrument: (instrumentId: Id) => Id
@@ -52,6 +54,12 @@ export function instrumentOps(get: () => DocState): InstrumentOps {
           if (!inst.effectSettings) inst.effectSettings = {}
           inst.effectSettings[key] = value
         }
+      }),
+
+    setInstrumentVoices: (instrumentId, voices) =>
+      get().mutate((draft) => {
+        const inst = draft.entities.instruments[instrumentId]
+        if (inst?.kind === 'modular') inst.voices = Math.max(1, Math.min(MAX_LIVE_VOICES, Math.round(voices)))
       }),
 
     setTrackInstrument: (trackId, instrumentId) =>

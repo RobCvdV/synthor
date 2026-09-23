@@ -10,6 +10,33 @@ function resetStore(doc?: Doc) {
   useDocStore.getState().loadDoc(doc ?? createDefaultDoc())
 }
 
+describe('docStore — silentBatch notification contract', () => {
+  beforeEach(() => resetStore())
+
+  it('mutateSilent ends with silentBatch false and creates history', () => {
+    // setChannelVolumeSilent calls mutateSilent internally.
+    useDocStore.getState().setChannelVolumeSilent('master', 0.75)
+    expect(useDocStore.getState().silentBatch).toBe(false)
+    expect(useDocStore.getState().past.length).toBe(1)
+  })
+
+  it('mutate ends with silentBatch false', () => {
+    // setChannelVolume calls mutate internally.
+    useDocStore.getState().setChannelVolume('master', 0.75)
+    expect(useDocStore.getState().silentBatch).toBe(false)
+    expect(useDocStore.getState().past.length).toBe(1)
+  })
+
+  it('silentBatch transitions are visible via subscribe + setState', () => {
+    const seen: boolean[] = []
+    const unsub = useDocStore.subscribe((s) => seen.push(s.silentBatch))
+    useDocStore.setState({ silentBatch: true })
+    useDocStore.setState({ silentBatch: false })
+    expect(seen).toEqual([true, false])
+    unsub()
+  })
+})
+
 describe('docStore — effect lanes', () => {
   beforeEach(() => resetStore())
 

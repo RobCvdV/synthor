@@ -1,6 +1,7 @@
-import { useDocStore } from '../state/docStore'
 import { MODULE_DEFS } from '../domain/moduleDefs'
 import type { ChannelEffect } from '../domain/types'
+import { ParamSlider } from './components/ParamSlider'
+import { useSortedSamples } from './hooks/useSortedSamples'
 
 export function EffectCard({
   effect, channelId: _channelId, isFirst: _isFirst, isLast: _isLast,
@@ -13,12 +14,7 @@ export function EffectCard({
   onMoveUp?: () => void; onMoveDown?: () => void
 }) {
   const def = MODULE_DEFS[effect.type]
-  // Sample dropdown for conv (IR) effects — same name-sorted order the engine
-  // uses when resolving sampleIndex → VFS hash. Hook stays above the early
-  // return so the hook order is stable across renders.
-  const sampleLabels = Object.values(useDocStore((s) => s.doc.entities.samples))
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .map((s) => s.name)
+  const sampleLabels = useSortedSamples().map((s) => s.name)
   if (!def) return null
   const bypassed = (effect.params.bypass ?? 0) === 1
 
@@ -52,13 +48,11 @@ export function EffectCard({
                   {param.enumLabels.map((lbl, i) => <option key={i} value={i}>{lbl}</option>)}
                 </select>
               ) : (
-                <input type="range" min={param.min} max={param.max} step={param.step} value={val}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onChange={(e) => onParamSilent(param.key, parseFloat(e.target.value))}
-                  onMouseUp={(e) => onParamCommit(param.key, parseFloat((e.target as HTMLInputElement).value))}
-                  style={{ width: 60 }} />
+                <ParamSlider value={val} min={param.min} max={param.max} step={param.step}
+                  onChange={(v) => onParamSilent(param.key, v)}
+                  onCommit={(v) => onParamCommit(param.key, v)}
+                  formatValue={(v) => param.step >= 1 ? v.toFixed(0) : v.toFixed(2)} />
               )}
-              <span style={{ fontSize: 8, color: '#aaa' }}>{typeof val === 'number' ? (param.step >= 1 ? val.toFixed(0) : val.toFixed(2)) : ''}</span>
             </div>
           )
         })}

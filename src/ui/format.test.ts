@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatDuration, formatSize, round, saveLabel } from './format'
+import { clamp, formatDuration, formatSize, round, saveLabel } from './format'
 
 describe('round', () => {
   it('renders integers from 100 up', () => {
@@ -61,5 +61,23 @@ describe('saveLabel', () => {
 
   it('falls back when never saved', () => {
     expect(saveLabel('idle', null)).toBe('Not saved yet')
+  })
+})
+
+describe('clamp', () => {
+  it('returns the value when within bounds', () => {
+    expect(clamp(0.5, 0, 1)).toBe(0.5)
+    expect(clamp(0, 0, 1)).toBe(0)
+    expect(clamp(1, 0, 1)).toBe(1)
+  })
+
+  it('clamps below lo', () => {
+    expect(clamp(-0.1, 0, 1)).toBe(0)
+    expect(clamp(-100, -1, 1)).toBe(-1)
+  })
+
+  it('clamps above hi', () => {
+    expect(clamp(1.1, 0, 1)).toBe(1)
+    expect(clamp(200, -1, 1)).toBe(1)
   })
 })

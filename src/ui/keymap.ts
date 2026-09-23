@@ -56,3 +56,10 @@ export function keyToHex(code: string): number | undefined {
   if (code === 'KeyF') return 15
   return undefined
 }
+
+/** Physical key code → MIDI note number (octave-aware), or null. */
+export function codeToNote(code: string, octave: number): number | null {
+  const semi = codeToSemitone(code)
+  if (semi === undefined) return null
+  return octave * 12 + semi
+}

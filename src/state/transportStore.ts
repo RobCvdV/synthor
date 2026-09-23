@@ -52,7 +52,10 @@ export const useTransportStore = create<TransportState>((set) => ({
     currentRow: s.playing ? 0 : startRow,
   })),
   setBpm: (bpm) => set({ bpm }),
-  setCurrentRow: (currentRow) => set({ currentRow }),
+  setCurrentRow: (currentRow) => set((s) => {
+    if (currentRow === s.currentRow) return {}
+    return { currentRow }
+  }),
 }))
 
 /** Rows advanced per second, derived from tempo. */

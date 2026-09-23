@@ -183,4 +183,69 @@ describe('txseq native node', () => {
     core.process([], out)
     expect(Math.round(out[0][127])).toBe(0) // row 2 of seq-b
   })
+
+  describe('live notes', () => {
+    const live = (slot: number, values: number[], gates = 1) =>
+      createNode('txseq', { key: 'txseq', cmd: { type: 'live', slot, gates, values }, testOut: slot * 32 + 1 }, [])
+
+    it('drives a slot while stopped and keeps the release values', async () => {
+      const { core } = await makeCore({})
+      const out = [new Float32Array(BLOCK), new Float32Array(BLOCK)]
+      await core.render(createNode('txseq', { key: 'txseq', testOut: 1, emitEvery: 100 }, []) as never)
+      processN(core, 8, out)
+      expect(out[0][127]).toBe(0)
+
+      await core.render(live(0, [1, 440, 1]) as never)
+      core.process([], out)
+      expect(out[0][127]).toBeCloseTo(440) // freq mirrored via testOut
+
+      await core.render(live(0, [0, 440, 1]) as never)
+      core.process([], out)
+      expect(out[0][127]).toBeCloseTo(440) // released: freq held for the tail
+    })
+
+    it('retriggers a held gate with one zero block', async () => {
+      const { core } = await makeCore({})
+      const out = [new Float32Array(BLOCK), new Float32Array(BLOCK)]
+      const gateOnly = (values: number[]) =>
+        createNode('txseq', { key: 'txseq', cmd: { type: 'live', slot: 0, gates: 1, values }, testOut: 0 }, [])
+      await core.render(gateOnly([1, 440, 1]) as never)
+      processN(core, 8, out)
+      expect(Math.round(out[0][127])).toBe(1)
+
+      await core.render(gateOnly([1, 220, 1]) as never)
+      core.process([], out)
+      expect(out[0][127]).toBe(0)
+      core.process([], out)
+      expect(Math.round(out[0][127])).toBe(1)
+    })
+
+    it('a released override yields to the sequence gate; liveClear drops it', async () => {
+      const { core } = await makeCore({ 'seq-data': seqFixture(4, [2]) })
+      const out = [new Float32Array(BLOCK), new Float32Array(BLOCK)]
+      await core.render(createNode('txseq', {
+        key: 'txseq',
+        cmd: { type: 'play', sessionId: 1, rowsPerSec: ROW_PER_BLOCK, startRow: 0, totalRows: 4, dataPath: 'seq-data' },
+        dataPath: 'seq-data',
+        testOut: 1,
+        emitEvery: 100,
+      }, []) as never)
+      processN(core, 8, out) // row now 8 → wrapped 0
+
+      await core.render(live(0, [0, 100, 1]) as never)
+      core.process([], out) // row 0: no sequence gate → override holds
+      expect(out[0][127]).toBeCloseTo(100)
+      core.process([], out) // row 1
+      expect(out[0][127]).toBeCloseTo(100)
+      core.process([], out) // row 2: sequence gates → slot handed back
+      expect(out[0][127]).toBeCloseTo(440)
+
+      await core.render(live(0, [1, 100, 1]) as never)
+      core.process([], out)
+      expect(out[0][127]).toBeCloseTo(100) // held notes win over the sequence
+      await core.render(createNode('txseq', { key: 'txseq', cmd: { type: 'liveClear' } }, []) as never)
+      core.process([], out)
+      expect(out[0][127]).toBeCloseTo(440)
+    })
+  })
 })

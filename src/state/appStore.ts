@@ -61,6 +61,9 @@ interface AppState {
   mutedTrackNumbers: Record<number, boolean>
   /** Global solos, same keying as mutes. Solo overrides mute. */
   soloedTrackNumbers: Record<number, boolean>
+  /** On: the current instrument gets its own live voices. Off: live notes
+   *  play through the tracker slots (no extra DSP). */
+  freePlay: boolean
 
   setPlayMode: (mode: PlayMode) => void
   cyclePlayMode: () => void
@@ -71,6 +74,22 @@ interface AppState {
   setOctave: (octave: number) => void
   toggleMute: (trackNumber: number) => void
   toggleSolo: (trackNumber: number) => void
+  setFreePlay: (on: boolean) => void
+}
+
+/** The persisted subset of AppState — a key missing here doesn't persist. */
+export function partializeAppState(state: AppState) {
+  return {
+    playMode: state.playMode,
+    view: state.view,
+    trackerCursor: state.trackerCursor,
+    selectedInstrumentId: state.selectedInstrumentId,
+    selectedSampleId: state.selectedSampleId,
+    octave: state.octave,
+    mutedTrackNumbers: state.mutedTrackNumbers,
+    soloedTrackNumbers: state.soloedTrackNumbers,
+    freePlay: state.freePlay,
+  }
 }
 
 export const useAppStore = create<AppState>()(
@@ -84,6 +103,7 @@ export const useAppStore = create<AppState>()(
       octave: 5,
       mutedTrackNumbers: {},
       soloedTrackNumbers: {},
+      freePlay: true,
 
       setPlayMode: (playMode) => set({ playMode }),
       cyclePlayMode: () => set((s) => {
@@ -101,20 +121,12 @@ export const useAppStore = create<AppState>()(
       toggleSolo: (trackNumber) => set((s) => ({
         soloedTrackNumbers: { ...s.soloedTrackNumbers, [trackNumber]: !s.soloedTrackNumbers[trackNumber] },
       })),
+      setFreePlay: (freePlay) => set({ freePlay }),
     }),
     {
       name: 'synthor-app-state',
       // Only persist UI preferences, not transient state.
-      partialize: (state) => ({
-        playMode: state.playMode,
-        view: state.view,
-        trackerCursor: state.trackerCursor,
-        selectedInstrumentId: state.selectedInstrumentId,
-        selectedSampleId: state.selectedSampleId,
-        octave: state.octave,
-        mutedTrackNumbers: state.mutedTrackNumbers,
-        soloedTrackNumbers: state.soloedTrackNumbers,
-      }),
+      partialize: partializeAppState,
     },
   ),
 )

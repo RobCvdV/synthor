@@ -26,3 +26,8 @@ export function saveLabel(status: string, lastSavedAt: string | null): string {
   if (lastSavedAt) return `Saved ${new Date(lastSavedAt).toLocaleTimeString()}`
   return 'Not saved yet'
 }
+
+/** Clamp a value to [lo, hi] inclusive. */
+export function clamp(v: number, lo: number, hi: number): number {
+  return v < lo ? lo : v > hi ? hi : v
+}

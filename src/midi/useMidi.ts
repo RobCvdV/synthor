@@ -3,15 +3,6 @@ import { useMidiStore } from '../state/midiStore'
 import { useDocStore } from '../state/docStore'
 import { usePreviewStore } from '../state/previewStore'
 import type { AudioHost } from '../audio/host'
-import type { DrumKitInstrument } from '../domain/types'
-import { LIVE_VOICE_COUNT } from '../engine/voicePool'
-
-/** Look up the instrument for `instId` and return it if it's a drumkit
- *  (so the VoicePool is configured with per-slot routing). */
-function getKit(instId: string): DrumKitInstrument | undefined {
-  const inst = useDocStore.getState().doc.entities.instruments[instId]
-  return inst?.kind === 'drumkit' ? inst : undefined
-}
 
 /**
  * Build a MIDI channel (1-16) → instrument id map from the current doc.
@@ -113,20 +104,17 @@ export function useMidi(host: AudioHost) {
               const vel = msg[2]
               const instId = getInstForChannel(chan)
               if (!instId) break
-              const kit = getKit(instId)
-              const pool = host.voicePool(instId, LIVE_VOICE_COUNT, kit)
               if (vel === 0) {
-                pool.noteOff(note)
+                host.live.noteOff(instId, note)
               } else {
-                void host.start().then(() => { pool.noteOn(note, vel) })
+                void host.start().then(() => { host.live.noteOn(instId, note, vel) })
               }
               break
             }
             case 0x80: { // Note Off
               const instId = getInstForChannel(chan)
               if (!instId) break
-              const kit = getKit(instId)
-              host.voicePool(instId, LIVE_VOICE_COUNT, kit).noteOff(msg[1])
+              host.live.noteOff(instId, msg[1])
               break
             }
             case 0xb0: { // Control Change
