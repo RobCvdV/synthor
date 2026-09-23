@@ -71,6 +71,21 @@ describe('instrumentOps', () => {
     expect((doc().entities.instruments[modId] as ModularInstrument).effectSettings!.delayTimeMax).toBe(2)
   })
 
+  it('setInstrumentVoices clamps and ignores drum kits', () => {
+    const store = useDocStore.getState()
+    const modId = store.addInstrument('modular')
+    expect((doc().entities.instruments[modId] as ModularInstrument).voices).toBe(4)
+    store.setInstrumentVoices(modId, 99)
+    expect((doc().entities.instruments[modId] as ModularInstrument).voices).toBe(16)
+    store.setInstrumentVoices(modId, 0)
+    expect((doc().entities.instruments[modId] as ModularInstrument).voices).toBe(1)
+
+    const kitId = store.addInstrument('drumkit')
+    const pastBefore = store.past.length
+    store.setInstrumentVoices(kitId, 2)
+    expect(store.past.length).toBe(pastBefore)
+  })
+
   it('duplicateInstrument clones with fresh ids and inserts after the original', () => {
     const store = useDocStore.getState()
     const instId = firstInstId()

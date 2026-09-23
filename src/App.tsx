@@ -21,6 +21,7 @@ import { useMidi } from './midi/useMidi'
 import { useMidiStore } from './state/midiStore'
 import { usePreviewStore } from './state/previewStore'
 import { KeyboardPlayer } from './audio/keyboardPlayer'
+import { trackLiveSlot } from './player/liveSlot'
 import { installWarmup } from './audio/warmup'
 import { useAudioStore } from './state/audioStore'
 
@@ -635,8 +636,9 @@ export default function App() {
           {
             const instId = useAppStore.getState().selectedInstrumentId
             if (instId) {
+              const slot = trackLiveSlot(useDocStore.getState().doc, trackId, instId)
               void host.start().then(() => {
-                keyboardPlayer.noteOn(instId, note)
+                keyboardPlayer.noteOn(instId, note, undefined, slot)
                 setTimeout(() => keyboardPlayer.noteOffNote(instId, note), 120)
               })
             }

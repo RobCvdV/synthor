@@ -2,6 +2,7 @@ import { memo, type RefObject } from 'react'
 import { PLAY_MODES, type PlayMode, type View } from '../state/appStore'
 import type { AudioStatus } from '../state/audioStore'
 import type { Instrument } from '../domain/types'
+import { FreePlayToggle } from './FreePlayToggle'
 
 interface ToolbarProps {
   playing: boolean
@@ -180,6 +181,7 @@ export const Toolbar = memo(function Toolbar({
           <option key={inst.id} value={inst.id}>{inst.name}</option>
         ))}
       </select>
+      <FreePlayToggle />
 
       {/* Octave group */}
       <span className="toolbar-octave-group" title="Keyboard playable note range">

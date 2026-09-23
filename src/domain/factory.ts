@@ -16,7 +16,7 @@ import type {
   Section,
   Track,
 } from './types'
-import { DEFAULT_EFFECT_SETTINGS, MASTER_CHANNEL_ID } from './types'
+import { DEFAULT_EFFECT_SETTINGS, DEFAULT_LIVE_VOICES, MASTER_CHANNEL_ID } from './types'
 import { defaultParams } from './moduleDefs'
 
 /**
@@ -131,6 +131,7 @@ export function newModularInstrument(name: string): ModularInstrument {
     effectSettings: { ...DEFAULT_EFFECT_SETTINGS },
     channelId: MASTER_CHANNEL_ID,
     pan: 0,
+    voices: DEFAULT_LIVE_VOICES,
   }
 }
 

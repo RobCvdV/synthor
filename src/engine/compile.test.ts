@@ -281,6 +281,21 @@ describe('compileLiveVoices', () => {
     }
   })
 
+  it('liveVoiceInstIds limits live voices and uses the instrument voice count', () => {
+    const { doc, instIds } = makeDoc([{ id: 'p1', name: 'P1', length: 16 }])
+    const inst = doc.entities.instruments[instIds[0]]
+    if (inst.kind === 'modular') inst.voices = 2
+
+    const some = mockParamRefs()
+    compileGraph(doc, defaultCtx({ paramRefs: some as any, liveVoiceInstIds: [instIds[0]] }))
+    expect(some.keys.has(`${instIds[0]}:v:1:gate`)).toBe(true)
+    expect(some.keys.has(`${instIds[0]}:v:2:gate`)).toBe(false)
+
+    const none = mockParamRefs()
+    compileGraph(doc, defaultCtx({ paramRefs: none as any, liveVoiceInstIds: [] }))
+    expect([...none.keys].some((k) => k.includes(':v:'))).toBe(false)
+  })
+
   it('creates drumkit slot refs with gain', () => {
     const master = createMasterChannel()
     const kit = newDrumKitInstrument('Kit')

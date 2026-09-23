@@ -1,6 +1,4 @@
 import type { Id } from '../domain/types'
-import { LIVE_VOICE_COUNT } from '../engine/voicePool'
-import { useDocStore } from '../state/docStore'
 import type { AudioHost } from './host'
 
 /** What a key-up released — for callers with extra bookkeeping. */
@@ -22,12 +20,11 @@ export class KeyboardPlayer {
   constructor(private host: AudioHost) {}
 
   /** Note-on for the global instrument. Pass `code` for held notes (released
-   *  via noteOff(code)); omit for one-shot pips (released via noteOffNote). */
-  noteOn(instId: Id, note: number, code?: string): void {
+   *  via noteOff(code)); omit for one-shot pips (released via noteOffNote).
+   *  `slot` is the tracker slot to prefer when not in free play. */
+  noteOn(instId: Id, note: number, code?: string, slot?: number): void {
     if (code) this.held.set(code, { note, instId })
-    const inst = useDocStore.getState().doc.entities.instruments[instId]
-    const kit = inst?.kind === 'drumkit' ? inst : undefined
-    this.host.voicePool(instId, LIVE_VOICE_COUNT, kit).noteOn(note)
+    this.host.live.noteOn(instId, note, 127, slot)
   }
 
   /** Release a held physical key. Returns what was released, if anything. */
@@ -35,13 +32,13 @@ export class KeyboardPlayer {
     const held = this.held.get(code)
     if (!held) return undefined
     this.held.delete(code)
-    this.host.voicePool(held.instId).noteOff(held.note)
+    this.host.live.noteOff(held.instId, held.note)
     return held
   }
 
   /** Release a one-shot note that wasn't registered with a key code. */
   noteOffNote(instId: Id, note: number): void {
-    this.host.voicePool(instId).noteOff(note)
+    this.host.live.noteOff(instId, note)
   }
 
   /** Forget held keys without sending note-offs (panic zeroes the gates). */

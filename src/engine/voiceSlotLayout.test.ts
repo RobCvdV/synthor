@@ -184,6 +184,21 @@ describe('computeSlotLayouts', () => {
     expect(layouts[0].channelsPerSlot).toBe(13) // 11 + 2
   })
 
+  it('ensureSlotInstId gives an unused instrument one slot, never lowers a count', () => {
+    const used = newSynth('Bass')
+    const idle = newSynth('Pad')
+    const t1 = newTrack(used.id, 16)
+    const t2 = newTrack(used.id, 16)
+    const pattern: Pattern = { id: 'pat_1', name: 'P1', length: 16, trackIds: [t1.id, t2.id] }
+    const doc = makeDoc({ [used.id]: used, [idle.id]: idle }, { [t1.id]: t1, [t2.id]: t2 }, { [pattern.id]: pattern })
+
+    expect(computeSlotLayouts(doc).map((l) => l.instId)).toEqual([used.id])
+    const withIdle = computeSlotLayouts(doc, idle.id)
+    expect(withIdle.find((l) => l.instId === idle.id)?.slotCount).toBe(1)
+    expect(computeSlotLayouts(doc, used.id).find((l) => l.instId === used.id)?.slotCount).toBe(2)
+    expect(computeSlotLayouts(doc, 'missing')).toHaveLength(1)
+  })
+
   it('skips tracks with no instrument', () => {
     const inst = newSynth('Bass')
     const track = newTrack(inst.id, 64)

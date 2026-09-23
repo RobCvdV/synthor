@@ -1,5 +1,5 @@
 import type { EffectSettingKey, Instrument } from '../domain/types'
-import { DEFAULT_EFFECT_SETTINGS } from '../domain/types'
+import { DEFAULT_EFFECT_SETTINGS, MAX_LIVE_VOICES, liveVoiceCount } from '../domain/types'
 import { useDocStore } from '../state/docStore'
 
 /** Discrete preset options per setting. */
@@ -23,6 +23,7 @@ interface Props {
 export function InstrumentSettings({ inst, usage, onDuplicate, onExport, onDelete }: Props) {
   const renameInstrument = useDocStore((s) => s.renameInstrument)
   const setEffectSetting = useDocStore((s) => s.setEffectSetting)
+  const setInstrumentVoices = useDocStore((s) => s.setInstrumentVoices)
 
   const effectSettings = inst.kind !== 'drumkit' ? inst.effectSettings : undefined
   const settingKeys = Object.keys(DEFAULT_EFFECT_SETTINGS) as EffectSettingKey[]
@@ -52,6 +53,20 @@ export function InstrumentSettings({ inst, usage, onDuplicate, onExport, onDelet
       </div>
 
       <div className="inst-settings-body">
+        {inst.kind === 'modular' && (
+          <div className="inst-setting-row">
+            <span className="inst-setting-label" title="Polyphony when playing this instrument in free play">Live Voices</span>
+            <select
+              className="inst-setting-select"
+              value={liveVoiceCount(inst)}
+              onChange={(e) => setInstrumentVoices(inst.id, Number(e.target.value))}
+            >
+              {Array.from({ length: MAX_LIVE_VOICES }, (_, i) => i + 1).map((v) => (
+                <option key={v} value={v}>{v}</option>
+              ))}
+            </select>
+          </div>
+        )}
         <h4>Effect Ranges</h4>
         {inst.kind !== 'drumkit' ? (
           <>

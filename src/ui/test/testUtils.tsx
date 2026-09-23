@@ -26,6 +26,7 @@ export function resetStores(): void {
     octave: 5,
     mutedTrackNumbers: {},
     soloedTrackNumbers: {},
+    freePlay: true,
   })
   useTransportStore.setState({
     playing: false,

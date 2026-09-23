@@ -167,6 +167,25 @@ describe('song serialization', () => {
   })
 })
 
+describe('migration v11→v12 — live voice count', () => {
+  it('backfills voices on modular instruments only', () => {
+    const doc = createDefaultDoc()
+    const v11 = JSON.parse(JSON.stringify({
+      schemaVersion: 11,
+      meta: { name: 'v11', createdAt: '2026-01-01T00:00:00.000Z', modifiedAt: '2026-01-01T00:00:00.000Z' },
+      doc,
+    }))
+    for (const inst of Object.values(v11.doc.entities.instruments) as Record<string, unknown>[]) delete inst.voices
+
+    const result = migrate(v11)
+    expect(result.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
+    for (const inst of Object.values(result.doc.entities.instruments)) {
+      if (inst.kind === 'modular') expect(inst.voices).toBe(4)
+      else expect('voices' in inst).toBe(false)
+    }
+  })
+})
+
 describe('migration v5→v6', () => {
   it('strips effect/effectValue from cells', () => {
     const v5 = {

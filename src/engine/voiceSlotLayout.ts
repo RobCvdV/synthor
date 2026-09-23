@@ -117,9 +117,16 @@ function analyzeInstrumentUsage(doc: Doc): Map<Id, InstUsage> {
 /**
  * Compute slot layouts for all voice slots across all instruments, in
  * deterministic order (by instrument id, then slot index).
+ * `ensureSlotInstId` gets at least one slot even without tracks, so live
+ * notes can play through the sequencer.
  */
-export function computeSlotLayouts(doc: Doc): InstrumentSlotLayout[] {
+export function computeSlotLayouts(doc: Doc, ensureSlotInstId?: Id | null): InstrumentSlotLayout[] {
   const usage = analyzeInstrumentUsage(doc)
+  if (ensureSlotInstId && doc.entities.instruments[ensureSlotInstId]) {
+    const u = usage.get(ensureSlotInstId)
+    if (!u) usage.set(ensureSlotInstId, { maxConcurrent: 1, namedInlets: new Set() })
+    else u.maxConcurrent = Math.max(1, u.maxConcurrent)
+  }
   const layouts: InstrumentSlotLayout[] = []
 
   // Stable sort by instrument id for deterministic slot ordering (the txSeq

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { useAppStore, PLAY_MODES, clampCursor, type TrackerCursor } from './appStore'
+import { useAppStore, PLAY_MODES, partializeAppState, clampCursor, type TrackerCursor } from './appStore'
 import type { Doc, Id, Pattern, Track } from '../domain/types'
 
 /** Build a minimal Doc + Pattern pair for clampCursor tests. */
@@ -49,6 +49,7 @@ function resetStore() {
     octave: 5,
     mutedTrackNumbers: {},
     soloedTrackNumbers: {},
+    freePlay: true,
   })
 }
 
@@ -181,6 +182,15 @@ describe('appStore', () => {
     const s = useAppStore.getState()
     expect(s.mutedTrackNumbers).toEqual({ 1: true })
     expect(s.soloedTrackNumbers).toEqual({ 1: true })
+  })
+
+  /* ---- free play ---- */
+
+  it('free play defaults on, toggles, and is persisted', () => {
+    expect(useAppStore.getState().freePlay).toBe(true)
+    useAppStore.getState().setFreePlay(false)
+    expect(useAppStore.getState().freePlay).toBe(false)
+    expect(partializeAppState(useAppStore.getState()).freePlay).toBe(false)
   })
 
   /* ---- state shape: only the persisted fields are user-settable ---- */

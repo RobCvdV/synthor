@@ -10,14 +10,14 @@
  * document stays small and cheap to rewrite on every autosave.
  */
 
-import type { Doc } from '../domain/types'
+import { DEFAULT_LIVE_VOICES, type Doc } from '../domain/types'
 import { nextEffName } from '../domain/factory'
 import { defaultParams } from '../domain/moduleDefs'
 
 /**
  * Bump when the on-disk shape changes; add a matching `migrate` case.
  */
-export const CURRENT_SCHEMA_VERSION = 11
+export const CURRENT_SCHEMA_VERSION = 12
 
 export interface SongMeta {
   name: string
@@ -103,6 +103,9 @@ export function migrate(raw: unknown): SongFile {
   // v10→v11: dxop module type added. No data conversion — old files simply
   // can't contain one. The bump exists so older app versions reject the file.
 
+  // v11→v12: modular instruments get a live `voices` count.
+  if (version < 12) raw = upgradeV11toV12(raw)
+
   // v1→v1 migration: when the stereo output was added (commit b3917fc), the
   // output module's inlet changed from 'in' to 'inL'. Old modular instruments
   // with connections targeting 'in' would silently produce silence because
@@ -162,6 +165,19 @@ function assertShape(raw: unknown): asserts raw is SongFile {
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
+/** v11→v12: backfill the live voice count on modular instruments. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function upgradeV11toV12(raw: any): any {
+  const doc = raw.doc
+  if (!doc || !isRecord(doc.entities) || !isRecord(doc.entities.instruments)) return raw
+  const instruments = Object.fromEntries(
+    Object.entries(doc.entities.instruments).map(([id, inst]) =>
+      [id, isRecord(inst) && inst.kind === 'modular' && inst.voices === undefined ? { ...inst, voices: DEFAULT_LIVE_VOICES } : inst],
+    ),
+  )
+  return { ...raw, schemaVersion: 12, doc: { ...doc, entities: { ...doc.entities, instruments } } }
 }
 
 /** v1→v2: initialise the samples entity map for old files. */

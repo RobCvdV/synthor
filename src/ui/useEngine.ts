@@ -6,6 +6,8 @@ import { buildPlaybackData, mapPatternTracksToSlots, type PlaybackData } from '.
 import { buildTxSeqData } from '../player/txSeqData'
 import { syncSamplesToVfs } from '../audio/vfsLoader'
 import { computeSlotLayouts } from '../engine/voiceSlotLayout'
+import { liveGraphOptions } from '../player/liveSlot'
+import { liveVoiceCount } from '../domain/types'
 import { useDocStore } from '../state/docStore'
 import { useMidiStore } from '../state/midiStore'
 import { useProjectStore } from '../state/projectStore'
@@ -72,10 +74,22 @@ export function useEngine(): AudioHost {
   useEffect(() => {
     let frame = 0
 
+    const liveOptions = () => {
+      const { freePlay, selectedInstrumentId } = useAppStore.getState()
+      return liveGraphOptions(freePlay, selectedInstrumentId)
+    }
+
     /** Compute a structural hash over parts of the doc that require a recompile. */
     function structuralKey(): string {
       const { doc } = useDocStore.getState()
       const parts: string[] = []
+
+      // Live voices: which instrument and how many.
+      const live = liveOptions()
+      for (const id of live.liveVoiceInstIds) {
+        const inst = doc.entities.instruments[id]
+        parts.push(`live:${id}:${inst?.kind === 'modular' ? liveVoiceCount(inst) : inst?.kind}`)
+      }
 
       // Instruments — any change that alters the signal chain.
       for (const [id, inst] of Object.entries(doc.entities.instruments)) {
@@ -132,7 +146,7 @@ export function useEngine(): AudioHost {
       }
 
       // Instrument slot layouts — captures named inlet changes and slot counts.
-      const slotLayouts = computeSlotLayouts(doc)
+      const slotLayouts = computeSlotLayouts(doc, live.ensureSlotInstId)
       for (const l of slotLayouts) {
         parts.push(`slots:${l.instId}:${l.slotCount}:${l.channelsPerSlot}:in[${l.namedInletIds.join(',')}]`)
       }
@@ -267,7 +281,8 @@ export function useEngine(): AudioHost {
         const effectiveArrangement = arrangement && arrangement.length > 1 ? arrangement : undefined
 
         const arr = effectiveArrangement ?? [{ patternId: doc.patternId, startRow: 0 }]
-        const playbackData = buildPlaybackData(doc, arr)
+        const live = liveOptions()
+        const playbackData = buildPlaybackData(doc, arr, live.ensureSlotInstId)
 
         const currentKey = structuralKey()
         const needRecompile = currentKey !== lastStructuralKeyRef.current
@@ -289,6 +304,8 @@ export function useEngine(): AudioHost {
             ccBindings: host.ccBindings,
             arrangement: effectiveArrangement,
             txSeq: txSeqNodeRef.current as never,
+            liveVoiceInstIds: live.liveVoiceInstIds,
+            ensureSlotInstId: live.ensureSlotInstId,
           })
           renderSettleRef.current = host.render(stereo)
           renderSettleRef.current.then(markAudioReady)
@@ -363,8 +380,11 @@ export function useEngine(): AudioHost {
       }
     })
 
-    // ── mute/solo subscription ─────────────────────────────────────────
-    const unsubMute = useAppStore.subscribe((state, prev) => {
+    // ── mute/solo + live routing subscription ──────────────────────────
+    const unsubApp = useAppStore.subscribe((state, prev) => {
+      if (state.freePlay !== prev.freePlay || state.selectedInstrumentId !== prev.selectedInstrumentId) {
+        schedule()
+      }
       if (state.mutedTrackNumbers === prev.mutedTrackNumbers &&
           state.soloedTrackNumbers === prev.soloedTrackNumbers) return
       applyMuteRefs()
@@ -382,6 +402,7 @@ export function useEngine(): AudioHost {
         }, [])
         txSeqNodeRef.current = txSeqNode
         setTxSeqRef.current = setTxSeq as (props: Record<string, unknown>) => Promise<unknown>
+        host.txSeqSetter = setTxSeqRef.current
 
         // Row feedback: the native node reports the row it just rendered.
         ;(core as unknown as {
@@ -404,7 +425,7 @@ export function useEngine(): AudioHost {
       if (frame) cancelAnimationFrame(frame)
       unsubDoc()
       unsubTransport()
-      unsubMute()
+      unsubApp()
     }
   }, [host])
 

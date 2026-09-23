@@ -3,7 +3,8 @@ import WebRenderer from '@elemaudio/web-renderer'
 import type { StereoOut } from '../engine/modular'
 import { ParamRefRegistry, setActiveParamRefs } from './paramRefs'
 import { CcBindings } from './ccBindings'
-import { VoicePool, LIVE_VOICE_COUNT } from '../engine/voicePool'
+import { VoicePool } from '../engine/voicePool'
+import { LiveNotes } from './liveNotes'
 import type { DrumKitInstrument } from '../domain/types'
 
 /** How long a freshly created AudioContext needs before its output stream
@@ -63,16 +64,27 @@ export class AudioHost {
   /** Fixed voice pools per instrument (lazily created). */
   readonly voicePools = new Map<string, VoicePool>()
 
+  /** Router for keyboard / MIDI / pip notes. */
+  readonly live = new LiveNotes(this)
+
+  /** Prop setter of the keyed txSeq ref — set by useEngine once the host is ready. */
+  txSeqSetter: ((props: Record<string, unknown>) => Promise<unknown>) | null = null
+
   /** Get (or create) a voice pool for an instrument.
    *  The pool updates per-voice refs directly — no graph recompile needed.
    *  Pass `kit` for drumkit instruments to enable per-slot note routing.
    *  Safe to call from any path (MIDI, keyboard, engine) — `setKit` is a
    *  no-op on already-configured pools, so callers can pass kit late without
    *  worrying about creation order. */
-  voicePool(instId: string, maxVoices = LIVE_VOICE_COUNT, kit?: DrumKitInstrument): VoicePool {
+  voicePool(instId: string, maxVoices?: number, kit?: DrumKitInstrument): VoicePool {
     let pool = this.voicePools.get(instId)
+    // A changed voice count means a recompiled graph with a different slot count.
+    if (pool && !kit && maxVoices !== undefined && pool.size !== maxVoices) {
+      pool.panic()
+      pool = undefined
+    }
     if (!pool) {
-      pool = new VoicePool(this.paramRefs, instId, maxVoices)
+      pool = new VoicePool(this.paramRefs, instId, maxVoices ?? 1)
       this.voicePools.set(instId, pool)
       this.onVoicePoolCreated?.()
     }
@@ -85,6 +97,19 @@ export class AudioHost {
   panic(): void {
     for (const pool of this.voicePools.values()) pool.panic()
     this.paramRefs.panic()
+    this.live.reset()
+    this.sendTxSeqLive({ type: 'liveClear' })
+  }
+
+  /** Send a live-note command to the txSeq node (no-op before the first render). */
+  sendTxSeqLive(cmd: Record<string, unknown>): void {
+    if (!this.txSeqSetter) return
+    try {
+      this.txSeqSetter({ cmd }).catch((err: unknown) => console.error('[host] txSeq live cmd failed:', err))
+    } catch (err) {
+      // Thrown synchronously while the txSeq ref isn't mounted yet.
+      console.warn('[host] txSeq not mounted:', err)
+    }
   }
 
   /**
@@ -229,6 +254,8 @@ export class AudioHost {
         outputChannelCount: [2],
       })
 
+      node.connect(this.ctx.destination)
+      // Metering tap only — analysers are not in the output path.
       const splitter = this.ctx.createChannelSplitter(2)
       node.connect(splitter)
       const leftAnalyser = this.ctx.createAnalyser()
