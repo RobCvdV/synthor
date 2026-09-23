@@ -5,6 +5,7 @@ import { MeterCanvas } from './MeterCanvas'
 import { VerticalFader } from './VerticalFader'
 import { PanSlider } from './PanSlider'
 import { AddEffectDropdown } from './AddEffectDropdown'
+import { STRIP_FOOTER_HEIGHT, STRIP_GAP } from './mixerStrip'
 
 export function ChannelStrip({
   channel, isSelected, isMaster, showMeter, onSelect,
@@ -26,7 +27,7 @@ export function ChannelStrip({
   const bg = isMaster ? '#1a1a3e' : '#1a2e1a'
 
   return (
-    <div onClick={onSelect} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 80, padding: '4px 4px', border: `2px solid ${borderColor}`, borderRadius: 4, background: isSelected ? (isMaster ? '#252550' : '#253525') : bg, flexShrink: 0, gap: 2, cursor: 'pointer' }}>
+    <div onClick={onSelect} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 80, padding: '4px 4px', border: `1px solid ${borderColor}`, boxShadow: `0 0 0 1px ${borderColor}`, borderRadius: 4, background: isSelected ? (isMaster ? '#252550' : '#253525') : bg, flexShrink: 0, gap: STRIP_GAP, cursor: 'pointer' }}>
       <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: 1 }}>
         {editing && !isMaster ? (
           <input value={nameDraft} onChange={(e) => setNameDraft(e.target.value)}
@@ -80,6 +81,8 @@ export function ChannelStrip({
       <PanSlider value={channel.pan} onSilent={onPanSilent} onCommit={onPanCommit} />
 
       <VerticalFader value={channel.volume} onDrag={onVolumeSilent} onCommit={onVolumeCommit} />
+      {/* Matches the instrument strips' routing row so the faders line up. */}
+      <div style={{ height: STRIP_FOOTER_HEIGHT, marginTop: 2, flexShrink: 0 }} />
     </div>
   )
 }

@@ -38,7 +38,7 @@ export const ParamSlider = memo(function ParamSlider({
 
   const isVert = orientation === 'vertical'
   const vertStyle: CSSProperties = isVert
-    ? { writingMode: 'vertical-lr', direction: 'rtl', width: 14, height: '100%' }
+    ? { writingMode: 'vertical-lr', direction: 'rtl', width: 14, alignSelf: 'stretch' }
     : { width: style?.width ?? '100%', height: style?.height ?? 14 }
 
   return (

@@ -23,6 +23,9 @@ describe('ParamSlider', () => {
       <ParamSlider value={0} min={-1} max={1} orientation="vertical" onChange={() => {}} />,
     )
     expect(getSlider(container).style.writingMode).toBe('vertical-lr')
+    // Stretches to its box; a % height against an auto-height parent overflowed the mixer.
+    expect(getSlider(container).style.alignSelf).toBe('stretch')
+    expect(getSlider(container).style.height).toBe('')
   })
 
   it('renders disabled with reduced opacity', () => {
