@@ -55,6 +55,7 @@
   },
   "build": {
     "appId": "com.synthor.app",
+    "afterPack": "scripts/adhoc-sign.cjs",
     "productName": "Synthor",
     "directories": {
       "output": "release"
