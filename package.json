@@ -55,6 +55,7 @@
   },
   "build": {
     "appId": "com.synthor.app",
+    "afterPack": "scripts/adhoc-sign.cjs",
     "productName": "Synthor",
     "directories": {
       "output": "release"
@@ -66,7 +67,10 @@
     "mac": {
       "category": "public.app-category.music",
       "target": "dmg",
-      "icon": "build/icon.icns"
+      "icon": "build/icon.icns",
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
     },
     "win": {
       "target": "nsis",

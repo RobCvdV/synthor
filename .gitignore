@@ -13,6 +13,11 @@ release
 certs
 .claude/snapshot*
 .claude/*.png
-/build/
+/build/*
+# electron-builder app icons (package.json "build" config)
+!/build/icon.icns
+!/build/icon.ico
+!/build/icon.png
+!/build/entitlements.mac.plist
 mise.toml
 /vendor/elementary/
