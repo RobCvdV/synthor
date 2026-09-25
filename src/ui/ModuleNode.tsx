@@ -72,29 +72,21 @@ export function ModuleNode({ data }: NodeProps) {
 
   // --- oscilloscope / clip LED for the output node --------------------
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const levelsRef = useRef([0, 0])
+  // State only flips on clip changes, so the node doesn't re-render per frame.
+  const [clip, setClip] = useState(false)
 
   useEffect(() => {
     if (!isOutput || !host) return
     let raf = 0
     const tick = () => {
       const [lvlL, lvlR] = host.getLevels()
-      levelsRef.current = [lvlL, lvlR]
+      setClip(lvlL > CLIP_THRESHOLD || lvlR > CLIP_THRESHOLD)
       const canvas = canvasRef.current
       if (canvas) drawScope(canvas, host)
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [isOutput, host])
-
-  // Poll the level ref on a cheap interval so React re-renders the LED
-  // without repainting the scope canvas from React.
-  const [, setTick] = useState(0)
-  useEffect(() => {
-    if (!isOutput || !host) return
-    const id = setInterval(() => setTick((n) => n + 1), 80)
-    return () => clearInterval(id)
   }, [isOutput, host])
 
   // Live CC readout for effect modules — scope to this node's CC number
@@ -106,8 +98,6 @@ export function ModuleNode({ data }: NodeProps) {
   // EARLY RETURN only after ALL hooks have been called.
   if (!module || !def) return null
 
-  const [lvlL, lvlR] = levelsRef.current
-  const clip = lvlL > CLIP_THRESHOLD || lvlR > CLIP_THRESHOLD
 
   return (
     <div className={'mod-node' + (bypassed ? ' bypassed' : '' + (isInput ? ' input' : '') + (isOutput ? ' output' : ''))}>

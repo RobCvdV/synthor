@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useTransportStore } from '../state/transportStore'
 import { useAudioStore } from '../state/audioStore'
 import { useDocStore } from '../state/docStore'
@@ -54,15 +54,18 @@ export function usePlayheadRow(): number {
   const playbackStarted = useAudioStore((s) => s.playbackStarted)
   const playMode = useAppStore((s) => s.playMode)
   const doc = useDocStore((s) => s.doc)
+  const arrangement = useMemo(() => (playMode === 'pattern' ? [] : buildArrangement(doc, playMode)), [doc, playMode])
+  const totalRows = useMemo(
+    () => arrangement.reduce((sum, a) => sum + (doc.entities.patterns[a.patternId]?.length ?? 64), 0),
+    [arrangement, doc],
+  )
 
   if (!playing || !playbackStarted) return -1
   if (playMode === 'pattern') return currentRow
 
   // Section/song — map global row to local.
-  const arrangement = buildArrangement(doc, playMode)
   if (arrangement.length <= 1) return currentRow
 
-  const totalRows = arrangement.reduce((sum, a) => sum + (doc.entities.patterns[a.patternId]?.length ?? 64), 0)
   const wrapped = ((currentRow % totalRows) + totalRows) % totalRows
   const item = arrangement.find(
     (a) => wrapped >= a.startRow && wrapped < a.startRow + (doc.entities.patterns[a.patternId]?.length ?? 64),
