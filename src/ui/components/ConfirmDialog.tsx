@@ -1,5 +1,6 @@
 import { memo, useCallback } from 'react'
 import { Dialog } from '../Dialog'
+import { Button } from './Button'
 
 export interface ConfirmDialogProps {
   message: string
@@ -18,15 +19,10 @@ export const ConfirmDialog = memo(function ConfirmDialog({
 
   return (
     <Dialog onClose={onCancel}>
-      <p style={{ margin: '0 0 12px' }}>{message}</p>
+      <p>{message}</p>
       <div className="dialog-actions">
-        <button onClick={onCancel}>{cancelLabel}</button>
-        <button
-          onClick={handleConfirm}
-          style={danger ? { background: '#c44', color: '#fff' } : undefined}
-        >
-          {confirmLabel}
-        </button>
+        <Button onClick={onCancel}>{cancelLabel}</Button>
+        <Button active={danger} tone="danger" onClick={handleConfirm}>{confirmLabel}</Button>
       </div>
     </Dialog>
   )

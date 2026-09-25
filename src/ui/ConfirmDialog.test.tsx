@@ -39,6 +39,13 @@ describe('ConfirmDialog', () => {
     const { getByText } = render(
       <ConfirmDialog message="Delete" danger onConfirm={() => {}} onCancel={() => {}} />,
     )
-    expect(getByText('OK').style.background).toBe('rgb(204, 68, 68)')
+    expect(getByText('OK')).toHaveClass('danger')
+  })
+
+  it('renders a neutral confirm button without danger', () => {
+    const { getByText } = render(
+      <ConfirmDialog message="Go" onConfirm={() => {}} onCancel={() => {}} />,
+    )
+    expect(getByText('OK')).not.toHaveClass('danger')
   })
 })

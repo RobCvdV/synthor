@@ -76,6 +76,8 @@ export default defineConfig({
     environment: 'node',
     globals: true,
     setupFiles: ['./src/test/setup.ts'],
+    // Plain CSS-module class names keep snapshots readable.
+    css: { include: [/\.module\.css$/], modules: { classNameStrategy: 'non-scoped' } },
     // The vendored elementary repo ships its own jest suites.
     exclude: ['node_modules/**', 'vendor/**', 'dist/**'],
     coverage: {

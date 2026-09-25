@@ -15,26 +15,22 @@ describe('ParamSlider', () => {
     const input = getSlider(container)
     expect(input).toBeTruthy()
     expect(input.value).toBe('0.5')
-    expect(input.style.writingMode).toBeFalsy()
+    expect(container.firstElementChild!.className).toBe('slider')
   })
 
-  it('renders vertical with writingMode', () => {
+  it('renders vertical', () => {
     const { container } = render(
       <ParamSlider value={0} min={-1} max={1} orientation="vertical" onChange={() => {}} />,
     )
-    expect(getSlider(container).style.writingMode).toBe('vertical-lr')
-    // Stretches to its box; a % height against an auto-height parent overflowed the mixer.
-    expect(getSlider(container).style.alignSelf).toBe('stretch')
-    expect(getSlider(container).style.height).toBe('')
+    expect(container.firstElementChild!.className).toBe('slider vertical')
   })
 
-  it('renders disabled with reduced opacity', () => {
+  it('renders disabled', () => {
     const { container } = render(
       <ParamSlider value={50} min={0} max={100} disabled onChange={() => {}} />,
     )
     const input = getSlider(container)
     expect(input).toBeDisabled()
-    expect(input.style.opacity).toBe('0.4')
   })
 
   it('shows formatted value readout', () => {

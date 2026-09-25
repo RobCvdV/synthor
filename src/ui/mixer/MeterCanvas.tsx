@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
-import type { AudioHost } from '../audio/host'
-import { CLIP_THRESHOLD } from './scope'
+import type { AudioHost } from '../../audio/host'
+import { CLIP_THRESHOLD } from '../scope'
 
 export function MeterCanvas({ width, height }: { width: number; height: number }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)

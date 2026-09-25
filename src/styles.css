@@ -10,6 +10,12 @@
   --beat: #1b212b;
   --cursor: #2b3a55;
   --playhead: #3a2b1b;
+  --control-bg: #222;
+  --control-border: #333;
+  --line: #2a3644;
+  --selected: #6af;
+  --danger: #c44;
+  --warn: #cc4;
 }
 
 * { box-sizing: border-box; }
@@ -205,15 +211,7 @@ body {
 .mod-node.bypassed { opacity: 0.4; }
 
 /* Bypass toggle — power icon, centered in header, green=on gray=off */
-.mod-bypass-btn {
-  position: absolute; left: 50%; transform: translateX(-50%);
-  background: none; border: 1px solid #2a3644; color: #3a9;
-  border-radius: 3px; padding: 1px 7px; font-size: 13px; line-height: 16px;
-  cursor: pointer;
-}
-.mod-bypass-btn:hover { border-color: var(--accent); }
-.mod-bypass-btn.off { color: #4a5568; border-color: #2a3644; }
-.mod-bypass-btn.off:hover { color: #718096; border-color: #555; }
+.mod-bypass-pos { position: absolute; left: 50%; transform: translateX(-50%); }
 
 .mod-port { position: absolute; display: flex; align-items: center; gap: 4px; height: 0; }
 .mod-port.in { left: 0; }
@@ -1449,22 +1447,4 @@ body {
   color: #e06c6c;
   font-size: 12px;
   margin: 0;
-}
-
-/* ── Mixer ──────────────────────────────────────────────── */
-
-.mixer-dropdown {
-  background: var(--bg);
-  color: var(--fg);
-  border: 1px solid #2a3644;
-  border-radius: 3px;
-  padding: 2px 4px;
-  font: inherit;
-  font-size: 9px;
-  cursor: pointer;
-}
-.mixer-dropdown:hover { border-color: var(--accent); }
-.mixer-dropdown option {
-  background: #1a1a2e;
-  color: var(--fg);
 }

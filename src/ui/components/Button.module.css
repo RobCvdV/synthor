@@ -1,0 +1,19 @@
+.button {
+  background: var(--control-bg);
+  color: var(--fg);
+  border: 1px solid var(--control-border);
+  border-radius: 4px;
+  font: inherit;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.button:hover:not(:disabled) { border-color: var(--accent); }
+.button:disabled { opacity: 0.4; cursor: default; }
+
+.md { padding: 3px 10px; }
+.sm { padding: 1px 5px; font-size: 10px; line-height: 14px; }
+.xs { padding: 0 3px; font-size: 9px; line-height: 12px; }
+
+.accent { border-color: var(--accent); color: var(--accent); background: rgb(79 209 197 / 0.12); }
+.danger { border-color: var(--danger); color: #fff; background: var(--danger); }
+.warn { border-color: var(--warn); color: #111; background: var(--warn); }

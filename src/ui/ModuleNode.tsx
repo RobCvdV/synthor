@@ -8,6 +8,7 @@ import type { Id } from '../domain/types'
 import { CLIP_THRESHOLD, drawScope } from './scope'
 import { round } from './format'
 import { ParamSlider } from './components/ParamSlider'
+import { BypassToggle } from './components/BypassToggle'
 
 export interface ModuleNodeData {
   instrumentId: Id
@@ -164,16 +165,8 @@ export function ModuleNode({ data }: NodeProps) {
           <span>{def.label}</span>
         )}
         {hasBypass && (
-          <button
-            className={'mod-bypass-btn nodrag' + (bypassed ? ' off' : '')}
-            title={bypassed ? 'Bypassed — click to engage' : 'Active — click to bypass'}
-            onClick={(e) => {
-              e.preventDefault()
-              setModuleParam(instrumentId, moduleId, 'bypass', bypassed ? 0 : 1)
-            }}
-          >
-            ⏻
-          </button>
+          <BypassToggle className="mod-bypass-pos nodrag" bypassed={bypassed}
+            onToggle={(b) => setModuleParam(instrumentId, moduleId, 'bypass', b ? 1 : 0)} />
         )}
         <span className="mod-head-right">
           {isEff && (

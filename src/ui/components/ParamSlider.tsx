@@ -1,5 +1,7 @@
-import { memo, useCallback, type CSSProperties } from 'react'
+import { memo, useCallback } from 'react'
 import { clamp } from '../format'
+import { cx } from './cx'
+import s from './ParamSlider.module.css'
 
 export interface ParamSliderProps {
   value: number
@@ -11,8 +13,8 @@ export interface ParamSliderProps {
   onChange: (v: number) => void
   onCommit?: (v: number) => void
   formatValue?: (v: number) => string
+  /** Applied to the outer element. */
   className?: string
-  style?: CSSProperties
   title?: string
 }
 
@@ -20,7 +22,7 @@ export interface ParamSliderProps {
  *  (onCommit only), vertical, readOnly, and optional value readout. */
 export const ParamSlider = memo(function ParamSlider({
   value, min, max, step = 0.01, orientation = 'horizontal', disabled,
-  onChange, onCommit, formatValue, className, style, title,
+  onChange, onCommit, formatValue, className, title,
 }: ParamSliderProps) {
   const clampedVal = clamp(value, min, max)
 
@@ -36,16 +38,11 @@ export const ParamSlider = memo(function ParamSlider({
     }
   }, [onCommit, min, max])
 
-  const isVert = orientation === 'vertical'
-  const vertStyle: CSSProperties = isVert
-    ? { writingMode: 'vertical-lr', direction: 'rtl', width: 14, alignSelf: 'stretch' }
-    : { width: style?.width ?? '100%', height: style?.height ?? 14 }
-
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, ...style }}>
+    <span className={cx(s.slider, orientation === 'vertical' && s.vertical, className)}>
       <input
         type="range"
-        className={className}
+        className={s.input}
         min={min}
         max={max}
         step={step}
@@ -55,13 +52,8 @@ export const ParamSlider = memo(function ParamSlider({
         onChange={handleChange}
         onMouseUp={handleMouseUp}
         onMouseDown={(e) => e.stopPropagation()}
-        style={{ ...vertStyle, ...(disabled ? { opacity: 0.4 } : {}) }}
       />
-      {formatValue && (
-        <span style={{ fontSize: 10, color: 'var(--muted)', minWidth: 32, textAlign: 'right' }}>
-          {formatValue(clampedVal)}
-        </span>
-      )}
+      {formatValue && <span className={s.readout}>{formatValue(clampedVal)}</span>}
     </span>
   )
 })

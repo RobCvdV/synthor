@@ -1,0 +1,16 @@
+.select {
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 2px 4px;
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+  min-width: 0;
+}
+.select:hover { border-color: var(--accent); }
+.select option { background: var(--panel); color: var(--fg); }
+
+.small { font-size: 9px; }
+.block { display: block; width: 100%; }

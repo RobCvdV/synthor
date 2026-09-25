@@ -1,0 +1,6 @@
+.slider { display: inline-flex; align-items: center; gap: 2px; }
+.input { width: 100%; height: 14px; }
+.input:disabled { opacity: 0.4; }
+/* Stretches to its box; a % height against an auto-height parent overflows. */
+.vertical .input { writing-mode: vertical-lr; direction: rtl; width: 14px; height: auto; align-self: stretch; }
+.readout { font-size: 10px; color: var(--muted); min-width: 32px; text-align: right; }
