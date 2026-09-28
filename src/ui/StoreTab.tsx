@@ -9,6 +9,7 @@ import { downloadBlob } from './download'
 import { pickFiles } from './pickFiles'
 import { saveLabel } from './format'
 import { createNewSong, importSongFile, openSavedSong } from './songActions'
+import { Button } from './components/Button'
 
 type Entry = { slug: string; meta: SongFile['meta'] }
 
@@ -80,13 +81,13 @@ export function StoreTab({ slug }: { slug: string }) {
       </div>
 
       <div className="store-actions">
-        <button className="octbtn" onClick={() => void createNewSong()} title="Create a new empty song">New</button>
+        <Button size="sm" onClick={() => void createNewSong()} title="Create a new empty song">New</Button>
         {opfs && (
-          <button className="octbtn" onClick={() => void saveSong()} title="Save current song">Save</button>
+          <Button size="sm" onClick={() => void saveSong()} title="Save current song">Save</Button>
         )}
-        <button className="octbtn" onClick={exportZip} title="Export as .synthor (includes samples)">Export</button>
-        <button className="octbtn" onClick={exportJson} title="JSON only, no sample data">Export JSON</button>
-        <button className="octbtn" onClick={() => void importSong()} title="Import .synthor or .json">Import</button>
+        <Button size="sm" onClick={exportZip} title="Export as .synthor (includes samples)">Export</Button>
+        <Button size="sm" onClick={exportJson} title="JSON only, no sample data">Export JSON</Button>
+        <Button size="sm" onClick={() => void importSong()} title="Import .synthor or .json">Import</Button>
       </div>
 
       {opfs && (

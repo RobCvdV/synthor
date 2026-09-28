@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { Dialog } from './Dialog'
+import { Button } from './components/Button'
 
 export function EditDialog({
   kind,
@@ -91,22 +92,22 @@ export function EditDialog({
               autoFocus
             />
             <span className="muted">%</span>
-            <button type="button" className="octbtn" onClick={() => nudge(-10)}>
+            <Button onClick={() => nudge(-10)}>
               −10
-            </button>
-            <button type="button" className="octbtn" onClick={() => nudge(10)}>
+            </Button>
+            <Button onClick={() => nudge(10)}>
               +10
-            </button>
+            </Button>
           </div>
         )}
         {err && <p className="dialog-err">{err}</p>}
         <div className="dialog-actions">
-          <button type="submit" className="octbtn">
+          <Button type="submit">
             OK
-          </button>
-          <button type="button" className="octbtn" onClick={onClose}>
+          </Button>
+          <Button onClick={onClose}>
             Cancel
-          </button>
+          </Button>
         </div>
       </form>
     </Dialog>

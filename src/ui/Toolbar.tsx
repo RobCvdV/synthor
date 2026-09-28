@@ -5,6 +5,7 @@ import type { Instrument } from '../domain/types'
 import { FreePlayToggle } from './FreePlayToggle'
 import { InstrumentSelect } from './components/InstrumentSelect'
 import { EditableLabel } from './components/EditableLabel'
+import { Button } from './components/Button'
 
 interface ToolbarProps {
   playing: boolean
@@ -145,8 +146,8 @@ export const Toolbar = memo(function Toolbar({
       {/* Octave group */}
       <span className="toolbar-octave-group" title="Keyboard playable note range">
         <span className="muted toolbar-octave-range">{noteRange}</span>
-        <button className="octbtn" onClick={onOctaveDown}>oct −</button>
-        <button className="octbtn" onClick={onOctaveUp}>oct +</button>
+        <Button onClick={onOctaveDown}>oct −</Button>
+        <Button onClick={onOctaveUp}>oct +</Button>
       </span>
 
       {/* Global panic */}
@@ -159,34 +160,26 @@ export const Toolbar = memo(function Toolbar({
       </button>
 
       {/* Page switch buttons */}
-      <button
-        className={'octbtn' + (view === 'tracker' ? ' active' : '')}
-        onClick={() => onSetView('tracker')}
+      <Button active={view === 'tracker'} onClick={() => onSetView('tracker')}
         title="Tracker (⌘T)"
       >
         Tracker
-      </button>
-      <button
-        className={'octbtn' + (view === 'instruments' ? ' active' : '')}
-        onClick={() => onSetView('instruments')}
+      </Button>
+      <Button active={view === 'instruments'} onClick={() => onSetView('instruments')}
         title="Instruments (⌘I)"
       >
         Instruments
-      </button>
-      <button
-        className={'octbtn' + (view === 'samples' ? ' active' : '')}
-        onClick={() => onSetView('samples')}
+      </Button>
+      <Button active={view === 'samples'} onClick={() => onSetView('samples')}
         title="Samples (⌘S)"
       >
         Samples
-      </button>
-      <button
-        className={'octbtn' + (view === 'mixer' ? ' active' : '')}
-        onClick={() => onSetView('mixer')}
+      </Button>
+      <Button active={view === 'mixer'} onClick={() => onSetView('mixer')}
         title="Mixer (⌘M)"
       >
         Mixer
-      </button>
+      </Button>
     </header>
   )
 })

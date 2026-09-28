@@ -32,18 +32,6 @@ body {
 .layout { flex: 1; display: flex; min-height: 0; }
 .main { flex: 1; min-width: 0; display: flex; }
 
-.octbtn {
-  background: #222;
-  color: var(--fg);
-  border: 1px solid #333;
-  border-radius: 4px;
-  padding: 3px 10px;
-  font: inherit;
-  cursor: pointer;
-}
-.octbtn:hover { border-color: var(--accent); }
-.octbtn.active { border-color: var(--accent); color: var(--accent); background: rgba(79, 209, 197, 0.12); }
-
 /* ---- Instruments view ---------------------------------------------------- */
 .instruments-view { flex: 1; display: flex; min-height: 0; min-width: 0; }
 
@@ -348,7 +336,6 @@ body {
   padding: 4px 6px; background: #1a1e26; border-bottom: 1px solid #2a2f38;
   gap: 6px;
 }
-.arrange-palette-head .octbtn { font-size: 10px; padding: 2px 6px; }
 .arrange-palette-title {
   color: var(--accent); font-size: 11px; font-weight: bold;
   text-transform: uppercase; letter-spacing: 0.04em;
@@ -474,7 +461,6 @@ body {
 .arrange-actions {
   display: flex; flex-wrap: wrap; gap: 4px;
 }
-.arrange-actions .octbtn { font-size: 10px; padding: 2px 6px; }
 
 /* ---- Store tab ---------------------------------------------------------- */
 .store-tab {
@@ -491,7 +477,6 @@ body {
 .store-actions {
   display: flex; flex-wrap: wrap; gap: 6px;
 }
-.store-actions .octbtn { font-size: 11px; }
 .store-list { flex: 1; min-height: 0; }
 .store-list-title {
   margin: 0 0 8px; color: var(--accent); font-size: 11px;
@@ -1320,15 +1305,6 @@ body {
 }
 
 .se-toolbar .spacer { flex: 1; }
-
-.se-toolbar .octbtn:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-.se-toolbar .octbtn:disabled:hover {
-  border-color: #333;
-}
 
 .se-info {
   display: flex;

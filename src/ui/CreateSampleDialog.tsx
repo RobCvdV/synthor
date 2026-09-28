@@ -11,6 +11,7 @@ import { generateWaveform, WAVE_SHAPES, type WaveShape } from '../audio/waveGen'
 import { newSampleEntity } from '../domain/factory'
 import { WAVEFORM_MAX_LENGTH_SECONDS } from '../domain/moduleDefs'
 import type { Id } from '../domain/types'
+import { Button } from './components/Button'
 
 /** Create a generated waveform sample and add it to the song. */
 export function CreateSampleDialog({
@@ -123,12 +124,12 @@ export function CreateSampleDialog({
         {tooLong && <p className="dialog-err">Longer than {WAVEFORM_MAX_LENGTH_SECONDS}s won't appear in wave module pickers.</p>}
         {err && <p className="dialog-err">{err}</p>}
         <div className="dialog-actions">
-          <button type="submit" className="octbtn" disabled={busy}>
+          <Button type="submit" disabled={busy}>
             {busy ? 'Creating…' : 'Create'}
-          </button>
-          <button type="button" className="octbtn" onClick={onClose}>
+          </Button>
+          <Button onClick={onClose}>
             Cancel
-          </button>
+          </Button>
         </div>
       </form>
     </Dialog>

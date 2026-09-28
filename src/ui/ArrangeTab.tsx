@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } f
 import { useDocStore } from '../state/docStore'
 import { EditableLabel } from './components/EditableLabel'
 import type { Doc, Id } from '../domain/types'
+import { Button } from './components/Button'
 
 /* ------------------------------------------------------------------ */
 /*  Arrange tab — pattern palette, sections, drag-and-drop             */
@@ -333,7 +334,7 @@ export function ArrangeTab({ doc }: { doc: Doc }) {
       <div className="arrange-palette">
         <div className="arrange-palette-head">
           <span className="arrange-palette-title">Patterns</span>
-          <button className="octbtn" onClick={() => addPattern()}>+ New</button>
+          <Button size="sm" onClick={() => addPattern()}>+ New</Button>
         </div>
         <div className="arrange-palette-list" ref={paletteListRef}>
           {allPatterns.map((p) => {
@@ -492,7 +493,7 @@ export function ArrangeTab({ doc }: { doc: Doc }) {
       </div>
 
       <div className="arrange-actions">
-        <button className="octbtn" onClick={() => addSection()}>+ Section</button>
+        <Button size="sm" onClick={() => addSection()}>+ Section</Button>
       </div>
     </div>
   )

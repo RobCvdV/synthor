@@ -20,6 +20,7 @@ import type { Id } from '../domain/types'
 import { sampleDialogOpenRef } from './sampleDialogRef'
 import { SaveAsDialog } from './SampleSaveAsDialog'
 import { EditDialog } from './SampleEditDialog'
+import { Button } from './components/Button'
 
 /** Shared decode context for the editor (sampleLoader pattern). */
 let _editorDecodeCtx: AudioContext | null = null
@@ -681,63 +682,58 @@ export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: 
   return (
     <div className="sample-editor">
       <div className="se-toolbar">
-        <button className="octbtn" disabled={missing || busy} onClick={() => void play()} title="Play from cursor/selection (Space)">
+        <Button disabled={missing || busy} onClick={() => void play()} title="Play from cursor/selection (Space)">
           ▶ Play
-        </button>
+        </Button>
         <span className="spacer" />
-        <button className="octbtn" disabled={!hasSel} onClick={doCopy} title="Copy selection to paste buffer (⌘C)">
+        <Button disabled={!hasSel} onClick={doCopy} title="Copy selection to paste buffer (⌘C)">
           Copy
-        </button>
-        <button className="octbtn" disabled={!hasSel} onClick={doCut} title="Cut selection to paste buffer (⌘X)">
+        </Button>
+        <Button disabled={!hasSel} onClick={doCut} title="Cut selection to paste buffer (⌘X)">
           Cut
-        </button>
-        <button className="octbtn" disabled={!pb} onClick={doPaste} title="Paste at cursor, overwriting (⌘V)">
+        </Button>
+        <Button disabled={!pb} onClick={doPaste} title="Paste at cursor, overwriting (⌘V)">
           Paste
-        </button>
-        <button className="octbtn" disabled={!pb} onClick={doInsert} title="Insert at cursor, shifting content">
+        </Button>
+        <Button disabled={!pb} onClick={doInsert} title="Insert at cursor, shifting content">
           Insert
-        </button>
-        <button className="octbtn" disabled={!hasSel || !pb} onClick={doReplace} title="Replace selection with paste buffer">
+        </Button>
+        <Button disabled={!hasSel || !pb} onClick={doReplace} title="Replace selection with paste buffer">
           Replace
-        </button>
-        <button className="octbtn" disabled={!hasSel} onClick={doReverse} title="Reverse selection (sounds backwards)">
+        </Button>
+        <Button disabled={!hasSel} onClick={doReverse} title="Reverse selection (sounds backwards)">
           Reverse
-        </button>
-        <button className="octbtn" disabled={!hasSel} onClick={() => setDialog('volume')} title="Change volume of selection">
+        </Button>
+        <Button disabled={!hasSel} onClick={() => setDialog('volume')} title="Change volume of selection">
           Volume…
-        </button>
-        <button className="octbtn" disabled={!hasSel} onClick={() => setDialog('fadeIn')} title="Fade selection in (0→100%)">
+        </Button>
+        <Button disabled={!hasSel} onClick={() => setDialog('fadeIn')} title="Fade selection in (0→100%)">
           Fade In…
-        </button>
-        <button className="octbtn" disabled={!hasSel} onClick={() => setDialog('fadeOut')} title="Fade selection out (100→0%)">
+        </Button>
+        <Button disabled={!hasSel} onClick={() => setDialog('fadeOut')} title="Fade selection out (100→0%)">
           Fade Out…
-        </button>
+        </Button>
         <span className="spacer" />
-        <button
-          className="octbtn"
-          disabled={missing || busy}
+        <Button disabled={missing || busy}
           onClick={() => setSaveAsOpen(true)}
           title="Save the edited sample as a new sample in the list"
         >
           Save As…
-        </button>
-        <button
-          className="octbtn"
-          disabled={missing || busy}
+        </Button>
+        <Button disabled={missing || busy}
           onClick={() => void doExport()}
           title="Export sample to file"
         >
           Export
-        </button>
+        </Button>
         <span className="spacer" />
-        <button className="octbtn" onClick={() => setPxPerFrame((p) => Math.max(MIN_PX, p / 2))} title="Zoom out">
+        <Button onClick={() => setPxPerFrame((p) => Math.max(MIN_PX, p / 2))} title="Zoom out">
           zoom −
-        </button>
-        <button className="octbtn" onClick={() => setPxPerFrame((p) => Math.min(MAX_PX, p * 2))} title="Zoom in">
+        </Button>
+        <Button onClick={() => setPxPerFrame((p) => Math.min(MAX_PX, p * 2))} title="Zoom in">
           zoom +
-        </button>
-        <button
-          className="octbtn"
+        </Button>
+        <Button
           onClick={() => {
             if (frames > 0 && wrapW > 0) {
               setPxPerFrame(Math.max(MIN_PX, Math.min(MAX_PX, wrapW / frames)))
@@ -747,10 +743,10 @@ export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: 
           title="Fit whole sample"
         >
           zoom fit
-        </button>
-        <button className="octbtn" onClick={onClose} title="Close editor">
+        </Button>
+        <Button onClick={onClose} title="Close editor">
           Close ×
-        </button>
+        </Button>
       </div>
 
       {meta && entity && (

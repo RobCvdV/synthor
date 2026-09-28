@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Dialog } from './Dialog'
 import { sampleDialogOpenRef } from './sampleDialogRef'
+import { Button } from './components/Button'
 
 export function SaveAsDialog({
   defaultName,
@@ -54,12 +55,12 @@ export function SaveAsDialog({
         </div>
         {err && <p className="dialog-err">{err}</p>}
         <div className="dialog-actions">
-          <button type="submit" className="octbtn" disabled={busy}>
+          <Button type="submit" disabled={busy}>
             {busy ? 'Saving…' : 'Save'}
-          </button>
-          <button type="button" className="octbtn" onClick={onClose}>
+          </Button>
+          <Button onClick={onClose}>
             Cancel
-          </button>
+          </Button>
         </div>
       </form>
     </Dialog>

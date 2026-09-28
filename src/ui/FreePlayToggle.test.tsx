@@ -16,9 +16,10 @@ describe('FreePlayToggle', () => {
   it('toggles free play in the app store', () => {
     const { getByRole } = render(<FreePlayToggle />)
     const btn = getByRole('button')
+    expect(btn).toHaveClass('accent')
     fireEvent.click(btn)
     expect(useAppStore.getState().freePlay).toBe(false)
     expect(btn).toHaveAttribute('aria-pressed', 'false')
-    expect(btn).not.toHaveClass('active')
+    expect(btn).not.toHaveClass('accent')
   })
 })
