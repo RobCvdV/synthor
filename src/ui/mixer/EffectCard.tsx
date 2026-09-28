@@ -3,9 +3,9 @@ import type { ChannelEffect } from '../../domain/types'
 import { BypassToggle } from '../components/BypassToggle'
 import { Button } from '../components/Button'
 import { cx } from '../components/cx'
-import { ParamSlider } from '../components/ParamSlider'
-import { Select } from '../components/Select'
+import { ParamControl } from '../components/ParamControl'
 import { useSortedSamples } from '../hooks/useSortedSamples'
+import { sampleChoices } from '../../domain/sampleChoices'
 import s from './EffectCard.module.css'
 
 export function EffectCard({
@@ -18,7 +18,7 @@ export function EffectCard({
   onMoveUp?: () => void; onMoveDown?: () => void
 }) {
   const def = MODULE_DEFS[effect.type]
-  const sampleLabels = useSortedSamples().map((smp) => smp.name)
+  const sampleNames = sampleChoices(effect.type, useSortedSamples()).map((smp) => smp.name)
   if (!def) return null
   const bypassed = (effect.params.bypass ?? 0) === 1
 
@@ -32,27 +32,13 @@ export function EffectCard({
         <Button size="xs" title="Remove effect" onClick={onRemove}>×</Button>
       </div>
       <div className={s.params}>
-        {def.params.filter((p) => p.key !== 'bypass').map((param) => {
-          const val = effect.params[param.key] ?? param.default
-          const labels = param.key === 'sampleIndex'
-            ? (sampleLabels.length ? sampleLabels : ['(none)'])
-            : param.enumLabels
-          return (
-            <label key={param.key} className={s.param}>
-              <span className={s.paramLabel}>{param.label}</span>
-              {labels ? (
-                <Select block value={Math.round(val)} onChange={(e) => onParamCommit(param.key, parseInt(e.target.value))}>
-                  {labels.map((lbl, i) => <option key={i} value={i}>{lbl}</option>)}
-                </Select>
-              ) : (
-                <ParamSlider value={val} min={param.min} max={param.max} step={param.step}
-                  onChange={(v) => onParamSilent(param.key, v)}
-                  onCommit={(v) => onParamCommit(param.key, v)}
-                  formatValue={(v) => param.step >= 1 ? v.toFixed(0) : v.toFixed(2)} />
-              )}
-            </label>
-          )
-        })}
+        {def.params.filter((p) => p.key !== 'bypass').map((param) => (
+          <ParamControl key={param.key} className={s.param} param={param}
+            value={effect.params[param.key] ?? param.default}
+            choices={param.key === 'sampleIndex' ? sampleNames : undefined}
+            onChange={(v) => onParamSilent(param.key, v)}
+            onCommit={(v) => onParamCommit(param.key, v)} />
+        ))}
       </div>
     </div>
   )

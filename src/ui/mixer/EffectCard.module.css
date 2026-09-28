@@ -5,5 +5,4 @@
 .title { flex: 1; font-size: 11px; font-weight: bold; }
 
 .params { display: flex; flex-wrap: wrap; gap: 6px; }
-.param { display: flex; flex-direction: column; align-items: center; min-width: 70px; }
-.paramLabel { font-size: 9px; color: #aaa; }
+.param { flex: 1 1 110px; }
