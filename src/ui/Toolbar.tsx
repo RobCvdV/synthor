@@ -4,6 +4,7 @@ import type { AudioStatus } from '../state/audioStore'
 import type { Instrument } from '../domain/types'
 import { FreePlayToggle } from './FreePlayToggle'
 import { InstrumentSelect } from './components/InstrumentSelect'
+import { EditableLabel } from './components/EditableLabel'
 
 interface ToolbarProps {
   playing: boolean
@@ -12,14 +13,8 @@ interface ToolbarProps {
   onTogglePlay: () => void
   playMode: PlayMode
   onSetPlayMode: (mode: PlayMode) => void
-  editingTitle: boolean
-  titleDraft: string
   projectName: string
-  titleInputRef: RefObject<HTMLInputElement | null>
-  onTitleDraftChange: (v: string) => void
-  onCommitTitle: () => void
-  onCancelTitleEdit: () => void
-  onBeginEditTitle: () => void
+  onRenameSong: (name: string) => void
   editingTempo: boolean
   tempoDraft: string
   bpm: number
@@ -49,14 +44,8 @@ export const Toolbar = memo(function Toolbar({
   onTogglePlay,
   playMode,
   onSetPlayMode,
-  editingTitle,
-  titleDraft,
   projectName,
-  titleInputRef,
-  onTitleDraftChange,
-  onCommitTitle,
-  onCancelTitleEdit,
-  onBeginEditTitle,
+  onRenameSong,
   editingTempo,
   tempoDraft,
   bpm,
@@ -109,27 +98,8 @@ export const Toolbar = memo(function Toolbar({
       </span>
 
       {/* Song title */}
-      {editingTitle ? (
-        <input
-          ref={titleInputRef}
-          className="toolbar-title-input"
-          value={titleDraft}
-          onChange={(e) => onTitleDraftChange(e.target.value)}
-          onBlur={onCommitTitle}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') onCommitTitle()
-            if (e.key === 'Escape') onCancelTitleEdit()
-          }}
-        />
-      ) : (
-        <span
-          className="toolbar-title"
-          title="Double-click to rename"
-          onDoubleClick={onBeginEditTitle}
-        >
-          {projectName}
-        </span>
-      )}
+      <EditableLabel value={projectName} onCommit={onRenameSong} commitOnBlur
+        className="toolbar-title" inputClassName="toolbar-title-input" title="Double-click to rename the song" />
 
       {/* Tempo */}
       <span className="toolbar-tempo-group">

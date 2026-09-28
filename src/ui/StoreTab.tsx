@@ -1,15 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
-import { useDocStore } from '../state/docStore'
 import { useProjectStore } from '../state/projectStore'
 import { askConfirm } from '../state/dialogStore'
-import { createDefaultDoc } from '../domain/factory'
-import { deleteSong, isOpfsSupported, listSongs, readSong, saveRecent } from '../persist/opfsStore'
+import { deleteSong, isOpfsSupported, listSongs } from '../persist/opfsStore'
 import { currentSongFile, saveCurrentSong } from '../persist/saveCurrent'
 import { serializeSong, type SongFile } from '../persist/serialize'
-import { exportSongZip, importSongZip } from '../persist/songExport'
+import { exportSongZip } from '../persist/songExport'
 import { downloadBlob } from './download'
 import { pickFiles } from './pickFiles'
 import { saveLabel } from './format'
+import { createNewSong, importSongFile, openSavedSong } from './songActions'
 
 type Entry = { slug: string; meta: SongFile['meta'] }
 
@@ -21,39 +20,15 @@ export function StoreTab({ slug }: { slug: string }) {
   const name = useProjectStore((s) => s.name)
   const status = useProjectStore((s) => s.status)
   const lastSavedAt = useProjectStore((s) => s.lastSavedAt)
-  const reset = useProjectStore((s) => s.reset)
-  const loadDoc = useDocStore((s) => s.loadDoc)
 
   const [songs, setSongs] = useState<Entry[]>([])
   const opfs = isOpfsSupported()
 
+  // Every save (autosave, rename, new song) can change the list.
   const refreshList = useCallback(() => {
     if (opfs) void listSongs().then(setSongs)
   }, [opfs])
-  useEffect(refreshList, [refreshList])
-
-  const loadFile = useCallback(
-    (file: SongFile, s?: string) => {
-      loadDoc(file.doc)
-      reset(file.meta.name, file.meta.createdAt, s)
-    },
-    [loadDoc, reset],
-  )
-
-  const newSong = async () => {
-    if (status === 'dirty' && !await askConfirm({ message: 'Discard unsaved changes and start a new song?', confirmLabel: 'Discard', danger: true })) return
-    loadDoc(createDefaultDoc())
-    reset('Untitled', new Date().toISOString())
-  }
-
-  const openSong = async (s: string) => {
-    if (!s) return
-    const file = await readSong(s)
-    if (file) {
-      loadFile(file, s)
-      await saveRecent(s)
-    }
-  }
+  useEffect(refreshList, [refreshList, lastSavedAt])
 
   const removeSong = async (s: string) => {
     if (!await askConfirm({ message: `Delete "${s}"? This cannot be undone.`, confirmLabel: 'Delete', danger: true })) return
@@ -89,9 +64,7 @@ export function StoreTab({ slug }: { slug: string }) {
     const [f] = await pickFiles({ accept: '.synthor,.json,application/json,application/zip' })
     if (!f) return
     try {
-      const data = await f.arrayBuffer()
-      const result = await importSongZip(data, slug)
-      loadFile(result.file, slug)
+      await importSongFile(await f.arrayBuffer())
     } catch (err) {
       console.error('Import failed:', err)
       alert(`Could not import song: ${(err as Error).message}`)
@@ -107,7 +80,7 @@ export function StoreTab({ slug }: { slug: string }) {
       </div>
 
       <div className="store-actions">
-        <button className="octbtn" onClick={() => void newSong()} title="Create a new empty song">New</button>
+        <button className="octbtn" onClick={() => void createNewSong()} title="Create a new empty song">New</button>
         {opfs && (
           <button className="octbtn" onClick={() => void saveSong()} title="Save current song">Save</button>
         )}
@@ -126,7 +99,7 @@ export function StoreTab({ slug }: { slug: string }) {
                 <span
                   className="store-song-name"
                   title="Click to open"
-                  onClick={() => void openSong(s.slug)}
+                  onClick={() => void openSavedSong(s.slug)}
                 >
                   {s.meta.name}
                 </span>

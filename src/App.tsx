@@ -6,7 +6,6 @@ import { useEngine } from './ui/useEngine'
 import { useAutosave } from './ui/useAutosave'
 import { usePatternSync } from './ui/usePlayhead'
 import { codeToSemitone, isEditableTarget, keyToHex } from './ui/keymap'
-import { Dialog } from './ui/Dialog'
 import { Toolbar } from './ui/Toolbar'
 import { TrackerGrid, type Selection } from './ui/TrackerGrid'
 import { TrackerRightPane } from './ui/TrackerRightPane'
@@ -14,10 +13,9 @@ import { InstrumentsView } from './ui/InstrumentsView'
 import { SampleLibraryView } from './ui/SampleLibraryView'
 import { MixerView } from './ui/mixer/MixerView'
 import { DialogHost } from './ui/components/DialogHost'
-import { askConfirm } from './state/dialogStore'
+import { renameCurrentSong } from './ui/songActions'
 import { loadRecent, readSong } from './persist/opfsStore'
 import { useProjectStore } from './state/projectStore'
-import { createDefaultDoc } from './domain/factory'
 import { midiToName } from './domain/notes'
 import { useMidi } from './midi/useMidi'
 import { useMidiStore } from './state/midiStore'
@@ -107,8 +105,6 @@ export default function App() {
 
   const projectName = useProjectStore((s) => s.name)
   const slug = useProjectStore((s) => s.slug)
-  const setProjectName = useProjectStore((s) => s.setName)
-  const resetProject = useProjectStore((s) => s.reset)
   const playing = useTransportStore((s) => s.playing)
   const audioStatus = useAudioStore((s) => s.status)
   const playbackStarted = useAudioStore((s) => s.playbackStarted)
@@ -128,12 +124,6 @@ export default function App() {
   const toggleSolo = useAppStore((s) => s.toggleSolo)
   const mutedTrackNumbers = useAppStore((s) => s.mutedTrackNumbers)
   const soloedTrackNumbers = useAppStore((s) => s.soloedTrackNumbers)
-
-  // Song title editing
-  const [editingTitle, setEditingTitle] = useState(false)
-  const [titleDraft, setTitleDraft] = useState('')
-  const [renameDialog, setRenameDialog] = useState(false)
-  const titleInputRef = useRef<HTMLInputElement>(null)
 
   // Tempo editing
   const [editingTempo, setEditingTempo] = useState(false)
@@ -159,39 +149,6 @@ export default function App() {
     setTapFlash(true)
     setTimeout(() => setTapFlash(false), 150)
   }, [setBpm])
-
-  // Song title editing
-  const beginEditTitle = useCallback(() => {
-    setTitleDraft(projectName)
-    setEditingTitle(true)
-    setTimeout(() => titleInputRef.current?.select(), 0)
-  }, [projectName])
-
-  const commitTitle = useCallback(() => {
-    setEditingTitle(false)
-    if (titleDraft && titleDraft !== projectName) {
-      setRenameDialog(true)
-    }
-  }, [titleDraft, projectName])
-
-  const doRenameSong = useCallback(() => {
-    setProjectName(titleDraft)
-    setRenameDialog(false)
-  }, [titleDraft, setProjectName])
-
-  const doNewSong = useCallback(async () => {
-    if (useProjectStore.getState().status === 'dirty' && !await askConfirm({
-      message: 'Discard unsaved changes and create a new song?', confirmLabel: 'Discard', danger: true,
-    })) return
-    const newDoc = createDefaultDoc()
-    useDocStore.getState().loadDoc(newDoc)
-    resetProject(titleDraft, new Date().toISOString())
-    setRenameDialog(false)
-  }, [titleDraft, resetProject])
-
-  const cancelRename = useCallback(() => {
-    setRenameDialog(false)
-  }, [])
 
   // Tempo editing
   const beginEditTempo = useCallback(() => {
@@ -684,14 +641,8 @@ export default function App() {
         }}
         playMode={playMode}
         onSetPlayMode={setPlayMode}
-        editingTitle={editingTitle}
-        titleDraft={titleDraft}
         projectName={projectName}
-        titleInputRef={titleInputRef}
-        onTitleDraftChange={setTitleDraft}
-        onCommitTitle={commitTitle}
-        onCancelTitleEdit={() => { setEditingTitle(false); setTitleDraft(projectName) }}
-        onBeginEditTitle={beginEditTitle}
+        onRenameSong={(name) => void renameCurrentSong(name)}
         editingTempo={editingTempo}
         tempoDraft={tempoDraft}
         bpm={bpm}
@@ -721,24 +672,6 @@ export default function App() {
         view={view}
         onSetView={setView}
       />
-
-      {/* Rename dialog */}
-      {renameDialog && (
-        <Dialog
-          onClose={cancelRename}
-          actions={
-            <>
-              <button className="octbtn" onClick={() => void doNewSong()}>Create New Song</button>
-              <button className="octbtn" onClick={doRenameSong}>Rename Current</button>
-              <button className="octbtn" onClick={cancelRename}>Cancel</button>
-            </>
-          }
-        >
-          <p>
-            "<strong>{titleDraft}</strong>" is not the current song name.
-          </p>
-        </Dialog>
-      )}
 
       {ready && (view === 'tracker' ? (
         <div className="layout">
