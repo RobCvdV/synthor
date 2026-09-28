@@ -9,6 +9,7 @@ import { CLIP_THRESHOLD, drawScope } from './scope'
 import { round } from './format'
 import { ParamSlider } from './components/ParamSlider'
 import { BypassToggle } from './components/BypassToggle'
+import { EditableLabel } from './components/EditableLabel'
 
 export interface ModuleNodeData {
   instrumentId: Id
@@ -35,7 +36,6 @@ export function ModuleNode({ data }: NodeProps) {
   const removeModule = useDocStore((s) => s.removeModule)
   const renameModule = useDocStore((s) => s.renameModule)
   const [ccLearning, setCcLearning] = useState(false)
-  const [editingName, setEditingName] = useState(false)
   const ccLearningRef = useRef(false)
   ccLearningRef.current = ccLearning
 
@@ -136,31 +136,8 @@ export function ModuleNode({ data }: NodeProps) {
           />
         )}
         {isEff ? (
-          editingName ? (
-            <input
-              className="mod-name-input nodrag"
-              defaultValue={module.name ?? ''}
-              autoFocus
-              onFocus={(e) => e.target.select()}
-              onClick={(e) => e.stopPropagation()}
-              onBlur={() => setEditingName(false)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  renameModule(instrumentId, moduleId, (e.target as HTMLInputElement).value)
-                  setEditingName(false)
-                }
-                if (e.key === 'Escape') setEditingName(false)
-              }}
-            />
-          ) : (
-            <span
-              className="mod-name nodrag"
-              title="Double-click to rename"
-              onDoubleClick={(e) => { e.stopPropagation(); setEditingName(true) }}
-            >
-              {module.name ?? def.label}
-            </span>
-          )
+          <EditableLabel value={module.name ?? def.label} onCommit={(name) => renameModule(instrumentId, moduleId, name)}
+            className="mod-name nodrag" inputClassName="mod-name-input nodrag" />
         ) : (
           <span>{def.label}</span>
         )}

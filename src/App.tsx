@@ -13,6 +13,8 @@ import { TrackerRightPane } from './ui/TrackerRightPane'
 import { InstrumentsView } from './ui/InstrumentsView'
 import { SampleLibraryView } from './ui/SampleLibraryView'
 import { MixerView } from './ui/mixer/MixerView'
+import { DialogHost } from './ui/components/DialogHost'
+import { askConfirm } from './state/dialogStore'
 import { loadRecent, readSong } from './persist/opfsStore'
 import { useProjectStore } from './state/projectStore'
 import { createDefaultDoc } from './domain/factory'
@@ -177,8 +179,10 @@ export default function App() {
     setRenameDialog(false)
   }, [titleDraft, setProjectName])
 
-  const doNewSong = useCallback(() => {
-    if (useProjectStore.getState().status === 'dirty' && !confirm('Discard unsaved changes and create a new song?')) return
+  const doNewSong = useCallback(async () => {
+    if (useProjectStore.getState().status === 'dirty' && !await askConfirm({
+      message: 'Discard unsaved changes and create a new song?', confirmLabel: 'Discard', danger: true,
+    })) return
     const newDoc = createDefaultDoc()
     useDocStore.getState().loadDoc(newDoc)
     resetProject(titleDraft, new Date().toISOString())
@@ -724,7 +728,7 @@ export default function App() {
           onClose={cancelRename}
           actions={
             <>
-              <button className="octbtn" onClick={doNewSong}>Create New Song</button>
+              <button className="octbtn" onClick={() => void doNewSong()}>Create New Song</button>
               <button className="octbtn" onClick={doRenameSong}>Rename Current</button>
               <button className="octbtn" onClick={cancelRename}>Cancel</button>
             </>
@@ -766,6 +770,7 @@ export default function App() {
           <SampleLibraryView host={host} />
         </div>
       ))}
+      <DialogHost />
     </div>
   )
 }

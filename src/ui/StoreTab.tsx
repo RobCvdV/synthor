@@ -1,12 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useDocStore } from '../state/docStore'
 import { useProjectStore } from '../state/projectStore'
+import { askConfirm } from '../state/dialogStore'
 import { createDefaultDoc } from '../domain/factory'
 import { deleteSong, isOpfsSupported, listSongs, readSong, saveRecent } from '../persist/opfsStore'
 import { currentSongFile, saveCurrentSong } from '../persist/saveCurrent'
 import { serializeSong, type SongFile } from '../persist/serialize'
 import { exportSongZip, importSongZip } from '../persist/songExport'
 import { downloadBlob } from './download'
+import { pickFiles } from './pickFiles'
 import { saveLabel } from './format'
 
 type Entry = { slug: string; meta: SongFile['meta'] }
@@ -23,7 +25,6 @@ export function StoreTab({ slug }: { slug: string }) {
   const loadDoc = useDocStore((s) => s.loadDoc)
 
   const [songs, setSongs] = useState<Entry[]>([])
-  const fileInput = useRef<HTMLInputElement>(null)
   const opfs = isOpfsSupported()
 
   const refreshList = useCallback(() => {
@@ -39,8 +40,8 @@ export function StoreTab({ slug }: { slug: string }) {
     [loadDoc, reset],
   )
 
-  const newSong = () => {
-    if (status === 'dirty' && !confirm('Discard unsaved changes and start a new song?')) return
+  const newSong = async () => {
+    if (status === 'dirty' && !await askConfirm({ message: 'Discard unsaved changes and start a new song?', confirmLabel: 'Discard', danger: true })) return
     loadDoc(createDefaultDoc())
     reset('Untitled', new Date().toISOString())
   }
@@ -55,7 +56,7 @@ export function StoreTab({ slug }: { slug: string }) {
   }
 
   const removeSong = async (s: string) => {
-    if (!confirm(`Delete "${s}"? This cannot be undone.`)) return
+    if (!await askConfirm({ message: `Delete "${s}"? This cannot be undone.`, confirmLabel: 'Delete', danger: true })) return
     await deleteSong(s)
     refreshList()
   }
@@ -84,9 +85,8 @@ export function StoreTab({ slug }: { slug: string }) {
     downloadBlob(blob, `${name || 'song'}.synthor.json`)
   }
 
-  const importSong = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0]
-    e.target.value = ''
+  const importSong = async () => {
+    const [f] = await pickFiles({ accept: '.synthor,.json,application/json,application/zip' })
     if (!f) return
     try {
       const data = await f.arrayBuffer()
@@ -107,20 +107,13 @@ export function StoreTab({ slug }: { slug: string }) {
       </div>
 
       <div className="store-actions">
-        <button className="octbtn" onClick={newSong} title="Create a new empty song">New</button>
+        <button className="octbtn" onClick={() => void newSong()} title="Create a new empty song">New</button>
         {opfs && (
           <button className="octbtn" onClick={() => void saveSong()} title="Save current song">Save</button>
         )}
         <button className="octbtn" onClick={exportZip} title="Export as .synthor (includes samples)">Export</button>
         <button className="octbtn" onClick={exportJson} title="JSON only, no sample data">Export JSON</button>
-        <button className="octbtn" onClick={() => fileInput.current?.click()} title="Import .synthor or .json">Import</button>
-        <input
-          ref={fileInput}
-          type="file"
-          accept=".synthor,.json,application/json,application/zip"
-          hidden
-          onChange={(e) => void importSong(e)}
-        />
+        <button className="octbtn" onClick={() => void importSong()} title="Import .synthor or .json">Import</button>
       </div>
 
       {opfs && (

@@ -1,9 +1,11 @@
-import { memo, useCallback, useMemo, useState } from 'react'
+import { memo, useCallback, useMemo } from 'react'
 import type { Doc, Id, Pattern, Track } from '../domain/types'
 import type { Instrument } from '../domain/types'
 import { midiToName } from '../domain/notes'
 import { effInletNames, isBuiltinLaneType, LANE_DEFS, readableLaneLabel, valueHex } from '../domain/effects'
 import { useDocStore } from '../state/docStore'
+import { EditableLabel } from './components/EditableLabel'
+import { InstrumentSelect } from './components/InstrumentSelect'
 import { usePlayheadRow } from './usePlayhead'
 
 export interface Cursor {
@@ -62,8 +64,6 @@ interface HeaderProps {
 const TrackerHeader = memo(function TrackerHeader({
   patternId, patternName, patternLength, tracks, instruments, inletOptions, muted, soloed,
 }: HeaderProps) {
-  const [editingName, setEditingName] = useState(false)
-
   const renamePattern = useDocStore((s) => s.renamePattern)
   const setPatternLength = useDocStore((s) => s.setPatternLength)
   const setTrackInstrument = useDocStore((s) => s.setTrackInstrument)
@@ -73,18 +73,8 @@ const TrackerHeader = memo(function TrackerHeader({
   return (
     <>
       <div className="pattern-head">
-        {editingName ? (
-          <input className="pattern-name-input" defaultValue={patternName} autoFocus
-            onBlur={() => setEditingName(false)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') { renamePattern(patternId, (e.target as HTMLInputElement).value); setEditingName(false) }
-              if (e.key === 'Escape') setEditingName(false)
-            }} />
-        ) : (
-          <span className="pattern-name" title="Double-click to rename" onDoubleClick={() => setEditingName(true)}>
-            {patternName}
-          </span>
-        )}
+        <EditableLabel value={patternName} onCommit={(name) => renamePattern(patternId, name)}
+          className="pattern-name" inputClassName="pattern-name-input" />
         <span className="pattern-length">
           <button className="lenbtn" title="Decrease length · hold Shift for −4"
             onClick={(e) => setPatternLength(patternId, Math.max(1, patternLength - (e.shiftKey ? 4 : 1)))}>−</button>
@@ -105,11 +95,8 @@ const TrackerHeader = memo(function TrackerHeader({
             <span key={t.id} className={'cell track-head' + (isMuted ? ' muted' : '') + (isSoloed ? ' soloed' : '')}
               style={{ width: trackCellWidth(t.effectLanes.length) }}>
               <span className="track-no">{ti + 1}{isSoloed && <span className="solo-tag">S</span>}{isMuted && <span className="mute-tag">M</span>}</span>
-              <select className="track-inst" value={t.instrumentId}
-                onChange={(e) => { setTrackInstrument(t.id, e.target.value); (e.target as HTMLSelectElement).blur() }}
-                title="Instrument for this track">
-                {instruments.map((inst) => <option key={inst.id} value={inst.id}>{inst.name}</option>)}
-              </select>
+              <InstrumentSelect className="track-inst" instruments={instruments} value={t.instrumentId}
+                onChange={(id) => setTrackInstrument(t.id, id)} title="Instrument for this track" />
               <div className="track-lanes">
                 {t.effectLanes.map((lane, _li) => {
                   const avail = isBuiltinLaneType(lane.type) || inletOpts.some((io) => io === lane.type)

@@ -57,4 +57,18 @@ describe('EditableLabel', () => {
     fireEvent.blur(input)
     expect(onCommit).toHaveBeenCalledWith('Blurred')
   })
+
+  it('keeps double-clicks and input clicks from reaching the parent', () => {
+    const onParentClick = vi.fn()
+    const onParentDouble = vi.fn()
+    const { container } = render(
+      <div onClick={onParentClick} onDoubleClick={onParentDouble}>
+        <EditableLabel value="Name" onCommit={() => {}} className="lbl" inputClassName="inp" />
+      </div>,
+    )
+    fireEvent.doubleClick(container.querySelector('span.lbl')!)
+    fireEvent.click(container.querySelector('input.inp')!)
+    expect(onParentDouble).not.toHaveBeenCalled()
+    expect(onParentClick).not.toHaveBeenCalled()
+  })
 })

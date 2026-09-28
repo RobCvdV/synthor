@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { useDocStore } from '../state/docStore'
+import { EditableLabel } from './components/EditableLabel'
 import type { Doc, Id } from '../domain/types'
 
 /* ------------------------------------------------------------------ */
@@ -24,9 +25,6 @@ export function ArrangeTab({ doc }: { doc: Doc }) {
   const reorderSections = useDocStore((s) => s.reorderSections)
   const reorderPatternsInSection = useDocStore((s) => s.reorderPatternsInSection)
 
-  const [editingSection, setEditingSection] = useState<Id | null>(null)
-  const [editingPattern, setEditingPattern] = useState<Id | null>(null)
-  const [editingPalettePat, setEditingPalettePat] = useState<Id | null>(null)
 
   // Refs to section DOM elements for container-level hit testing
   const sectionEls = useRef<Map<Id, HTMLDivElement>>(new Map())
@@ -339,7 +337,6 @@ export function ArrangeTab({ doc }: { doc: Doc }) {
         </div>
         <div className="arrange-palette-list" ref={paletteListRef}>
           {allPatterns.map((p) => {
-            const isPalEditing = editingPalettePat === p.id
             return (
             <div
               key={p.id}
@@ -349,24 +346,8 @@ export function ArrangeTab({ doc }: { doc: Doc }) {
               onDragEnd={clearAll}
               onClick={() => setCurrentPattern(p.id)}
             >
-              {isPalEditing ? (
-                <input
-                  className="arrange-name-input"
-                  defaultValue={p.name}
-                  autoFocus
-                  onBlur={() => setEditingPalettePat(null)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') { renamePattern(p.id, (e.target as HTMLInputElement).value); setEditingPalettePat(null) }
-                    if (e.key === 'Escape') setEditingPalettePat(null)
-                  }}
-                />
-              ) : (
-                <span
-                  className="arrange-palette-name"
-                  title="Double-click to rename"
-                  onDoubleClick={(e) => { e.stopPropagation(); setEditingPalettePat(p.id) }}
-                >{p.name}</span>
-              )}
+              <EditableLabel value={p.name} onCommit={(name) => renamePattern(p.id, name)}
+                className="arrange-palette-name" inputClassName="arrange-name-input" />
               <span className="arrange-palette-meta">{p.length}r</span>
               <span className="arrange-palette-actions">
                 <button
@@ -395,7 +376,6 @@ export function ArrangeTab({ doc }: { doc: Doc }) {
       {doc.sectionIds.map((secId, si) => {
         const section = doc.entities.sections[secId]
         if (!section) return null
-        const isEditing = editingSection === secId
         const above = secLine?.idx === si && secLine?.edge === 'above'
         const below = secLine?.idx === si && secLine?.edge === 'below'
         // Selected = contains the current pattern (same rule as the pattern highlight).
@@ -423,22 +403,8 @@ export function ArrangeTab({ doc }: { doc: Doc }) {
                     <button className="arrange-arrow-btn" title="Move section down" onClick={() => reorderSections(si, si + 1)}>▼</button>
                   )}
                 </span>
-                {isEditing ? (
-                  <input
-                    className="arrange-name-input"
-                    defaultValue={section.name}
-                    autoFocus
-                    onBlur={() => setEditingSection(null)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') { renameSection(secId, (e.target as HTMLInputElement).value); setEditingSection(null) }
-                      if (e.key === 'Escape') setEditingSection(null)
-                    }}
-                  />
-                ) : (
-                  <span className="arrange-section-name" title="Double-click to rename" onDoubleClick={() => setEditingSection(secId)}>
-                    {section.name}
-                  </span>
-                )}
+                <EditableLabel value={section.name} onCommit={(name) => renameSection(secId, name)}
+                  className="arrange-section-name" inputClassName="arrange-name-input" />
                 <button className="arrange-del-btn" title="Remove section" onClick={() => removeSection(secId)}>×</button>
               </div>
               <ul
@@ -452,7 +418,6 @@ export function ArrangeTab({ doc }: { doc: Doc }) {
 
                   if (!pat) return null
                   const isCurrent = patId === doc.patternId
-                  const isPatEditing = editingPattern === patId
                   const lineAbove = patLine?.secId === secId && patLine?.idx === pi && patLine?.edge === 'above'
                   const lineBelow = patLine?.secId === secId && patLine?.idx === pi && patLine?.edge === 'below'
 
@@ -470,22 +435,8 @@ export function ArrangeTab({ doc }: { doc: Doc }) {
                         onClick={() => setCurrentPattern(patId)}
                       >
                         <span className="arrange-pattern-num">{pi + 1}</span>
-                        {isPatEditing ? (
-                          <input
-                            className="arrange-name-input"
-                            defaultValue={pat.name}
-                            autoFocus
-                            onBlur={() => setEditingPattern(null)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') { renamePattern(patId, (e.target as HTMLInputElement).value); setEditingPattern(null) }
-                              if (e.key === 'Escape') setEditingPattern(null)
-                            }}
-                          />
-                        ) : (
-                          <span className="arrange-pattern-name" title="Double-click to rename" onDoubleClick={(e) => { e.stopPropagation(); setEditingPattern(patId) }}>
-                            {pat.name}
-                          </span>
-                        )}
+                        <EditableLabel value={pat.name} onCommit={(name) => renamePattern(patId, name)}
+                          className="arrange-pattern-name" inputClassName="arrange-name-input" />
                         <button className="arrange-del-btn" title="Remove pattern from section" onClick={(e) => { e.stopPropagation(); removePatternFromSection(secId, pi) }}>×</button>
                       </div>
                       {lineBelow && <div className="arrange-drop-line" />}

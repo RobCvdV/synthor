@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { ChannelStrip } from './ChannelStrip'
 import { InstrumentStrip } from './InstrumentStrip'
 import { MixerView } from './MixerView'
+import { DialogHost } from '../components/DialogHost'
 import { createMasterChannel, newModularInstrument } from '../../domain/factory'
 import { MASTER_CHANNEL_ID } from '../../domain/types'
 import { useDocStore } from '../../state/docStore'
@@ -65,16 +66,16 @@ describe('mixer strips', () => {
 describe('MixerView', () => {
   beforeEach(resetStores)
 
-  it('deletes a sub channel only after confirming', () => {
+  it('deletes a sub channel only after confirming', async () => {
     const id = useDocStore.getState().addChannel('sub')
     const name = useDocStore.getState().doc.entities.mixChannels[id].name
-    render(<MixerView />)
+    render(<><MixerView /><DialogHost /></>)
 
     fireEvent.click(screen.getByTitle('Delete channel'))
     expect(useDocStore.getState().doc.entities.mixChannels[id]).toBeDefined()
     expect(screen.getByText(`Delete channel "${name}"?`)).toBeTruthy()
 
-    fireEvent.click(screen.getByText('Delete'))
+    await act(async () => { fireEvent.click(screen.getByText('Delete')) })
     expect(useDocStore.getState().doc.entities.mixChannels[id]).toBeUndefined()
     expect(screen.getByText('Master Channel')).toBeTruthy()
   })

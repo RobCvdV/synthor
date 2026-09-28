@@ -3,6 +3,7 @@ import { PLAY_MODES, type PlayMode, type View } from '../state/appStore'
 import type { AudioStatus } from '../state/audioStore'
 import type { Instrument } from '../domain/types'
 import { FreePlayToggle } from './FreePlayToggle'
+import { InstrumentSelect } from './components/InstrumentSelect'
 
 interface ToolbarProps {
   playing: boolean
@@ -166,21 +167,9 @@ export const Toolbar = memo(function Toolbar({
       <span className="spacer" />
 
       {/* Global keyboard instrument */}
-      <select
-        className="midi-inst-select"
-        value={selectedInstrumentId ?? ''}
-        onChange={(e) => {
-          const id = e.target.value
-          if (!id) return
-          onSelectInstrument(id)
-        }}
-        title="Global keyboard instrument — note keys play this in every view"
-      >
-        {instruments.length === 0 && <option value="">No instruments</option>}
-        {instruments.map((inst) => (
-          <option key={inst.id} value={inst.id}>{inst.name}</option>
-        ))}
-      </select>
+      <InstrumentSelect className="midi-inst-select" instruments={instruments}
+        value={selectedInstrumentId ?? ''} onChange={onSelectInstrument} emptyLabel="No instruments"
+        title="Global keyboard instrument — note keys play this in every view" />
       <FreePlayToggle />
 
       {/* Octave group */}

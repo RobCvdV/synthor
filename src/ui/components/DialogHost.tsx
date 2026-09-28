@@ -1,0 +1,21 @@
+import { useDialogStore } from '../../state/dialogStore'
+import { ConfirmDialog } from './ConfirmDialog'
+import { PromptDialog } from './PromptDialog'
+
+/** Renders the pending `askConfirm` / `askText` dialog; mounted once in App. */
+export function DialogHost() {
+  const request = useDialogStore((s) => s.request)
+  const answer = useDialogStore((s) => s.answer)
+  if (!request) return null
+  if (request.kind === 'text') {
+    return (
+      <PromptDialog message={request.message} defaultValue={request.defaultValue}
+        confirmLabel={request.confirmLabel} validate={request.validate}
+        onSubmit={answer} onCancel={() => answer(null)} />
+    )
+  }
+  return (
+    <ConfirmDialog message={request.message} confirmLabel={request.confirmLabel} danger={request.danger}
+      onConfirm={() => answer(true)} onCancel={() => answer(false)} />
+  )
+}

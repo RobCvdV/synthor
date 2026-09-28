@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { useDocStore } from '../../state/docStore'
+import { askConfirm } from '../../state/dialogStore'
 import { MASTER_CHANNEL_ID } from '../../domain/types'
 import type { Id, Instrument, MixChannel, ModuleType } from '../../domain/types'
 import { Button } from '../components/Button'
-import { ConfirmDialog } from '../components/ConfirmDialog'
 import { Select } from '../components/Select'
 import { cx } from '../components/cx'
 import { InstrumentStrip } from './InstrumentStrip'
@@ -36,7 +36,6 @@ function channelHandlers(chan: MixChannel) {
 export function MixerView() {
   const doc = useDocStore((st) => st.doc)
   const [selectedChannel, setSelectedChannel] = useState<Id>(MASTER_CHANNEL_ID)
-  const [pendingDelete, setPendingDelete] = useState<MixChannel | null>(null)
 
   const orders = doc.entities.mixerInstrumentOrder
   const instruments = doc.entities.instruments
@@ -46,9 +45,10 @@ export function MixerView() {
   const selectedChan = channels[selectedChannel]
   const hiddenInstruments = Object.values(instruments).filter((inst) => !orders.includes(inst.id))
 
-  const deleteChannel = (id: Id) => {
-    if (selectedChannel === id) setSelectedChannel(MASTER_CHANNEL_ID)
-    store().removeChannel(id)
+  const deleteChannel = async (chan: MixChannel) => {
+    if (!await askConfirm({ message: `Delete channel "${chan.name}"?`, confirmLabel: 'Delete', danger: true })) return
+    if (selectedChannel === chan.id) setSelectedChannel(MASTER_CHANNEL_ID)
+    store().removeChannel(chan.id)
   }
 
   return (
@@ -88,7 +88,7 @@ export function MixerView() {
           <ChannelStrip key={chan.id} channel={chan} selected={selectedChannel === chan.id}
             onSelect={() => setSelectedChannel(chan.id)}
             onRename={(name) => store().renameChannel(chan.id, name)}
-            onDelete={() => setPendingDelete(chan)}
+            onDelete={() => void deleteChannel(chan)}
             {...channelHandlers(chan)}
           />
         ))}
@@ -122,11 +122,6 @@ export function MixerView() {
           <AddEffectDropdown existingTypes={selectedChan.effects.map((e) => e.type)}
             onAdd={(type) => store().addChannelEffect(selectedChan.id, type)} />
         </div>
-      )}
-
-      {pendingDelete && (
-        <ConfirmDialog message={`Delete channel "${pendingDelete.name}"?`} confirmLabel="Delete" danger
-          onConfirm={() => deleteChannel(pendingDelete.id)} onCancel={() => setPendingDelete(null)} />
       )}
     </div>
   )
