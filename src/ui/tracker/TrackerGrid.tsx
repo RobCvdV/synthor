@@ -152,7 +152,16 @@ const TrackerCell = memo(function TrackerCell({
       ))}
     </span>
   )
-})
+}, cellPropsEqual)
+
+function cellPropsEqual(a: CellProps, b: CellProps): boolean {
+  for (const k of Object.keys(a) as (keyof CellProps)[]) {
+    if (k !== 'laneColumns' && a[k] !== b[k]) return false
+  }
+  const la = a.laneColumns, lb = b.laneColumns
+  return la.length === lb.length &&
+    la.every((c, i) => c.id === lb[i].id && c.label === lb[i].label && c.active === lb[i].active)
+}
 
 // ── TrackerRow ───────────────────────────────────────────────────────────────
 
@@ -224,9 +233,12 @@ const TrackerRowImpl = memo(function TrackerRowImpl({
 // ── TrackerGrid ──────────────────────────────────────────────────────────────
 
 export function TrackerGrid({ doc, pattern, cursor, muted, soloed, selection, volumeEntry, laneEntry, onCellClick }: Props) {
-  const tracks = pattern.trackIds.map((id) => doc.entities.tracks[id])
+  // Stable identities keep the memoized rows from re-rendering on every playhead tick.
+  const trackMap = doc.entities.tracks
+  const tracks = useMemo(() => pattern.trackIds.map((id) => trackMap[id]), [pattern.trackIds, trackMap])
+  const instrumentMap = doc.entities.instruments
+  const instruments = useMemo(() => Object.values(instrumentMap), [instrumentMap])
   const playhead = usePlayheadRow()
-  const instruments = Object.values(doc.entities.instruments)
 
   const getInletOptions = useMemo(() => {
     const cache: Record<Id, string[]> = {}
@@ -242,20 +254,24 @@ export function TrackerGrid({ doc, pattern, cursor, muted, soloed, selection, vo
         muted={muted} soloed={soloed}
       />
 
-      {Array.from({ length: pattern.length }, (_, row) => (
-        <TrackerRowImpl
-          key={row}
-          row={row} tracks={tracks}
-          isBeat={row % 4 === 0} isPlayhead={row === playhead}
-          isCursorRow={row === cursor.row} cursorTrack={cursor.track}
-          cursorCol={cursor.col} cursorLaneIndex={cursor.laneIndex}
-          sel={selection}
-          mutedTracks={muted}
-          volEntry={isCursorRow(row, cursor, 1) ? volumeEntry : null}
-          laneEntry={isCursorRow(row, cursor) ? laneEntry : null}
-          onCellClick={onCellClick}
-        />
-      ))}
+      {Array.from({ length: pattern.length }, (_, row) => {
+        // Cursor/selection props only reach the rows they affect, so a cursor move re-renders two rows.
+        const onCursor = row === cursor.row
+        return (
+          <TrackerRowImpl
+            key={row}
+            row={row} tracks={tracks}
+            isBeat={row % 4 === 0} isPlayhead={row === playhead}
+            isCursorRow={onCursor} cursorTrack={onCursor ? cursor.track : -1}
+            cursorCol={onCursor ? cursor.col : -1} cursorLaneIndex={onCursor ? cursor.laneIndex : null}
+            sel={selectionCoversRow(selection, row) ? selection : null}
+            mutedTracks={muted}
+            volEntry={isCursorRow(row, cursor, 1) ? volumeEntry : null}
+            laneEntry={isCursorRow(row, cursor) ? laneEntry : null}
+            onCellClick={onCellClick}
+          />
+        )
+      })}
     </div>
   )
 }
@@ -264,4 +280,8 @@ function isCursorRow(row: number, cursor: Cursor, col?: number): boolean {
   if (row !== cursor.row) return false
   if (col !== undefined && cursor.col !== col) return false
   return true
+}
+
+function selectionCoversRow(sel: Selection | null, row: number): boolean {
+  return sel !== null && row >= Math.min(sel.startRow, sel.endRow) && row <= Math.max(sel.startRow, sel.endRow)
 }
