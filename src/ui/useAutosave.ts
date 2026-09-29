@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { Autosaver } from '../persist/autosave'
-import { isOpfsSupported } from '../persist/opfsStore'
+import { requestPersistentStorage } from '../persist/opfsBackend'
+import { hasStorage } from '../persist/storage'
 import { saveCurrentSong } from '../persist/saveCurrent'
 import { useDocStore } from '../state/docStore'
 import { useProjectStore } from '../state/projectStore'
@@ -9,18 +10,19 @@ import { useTransportStore } from '../state/transportStore'
 const AUTOSAVE_DELAY_MS = 800
 
 /**
- * Persists the current song to OPFS shortly after edits settle, and flushes on
+ * Persists the current song to storage shortly after edits settle, and flushes on
  * transport stop, tab hide, and unload so the last edit is never lost. Saving
  * runs off the audio thread on a small JSON doc, so it's safe during playback;
  * we debounce only to avoid thrashing storage on every keystroke.
  *
- * No-ops gracefully where OPFS is unavailable (older Safari, SSR, tests).
+ * No-ops gracefully where storage is unavailable (older Safari, SSR, tests).
  */
 export function useAutosave(): void {
   const saverRef = useRef<Autosaver | null>(null)
 
   useEffect(() => {
-    if (!isOpfsSupported()) return
+    if (!hasStorage()) return
+    void requestPersistentStorage()
 
     const saver = new Autosaver({
       delayMs: AUTOSAVE_DELAY_MS,

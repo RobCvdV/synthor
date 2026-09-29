@@ -6,14 +6,15 @@ import { useDocStore } from '../state/docStore'
 import { useProjectStore } from '../state/projectStore'
 import { useAppStore } from '../state/appStore'
 import type { SongFile } from '../persist/serialize'
+import { createMemoryBackend } from '../persist/memoryBackend'
+import { setStorage } from '../persist/storage'
 import { createNewSong, importSongFile, loadStartupSong, renameCurrentSong } from './songActions'
 
 const saved = vi.hoisted(() => ({ slugs: [] as string[], recent: null as string | null, files: {} as Record<string, SongFile> }))
 const saveCurrentSong = vi.hoisted(() => vi.fn(async () => {}))
 
-vi.mock('../persist/opfsStore', async (orig) => ({
+vi.mock('../persist/songStore', async (orig) => ({
   ...(await orig<object>()),
-  isOpfsSupported: () => true,
   listSongs: async () => saved.slugs.map((slug) => ({ slug, meta: {} })),
   saveRecent: async () => {},
   loadRecent: async () => saved.recent,
@@ -31,6 +32,7 @@ const answer = (a: string | boolean | null) => useDialogStore.getState().answer(
 
 describe('songActions', () => {
   beforeEach(() => {
+    setStorage(createMemoryBackend())
     saved.slugs = []
     saved.recent = null
     saved.files = {}

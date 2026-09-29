@@ -1,5 +1,6 @@
 import { createDefaultDoc } from '../domain/factory'
-import { isOpfsSupported, listSongs, loadRecent, readSong, saveRecent, slugify } from '../persist/opfsStore'
+import { hasStorage } from '../persist/storage'
+import { listSongs, loadRecent, readSong, saveRecent, slugify } from '../persist/songStore'
 import { saveCurrentSong } from '../persist/saveCurrent'
 import { importSongZip } from '../persist/songExport'
 import { songNameConflict, uniqueSongName } from '../persist/songNames'
@@ -9,13 +10,13 @@ import { useDocStore } from '../state/docStore'
 import { useProjectStore } from '../state/projectStore'
 
 async function savedSlugs(): Promise<string[]> {
-  return isOpfsSupported() ? (await listSongs()).map((s) => s.slug) : []
+  return hasStorage() ? (await listSongs()).map((s) => s.slug) : []
 }
 
 /** Saves pending edits before switching songs; without storage, asks to discard them. */
 export async function settleCurrentSong(): Promise<boolean> {
   if (useProjectStore.getState().status !== 'dirty') return true
-  if (isOpfsSupported()) {
+  if (hasStorage()) {
     await saveCurrentSong()
     return true
   }
@@ -34,7 +35,7 @@ export async function createNewSong(): Promise<void> {
   if (name === null || !await settleCurrentSong()) return
   useDocStore.getState().loadDoc(createDefaultDoc())
   useProjectStore.getState().reset(name, new Date().toISOString())
-  if (isOpfsSupported()) await saveCurrentSong()
+  if (hasStorage()) await saveCurrentSong()
 }
 
 /** Renames the open song; a name another song uses asks for a different one. */
@@ -73,7 +74,7 @@ export async function importSongFile(data: ArrayBuffer): Promise<void> {
   })
   useDocStore.getState().loadDoc(file.doc)
   useProjectStore.getState().reset(name, file.meta.createdAt, slug)
-  if (isOpfsSupported()) await saveCurrentSong()
+  if (hasStorage()) await saveCurrentSong()
 }
 
 /** Opens the song from the last session, or names the default song; then fits the saved UI state to it. */

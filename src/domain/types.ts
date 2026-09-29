@@ -134,12 +134,12 @@ export interface ModularInstrument {
   voices?: number
 }
 
-/** A managed sample asset — metadata only. Binary PCM data lives in OPFS. */
+/** A managed sample asset — metadata only. Binary PCM data lives in storage. */
 export interface SampleEntity {
   id: Id
   /** User-facing name. */
   name: string
-  /** Content-addressed hash used as the OPFS filename and VFS key. */
+  /** Content-addressed hash used as the storage filename and VFS key. */
   hash: string
   /** Original filename for display. */
   originalName: string

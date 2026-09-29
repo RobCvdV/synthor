@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { slugify } from '../persist/opfsStore'
+import { slugify } from '../persist/songStore'
 
 /**
  * Identity + save status of the currently-open song (project). Kept separate
@@ -10,10 +10,10 @@ export type SaveStatus = 'idle' | 'dirty' | 'saving' | 'saved' | 'error'
 
 interface ProjectState {
   name: string
-  /** OPFS directory slug — derived from the current name. */
+  /** Storage directory slug — derived from the current name. */
   slug: string
   /** The slug of the last successful save. Used to detect renames and move
-   *  the OPFS directory when the song is saved under a new name. */
+   *  the song directory when the song is saved under a new name. */
   savedSlug: string | null
   /** ISO timestamp the current song was first created. */
   createdAt: string
@@ -22,7 +22,7 @@ interface ProjectState {
   lastSavedAt: string | null
 
   setName: (name: string) => void
-  /** Set the slug explicitly (used after a successful rename-move in OPFS). */
+  /** Set the slug explicitly (used after a successful rename-move in storage). */
   setSlug: (slug: string) => void
   markDirty: () => void
   markSaving: () => void

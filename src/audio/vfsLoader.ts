@@ -12,13 +12,13 @@ function sharedCtx(): AudioContext {
 }
 
 /**
- * Load sample PCM data from OPFS into Elementary's VFS so they're playable.
+ * Load sample PCM data from storage into Elementary's VFS so they're playable.
  * Call on song load and whenever the sample list changes.
  *
  * Returns the hashes that were successfully loaded into VFS, plus each
  * sample's L1 sum (Σ|channel 0|) — the compiler uses it to normalize
  * convolution IRs so a conv effect can never amplify beyond the dry peak.
- * Sample entities whose OPFS files are missing or unparseable are NOT
+ * Sample entities whose stored files are missing or unparseable are NOT
  * in this set — the caller should prune them from the doc.
  */
 export async function syncSamplesToVfs(
@@ -33,7 +33,7 @@ export async function syncSamplesToVfs(
   for (const s of samples) {
     const raw = await readSampleAsset(slug, s.hash)
     if (!raw) {
-      console.warn(`Sample "${s.name}" (hash ${s.hash.slice(0, 8)}…) not found in OPFS — skipping VFS load`)
+      console.warn(`Sample "${s.name}" (hash ${s.hash.slice(0, 8)}…) not found in storage — skipping VFS load`)
       continue
     }
 

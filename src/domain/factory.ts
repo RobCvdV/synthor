@@ -59,7 +59,7 @@ export function newDrumKitInstrument(name: string): DrumKitInstrument {
   return { id: makeId('inst'), kind: 'drumkit', name, slots: [], keyLo: 36, keyHi: 60, params: { gain: 1 }, channelId: MASTER_CHANNEL_ID, pan: 0, midiChannel: 10 }
 }
 
-/** A new sample entity (metadata only — binary data is stored in OPFS). */
+/** A new sample entity (metadata only — binary data is stored in storage). */
 export function newSampleEntity(
   name: string,
   hash: string,

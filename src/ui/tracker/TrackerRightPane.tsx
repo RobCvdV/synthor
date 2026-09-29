@@ -8,7 +8,7 @@ type TabId = 'arrange' | 'store' | 'legend'
 
 interface Props {
   doc: Doc
-  /** Current OPFS slug for save/export. */
+  /** Current song slug for save/export. */
   slug: string
 }
 

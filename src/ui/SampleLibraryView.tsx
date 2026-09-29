@@ -81,9 +81,9 @@ export function SampleLibraryView({ host }: Props) {
 
     try {
       const loaded = await loadAudioFile(file)
-      // Write new binary to OPFS.
+      // Write the new binary.
       await writeSampleAsset(slug, loaded.hash, file)
-      // Remove old OPFS file if hash changed (content-address means new file).
+      // Remove the old file if the hash changed (content-address means new file).
       if (loaded.hash !== relinkInfo.oldHash) {
         await deleteSampleAsset(slug, relinkInfo.oldHash).catch(() => {})
       }

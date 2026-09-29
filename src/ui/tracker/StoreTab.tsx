@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useProjectStore } from '../../state/projectStore'
 import { askConfirm } from '../../state/dialogStore'
-import { deleteSong, isOpfsSupported, listSongs } from '../../persist/opfsStore'
+import { deleteSong, listSongs } from '../../persist/songStore'
+import { hasStorage } from '../../persist/storage'
 import { currentSongFile, saveCurrentSong } from '../../persist/saveCurrent'
 import { serializeSong, type SongFile } from '../../persist/serialize'
 import { exportSongZip } from '../../persist/songExport'
@@ -23,7 +24,7 @@ export function StoreTab({ slug }: { slug: string }) {
   const lastSavedAt = useProjectStore((s) => s.lastSavedAt)
 
   const [songs, setSongs] = useState<Entry[]>([])
-  const opfs = isOpfsSupported()
+  const opfs = hasStorage()
 
   // Every save (autosave, rename, new song) can change the list.
   const refreshList = useCallback(() => {

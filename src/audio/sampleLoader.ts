@@ -13,7 +13,7 @@ function decodeCtx(): AudioContext {
 }
 
 export interface LoadedSample {
-  /** Content-addressed SHA-256 hash for dedup and OPFS filename. */
+  /** Content-addressed SHA-256 hash for dedup and storage filename. */
   hash: string
   /** Raw PCM data for VFS. Mono → single Float32Array, stereo → [L, R]. */
   sampleData: Float32Array | Float32Array[]

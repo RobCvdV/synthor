@@ -100,7 +100,7 @@ export function renderDrumKitSlot(
     if (hash) {
       const meta = sampleMeta.find((s) => s.hash === hash)
       if (!meta) {
-        console.warn(`Sample hash "${hash.slice(0, 8)}…" (slot "${slot.id}") not loaded in VFS — sample may be missing from OPFS`)
+        console.warn(`Sample hash "${hash.slice(0, 8)}…" (slot "${slot.id}") not loaded in VFS — sample may be missing from storage`)
       }
       if (meta) {
         const key = `${voiceKey}:slot:${slot.id}:${hash}`
