@@ -23,16 +23,19 @@
   background: var(--bg);
   border: 1px solid #222;
   border-radius: 4px;
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
 }
 .canvasBox { flex: 1; min-width: 0; position: relative; }
+/* Room to start a drag past the sample's end. */
+.gutter { width: 16px; flex: none; }
 .canvas {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   display: block;
-  cursor: crosshair;
-  touch-action: none;
 }
 .overlay {
   position: absolute;

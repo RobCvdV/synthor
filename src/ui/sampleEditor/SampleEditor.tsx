@@ -175,10 +175,12 @@ export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: 
   }, [play, copy, cut, paste])
 
   // ── Pointer gestures on the waveform ──────────────────────────────────────
-  const pointerX = (e: React.PointerEvent<HTMLCanvasElement>) => e.clientX - e.currentTarget.getBoundingClientRect().left
+  // Presses anywhere in the wave box count, measured from the waveform's left edge: the axis and the
+  // right gutter lie outside the sample, so a drag from there starts at its very start or end.
+  const pointerX = (e: React.PointerEvent) => e.clientX - (waveRef.current?.getBoundingClientRect().left ?? 0)
   const frameOf = (x: number) => frameAtX(x, live.current.view.scroll, live.current.view.px, frames)
 
-  const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!live.current.pcm || live.current.busy) return
     const x = pointerX(e)
     const next = pointerDown({
@@ -191,14 +193,14 @@ export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: 
     if (next.drag) e.currentTarget.setPointerCapture(e.pointerId)
   }
 
-  const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!drag.current) return
     const next = pointerMove(drag.current, frameOf(pointerX(e)), live.current.sel, live.current.cursor)
     setSel(next.sel)
     setCursor(next.cursor)
   }
 
-  const onPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+  const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
     e.currentTarget.releasePointerCapture(e.pointerId)
     setSel(pointerUp(drag.current, live.current.sel))
     drag.current = null
@@ -219,12 +221,12 @@ export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: 
         </div>
       )}
 
-      <div className={s.wave}>
+      <div className={s.wave} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}>
         <AmplitudeAxis lanes={lanes} />
         <div className={s.canvasBox} ref={waveRef}>
-          <canvas ref={canvasRef} className={s.canvas}
-            onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} />
+          <canvas ref={canvasRef} className={s.canvas} />
         </div>
+        <div className={s.gutter} />
         {missing && (
           <div className={s.overlay}>
             <p className="muted">{entity ? sample.error ?? 'Loading…' : 'Sample deleted'}</p>

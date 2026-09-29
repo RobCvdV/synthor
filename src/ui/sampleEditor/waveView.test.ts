@@ -23,6 +23,13 @@ describe('waveView', () => {
     expect(frameAtX(5000, 0, 1, 1000)).toBe(1000)
   })
 
+  it('maps presses beside a fitted waveform to its first and last frame', () => {
+    const frames = 48000
+    const px = fitZoom(800, frames)
+    expect(frameAtX(-30, 0, px, frames)).toBe(0)
+    expect(frameAtX(816, 0, px, frames)).toBe(frames)
+  })
+
   it('zooms around the pointer so the frame under it stays put', () => {
     const { px, scroll } = zoomAround(1, 100, 40, true)
     expect(px).toBeCloseTo(1.1)
