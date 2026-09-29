@@ -197,6 +197,16 @@ describe('mixer factories', () => {
       expect(copy.pan).toBe(0.5)
     }
   })
+  it('clone keeps module sample references and the live voice count', () => {
+    const orig = newModularInstrument('Orig')
+    orig.voices = 9
+    orig.modules.s = { id: 's', type: 'sample', params: {}, pos: { x: 0, y: 0 }, sampleId: 'smp_1' }
+    const copy = cloneInstrument(orig, 'Copy')
+    if (copy.kind !== 'modular') throw new Error('expected modular')
+    expect(copy.voices).toBe(9)
+    expect(Object.values(copy.modules).find((m) => m.type === 'sample')?.sampleId).toBe('smp_1')
+    expect(Object.values(copy.modules).filter((m) => m.sampleId)).toHaveLength(1)
+  })
 })
 
 describe('buildDxAlgorithm', () => {

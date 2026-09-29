@@ -161,7 +161,7 @@ export function cloneInstrument(inst: Instrument, name: string): Instrument {
   const modules: Record<string, Module> = {}
   for (const m of Object.values(inst.modules)) {
     const id = idMap.get(m.id)!
-    modules[id] = { id, type: m.type, params: { ...m.params }, pos: { ...m.pos }, name: m.name }
+    modules[id] = { id, type: m.type, params: { ...m.params }, pos: { ...m.pos }, name: m.name, ...(m.sampleId ? { sampleId: m.sampleId } : {}) }
   }
   const connections: Record<string, Connection> = {}
   for (const c of Object.values(inst.connections)) {
@@ -178,6 +178,7 @@ export function cloneInstrument(inst: Instrument, name: string): Instrument {
     effectSettings: { ...inst.effectSettings },
     channelId: inst.channelId ?? MASTER_CHANNEL_ID,
     pan: inst.pan ?? 0,
+    ...(inst.voices !== undefined ? { voices: inst.voices } : {}),
   }
 }
 

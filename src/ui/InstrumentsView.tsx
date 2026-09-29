@@ -8,10 +8,11 @@ import { pickFiles } from './pickFiles'
 import { ModularEditor } from './ModularEditor'
 import { DrumKitEditor } from './DrumKitEditor'
 import { InstrumentSettings } from './InstrumentSettings'
-import { cloneInstrument } from '../domain/factory'
+import { exportInstrumentFile, importInstrumentFile } from './instrumentActions'
+import { INSTRUMENT_FILE_EXT } from '../persist/instrumentFile'
 import type { AudioHost } from '../audio/host'
 import type { KeyboardPlayer } from '../audio/keyboardPlayer'
-import type { Id, Instrument } from '../domain/types'
+import type { Id } from '../domain/types'
 
 /** Full-screen instruments view: a list rail on the left, the selected
  *  instrument's editor on the right (node graph for synths, key map for drum
@@ -91,28 +92,23 @@ export function InstrumentsView({ host, keyboardPlayer }: { host: AudioHost; key
   /** How many tracks reference each instrument (delete is blocked while > 0). */
   const usage = (id: Id) => Object.values(doc.entities.tracks).filter((t) => t.instrumentId === id).length
 
-  /** Serialize the selected instrument and trigger a download. */
-  const exportInstrument = () => {
+  /** Download the selected instrument with its sub-instruments and samples. */
+  const exportInstrument = async () => {
     if (!selected) return
-    const json = JSON.stringify({ schemaVersion: 1, instrument: selected }, null, 2)
-    downloadBlob(new Blob([json], { type: 'application/json' }), `${selected.name}.synthor.inst.json`)
+    try {
+      const { blob, filename } = await exportInstrumentFile(selected.id)
+      downloadBlob(blob, filename)
+    } catch (err) {
+      alert(`Could not export instrument: ${(err as Error).message}`)
+    }
   }
 
-  /** Parse an instrument file and add it to the current song with fresh ids. */
+  /** Add an instrument file (or a legacy JSON export) to the current song. */
   const importInstrument = async () => {
-    const [f] = await pickFiles({ accept: '.json,application/json' })
+    const [f] = await pickFiles({ accept: `${INSTRUMENT_FILE_EXT},.json,application/json,application/zip` })
     if (!f) return
     try {
-      const raw = JSON.parse(await f.text())
-      if (!raw || typeof raw !== 'object' || !raw.instrument) throw new Error('Not a valid instrument file')
-      const inst = raw.instrument as Instrument
-      if (inst.kind !== 'modular' && inst.kind !== 'drumkit') throw new Error('Unknown instrument kind')
-      // Deep-clone with fresh ids so it never collides with existing instruments.
-      const cloned = cloneInstrument(inst, inst.name)
-      useDocStore.getState().mutate((draft) => {
-        draft.entities.instruments[cloned.id] = cloned
-      })
-      setSelectedId(cloned.id)
+      setSelectedId(await importInstrumentFile(await f.arrayBuffer()))
     } catch (err) {
       alert(`Could not import instrument: ${(err as Error).message}`)
     }
@@ -166,7 +162,7 @@ export function InstrumentsView({ host, keyboardPlayer }: { host: AudioHost; key
           inst={selected}
           usage={usage(selected.id)}
           onDuplicate={() => setSelectedId(duplicateInstrument(selected.id))}
-          onExport={exportInstrument}
+          onExport={() => void exportInstrument()}
           onDelete={() => removeInstrument(selected.id)}
         />
       )}
