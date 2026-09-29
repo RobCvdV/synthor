@@ -1060,19 +1060,7 @@ body {
   margin-bottom: 16px;
 }
 
-.slv-toolbar button {
-  background: #222;
-  color: var(--fg);
-  border: 1px solid #333;
-  padding: 4px 12px;
-  cursor: pointer;
-  font: inherit;
-  font-size: 13px;
-}
-
-.slv-toolbar button:hover {
-  background: #2a2a2a;
-}
+.slv-toolbar .slv-add { font-size: 12px; padding: 4px 6px; }
 
 .slv-toolbar .spacer { flex: 1; }
 
@@ -1240,7 +1228,7 @@ body {
   cursor: default;
 }
 
-.slv-edit {
+.slv-edit, .slv-save {
   background: transparent;
   border: 1px solid #333;
   border-radius: 3px;
@@ -1251,10 +1239,11 @@ body {
   padding: 3px 7px;
 }
 
-.slv-edit:hover {
+.slv-edit:hover, .slv-save:hover:not(:disabled) {
   border-color: var(--accent);
   color: var(--accent);
 }
+.slv-save:disabled { opacity: 0.4; cursor: default; }
 
 /* ── Dialogs (reuse .dialog-overlay/.dialog-box) ────────────── */
 

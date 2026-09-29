@@ -2,28 +2,25 @@ import { useId, useMemo, useState } from 'react'
 import {
   filterLibrary, libraryCategories, libraryTags, LIBRARY_SORTS, sortLibrary, type LibraryItem, type LibrarySortKey,
 } from '../../domain/library'
-import { deleteLibraryInstrument, updateLibraryItem, type LibraryItemPatch } from '../../persist/instrumentLibrary'
 import { askConfirm } from '../../state/dialogStore'
 import { Button } from '../components/Button'
 import { Select } from '../components/Select'
 import { Dialog } from '../Dialog'
 import { downloadBlob } from '../download'
-import { exportLibraryInstrumentFile } from '../instrumentActions'
+import type { LibraryPatch, LibrarySource } from './librarySource'
 import { TagEditor } from './TagEditor'
 import { useLibraryItems } from './useLibraryItems'
 import s from './Library.module.css'
 
-const kindLabel = (kind: LibraryItem['kind']) => (kind === 'drumkit' ? 'Drum Kit' : 'Synth')
-const kindIcon = (kind: LibraryItem['kind']) => (kind === 'drumkit' ? '◆' : '▦')
+export type LibraryDialogProps<T extends LibraryItem> = { source: LibrarySource<T>; onClose: () => void } & (
+  | { mode: 'pick'; onAdd: (libraryIds: string[]) => void }
+  | { mode: 'manage' }
+)
 
-export type LibraryDialogProps =
-  | { mode: 'pick'; onAdd: (libraryIds: string[]) => void; onClose: () => void }
-  | { mode: 'manage'; onClose: () => void }
-
-/** Browse, filter, sort and edit the instrument library; `pick` mode adds the checked ones to the song. */
-export function LibraryDialog(props: LibraryDialogProps) {
-  const { mode, onClose } = props
-  const { items, error, replaceItem, removeItem } = useLibraryItems()
+/** Browse, filter, sort and edit a library; `pick` mode adds the checked items to the song. */
+export function LibraryDialog<T extends LibraryItem>(props: LibraryDialogProps<T>) {
+  const { mode, onClose, source } = props
+  const { items, error, replaceItem, removeItem } = useLibraryItems(source.list)
   const [text, setText] = useState('')
   const [category, setCategory] = useState<string | null>(null)
   const [sortKey, setSortKey] = useState<LibrarySortKey>('name')
@@ -49,24 +46,24 @@ export function LibraryDialog(props: LibraryDialogProps) {
     if (props.mode === 'pick' && ids.length) props.onAdd(visible.filter((i) => ids.includes(i.id)).map((i) => i.id))
   }
 
-  const update = async (id: string, patch: LibraryItemPatch) => {
+  const update = async (id: string, patch: LibraryPatch) => {
     try {
-      replaceItem(await updateLibraryItem(id, patch))
+      replaceItem(await source.update(id, patch))
     } catch (err) {
       alert(`Could not update the library: ${(err as Error).message}`)
     }
   }
-  const remove = async (item: LibraryItem) => {
+  const remove = async (item: T) => {
     if (!await askConfirm({ message: `Delete "${item.name}" from the library? Songs that use it keep their copy.`, confirmLabel: 'Delete', danger: true })) return
-    await deleteLibraryInstrument(item.id)
+    await source.remove(item.id)
     removeItem(item.id)
     setPicked((p) => p.filter((x) => x !== item.id))
     setActiveId(null)
   }
-  const exportItem = async (item: LibraryItem) => {
+  const exportItem = async (item: T) => {
     setBusy(item.id)
     try {
-      const { blob, filename } = await exportLibraryInstrumentFile(item.id)
+      const { blob, filename } = await source.exportFile(item.id)
       downloadBlob(blob, filename)
     } catch (err) {
       alert(`Export failed: ${(err as Error).message}`)
@@ -85,7 +82,7 @@ export function LibraryDialog(props: LibraryDialogProps) {
   ) : <Button onClick={onClose}>Close</Button>
 
   return (
-    <Dialog title={mode === 'pick' ? 'Add from Library' : 'Instrument Library'} onClose={onClose} className={s.dialog}
+    <Dialog title={mode === 'pick' ? source.pickTitle : source.title} onClose={onClose} className={s.dialog}
       err={error} actions={actions}>
       <div className={s.toolbar}>
         <input className={s.search} type="search" placeholder="Search name, category, tags…" aria-label="Search library"
@@ -111,9 +108,9 @@ export function LibraryDialog(props: LibraryDialogProps) {
           )}
           {items === null && <p className="muted">Loading…</p>}
           {items?.length === 0 && (
-            <p className={s.empty}>The library is empty. Use “Save to Library” on an instrument, or import instrument files.</p>
+            <p className={s.empty}>The library is empty. Use “Save to Library” on a {source.noun}, or import {source.noun} files.</p>
           )}
-          {items && items.length > 0 && visible.length === 0 && <p className={s.empty}>No instruments match.</p>}
+          {items && items.length > 0 && visible.length === 0 && <p className={s.empty}>No {source.noun}s match.</p>}
           <ul className={s.list}>
             {visible.map((item) => (
               <li key={item.id} className={item.id === activeId ? `${s.row} ${s.active}` : s.row}
@@ -122,10 +119,14 @@ export function LibraryDialog(props: LibraryDialogProps) {
                   <input type="checkbox" aria-label={`Select ${item.name}`} checked={picked.includes(item.id)}
                     onClick={(e) => e.stopPropagation()} onChange={() => togglePick(item.id)} />
                 )}
-                <span className={s.kind} title={kindLabel(item.kind)}>{kindIcon(item.kind)}</span>
+                <span className={s.kind} title={source.describe(item).label}>{source.describe(item).icon}</span>
                 <span className={s.name}>{item.name}</span>
                 {item.category && <span className={s.category}>{item.category}</span>}
                 <span className={s.rowTags}>{item.tags.map((t) => <span key={t} className={s.tag}>{t}</span>)}</span>
+                {source.preview && (
+                  <button type="button" className={s.play} title="Play" aria-label={`Play ${item.name}`}
+                    onClick={(e) => { e.stopPropagation(); source.preview?.(item) }}>▶</button>
+                )}
               </li>
             ))}
           </ul>
@@ -133,13 +134,14 @@ export function LibraryDialog(props: LibraryDialogProps) {
 
         <div className={s.detail}>
           {active ? (
-            <LibraryItemDetails key={active.id} item={active} categories={categories} tags={tags}
+            <LibraryItemDetails key={active.id} item={active} description={source.describe(active).label}
+              categories={categories} tags={tags}
               onUpdate={(patch) => void update(active.id, patch)}
               onExport={mode === 'manage' ? () => void exportItem(active) : undefined}
               onDelete={mode === 'manage' ? () => void remove(active) : undefined}
               exporting={busy === active.id} />
           ) : (
-            <p className="muted">{items?.length ? 'Select an instrument to edit its name, category and tags.' : ''}</p>
+            <p className="muted">{items?.length ? `Select a ${source.noun} to edit its name, category and tags.` : ''}</p>
           )}
         </div>
       </div>
@@ -147,11 +149,12 @@ export function LibraryDialog(props: LibraryDialogProps) {
   )
 }
 
-function LibraryItemDetails({ item, categories, tags, onUpdate, onExport, onDelete, exporting }: {
+function LibraryItemDetails({ item, description, categories, tags, onUpdate, onExport, onDelete, exporting }: {
   item: LibraryItem
+  description: string
   categories: string[]
   tags: string[]
-  onUpdate: (patch: LibraryItemPatch) => void
+  onUpdate: (patch: LibraryPatch) => void
   onExport?: () => void
   onDelete?: () => void
   exporting: boolean
@@ -186,7 +189,7 @@ function LibraryItemDetails({ item, categories, tags, onUpdate, onExport, onDele
         <span>Tags</span>
         <TagEditor tags={item.tags} suggestions={tags} onChange={(next) => onUpdate({ tags: next })} />
       </div>
-      <p className="muted">{kindLabel(item.kind)}</p>
+      <p className="muted">{description}</p>
       {(onExport || onDelete) && (
         <div className={s.detailActions}>
           {onExport && <Button size="sm" disabled={exporting} onClick={onExport}>{exporting ? 'Exporting…' : 'Export'}</Button>}

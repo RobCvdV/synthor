@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   filterLibrary, LIBRARY_SORTS, libraryCategories, libraryTags, normalizeTags, parseTags, sortLibrary, uniqueLibraryId,
-  type LibraryItem,
+  type InstrumentLibraryItem,
 } from './library'
 
-const item = (id: string, name: string, category = '', tags: string[] = []): LibraryItem =>
+const item = (id: string, name: string, category = '', tags: string[] = []): InstrumentLibraryItem =>
   ({ id, name, kind: 'modular', category, tags, createdAt: '', modifiedAt: '' })
 
 const items = [
@@ -25,7 +25,7 @@ describe('tags', () => {
 })
 
 describe('filterLibrary', () => {
-  const ids = (list: LibraryItem[]) => list.map((i) => i.id)
+  const ids = (list: InstrumentLibraryItem[]) => list.map((i) => i.id)
 
   it('matches every word against name, category and tags, case-insensitively', () => {
     expect(ids(filterLibrary(items, { text: 'WARM', category: null }))).toEqual(['a', 'c'])

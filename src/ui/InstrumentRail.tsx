@@ -10,6 +10,7 @@ import { Select } from './components/Select'
 import { addImportedToLibrary, addLibraryInstrumentsToSong, importInstrumentFiles, type ImportedInstrument } from './instrumentActions'
 import { AddToLibraryDialog } from './library/AddToLibraryDialog'
 import { LibraryDialog } from './library/LibraryDialog'
+import { instrumentLibrary } from './library/librarySource'
 import { pickFiles } from './pickFiles'
 
 type AddChoice = 'library' | 'import' | 'synth' | 'drumkit'
@@ -105,10 +106,12 @@ export function InstrumentRail({ instruments, selectedId, usage, onSelect }: {
         })}
       </ul>
 
-      {libraryMode === 'pick' && <LibraryDialog mode="pick" onAdd={(ids) => void addFromLibrary(ids)} onClose={() => setLibraryMode(null)} />}
-      {libraryMode === 'manage' && <LibraryDialog mode="manage" onClose={() => setLibraryMode(null)} />}
+      {libraryMode === 'pick' && (
+        <LibraryDialog source={instrumentLibrary} mode="pick" onAdd={(ids) => void addFromLibrary(ids)} onClose={() => setLibraryMode(null)} />
+      )}
+      {libraryMode === 'manage' && <LibraryDialog source={instrumentLibrary} mode="manage" onClose={() => setLibraryMode(null)} />}
       {imported && (
-        <AddToLibraryDialog
+        <AddToLibraryDialog noun="instrument"
           choices={imported.items.map((i) => ({ key: i.instrumentId, name: i.name, fileName: i.fileName, inLibrary: imported.inLibrary.has(i.instrumentId) }))}
           onConfirm={(keys) => void keepInLibrary(keys)}
           onCancel={() => setImported(null)} />

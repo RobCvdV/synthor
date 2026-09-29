@@ -4,23 +4,25 @@ import { Button } from '../components/Button'
 import { Dialog } from '../Dialog'
 import { TagEditor } from './TagEditor'
 import { useLibraryItems } from './useLibraryItems'
+import type { LibrarySource } from './librarySource'
 import s from './Library.module.css'
 
 export interface SaveToLibraryValues {
   name: string
   category: string
   tags: string[]
-  /** Set when the user chose to replace a library instrument with the same name. */
+  /** Set when the user chose to replace the library item with the same name. */
   replaceId?: string
 }
 
-/** Name, category and tags for saving an instrument to the library; a name clash offers replace or keep both. */
-export function SaveToLibraryDialog({ defaultName, onSave, onCancel }: {
+/** Name, category and tags for saving to a library; a name clash offers replace or keep both. */
+export function SaveToLibraryDialog({ source, defaultName, onSave, onCancel }: {
+  source: Pick<LibrarySource, 'list'>
   defaultName: string
   onSave: (values: SaveToLibraryValues) => void
   onCancel: () => void
 }) {
-  const { items } = useLibraryItems()
+  const { items } = useLibraryItems(source.list)
   const [name, setName] = useState(defaultName)
   const [category, setCategory] = useState('')
   const [tags, setTags] = useState<string[]>([])

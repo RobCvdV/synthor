@@ -1,0 +1,3 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`SampleToolbar > renders the add menu, library button and count 1`] = `"<div class="slv-toolbar"><select class="select slv-add" aria-label="Add sample"><option value="">Add Sample +</option><option value="library">From library…</option><option value="import">Import…</option><option value="create">Create…</option></select><button type="button" class="button sm" title="Manage the sample library">Library</button><span class="muted">2 samples in this song</span><span class="spacer"></span><span class="muted">Play keys to preview (C-4 = original pitch)</span></div>"`;

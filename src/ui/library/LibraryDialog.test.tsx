@@ -8,6 +8,7 @@ import { createMemoryBackend } from '../../persist/memoryBackend'
 import { setStorage } from '../../persist/storage'
 import { useDialogStore } from '../../state/dialogStore'
 import { LibraryDialog } from './LibraryDialog'
+import { instrumentLibrary } from './librarySource'
 
 const downloadBlob = vi.hoisted(() => vi.fn())
 vi.mock('../download', () => ({ downloadBlob }))
@@ -28,7 +29,7 @@ describe('LibraryDialog', () => {
   })
 
   it('lists instruments sorted by name', async () => {
-    const { baseElement } = render(<LibraryDialog mode="pick" onAdd={() => {}} onClose={() => {}} />)
+    const { baseElement } = render(<LibraryDialog source={instrumentLibrary} mode="pick" onAdd={() => {}} onClose={() => {}} />)
     await screen.findByText('Warm Pad')
     expect(rowNames()).toEqual(['acid bass', 'Kit 808', 'Warm Pad'])
     expect(baseElement.innerHTML).toMatchSnapshot()
@@ -37,7 +38,7 @@ describe('LibraryDialog', () => {
   })
 
   it('filters by text and category', async () => {
-    render(<LibraryDialog mode="pick" onAdd={() => {}} onClose={() => {}} />)
+    render(<LibraryDialog source={instrumentLibrary} mode="pick" onAdd={() => {}} onClose={() => {}} />)
     await screen.findByText('Warm Pad')
     fireEvent.change(screen.getByLabelText('Search library'), { target: { value: 'warm' } })
     expect(rowNames()).toEqual(['Kit 808', 'Warm Pad'])
@@ -49,7 +50,7 @@ describe('LibraryDialog', () => {
 
   it('picks several (select all applies to the visible ones) and adds them in list order', async () => {
     const onAdd = vi.fn()
-    render(<LibraryDialog mode="pick" onAdd={onAdd} onClose={() => {}} />)
+    render(<LibraryDialog source={instrumentLibrary} mode="pick" onAdd={onAdd} onClose={() => {}} />)
     await screen.findByText('Warm Pad')
     fireEvent.change(screen.getByLabelText('Search library'), { target: { value: 'warm' } })
     fireEvent.click(screen.getByText('Select all'))
@@ -61,13 +62,13 @@ describe('LibraryDialog', () => {
 
   it('adds one on double-click', async () => {
     const onAdd = vi.fn()
-    render(<LibraryDialog mode="pick" onAdd={onAdd} onClose={() => {}} />)
+    render(<LibraryDialog source={instrumentLibrary} mode="pick" onAdd={onAdd} onClose={() => {}} />)
     fireEvent.doubleClick(await screen.findByText('Kit 808'))
     expect(onAdd).toHaveBeenCalledWith(['kit-808'])
   })
 
   it('edits name, category and tags of the selected instrument', async () => {
-    render(<LibraryDialog mode="manage" onClose={() => {}} />)
+    render(<LibraryDialog source={instrumentLibrary} mode="manage" onClose={() => {}} />)
     fireEvent.click(await screen.findByText('acid bass'))
     const details = screen.getByLabelText('Name').closest('div')!
     fireEvent.change(within(details).getByLabelText('Name'), { target: { value: 'Acid Bass' } })
@@ -84,12 +85,12 @@ describe('LibraryDialog', () => {
   })
 
   it('manage mode exports and deletes after confirming; pick mode has neither', async () => {
-    const { unmount } = render(<LibraryDialog mode="pick" onAdd={() => {}} onClose={() => {}} />)
+    const { unmount } = render(<LibraryDialog source={instrumentLibrary} mode="pick" onAdd={() => {}} onClose={() => {}} />)
     fireEvent.click(await screen.findByText('Kit 808'))
     expect(screen.queryByText('Export')).toBeNull()
     unmount()
 
-    render(<LibraryDialog mode="manage" onClose={() => {}} />)
+    render(<LibraryDialog source={instrumentLibrary} mode="manage" onClose={() => {}} />)
     fireEvent.click(await screen.findByText('Kit 808'))
     fireEvent.click(screen.getByText('Export'))
     await vi.waitFor(() => expect(downloadBlob).toHaveBeenCalledWith(expect.any(Blob), 'Kit 808.synthinst'))
@@ -103,7 +104,7 @@ describe('LibraryDialog', () => {
 
   it('explains an empty library', async () => {
     setStorage(createMemoryBackend())
-    render(<LibraryDialog mode="manage" onClose={() => {}} />)
+    render(<LibraryDialog source={instrumentLibrary} mode="manage" onClose={() => {}} />)
     expect(await screen.findByText(/The library is empty/)).toBeTruthy()
   })
 })

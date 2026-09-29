@@ -79,7 +79,7 @@ describe('InstrumentRail', () => {
   it('opens the library to pick from and to manage', async () => {
     renderRail()
     choose('From library…')
-    expect(await screen.findByText('Add from Library')).toBeTruthy()
+    expect(await screen.findByText('Add Instruments from Library')).toBeTruthy()
     fireEvent.click(screen.getByText('Cancel'))
     fireEvent.click(screen.getByText('Library'))
     expect(await screen.findByText('Instrument Library')).toBeTruthy()

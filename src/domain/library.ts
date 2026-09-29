@@ -1,7 +1,7 @@
-/** Library item metadata, filtering and sorting — pure, shared by the library dialogs. */
-import type { Id, Instrument } from './types'
+/** Library item metadata, filtering and sorting — pure, shared by the instrument and sample libraries. */
+import type { Id, Instrument, SampleEntity } from './types'
 
-/** What the library knows about an instrument besides the instrument itself. */
+/** What the library knows about an item besides the item itself. */
 export interface LibraryMeta {
   category: string
   tags: string[]
@@ -13,7 +13,16 @@ export interface LibraryItem extends LibraryMeta {
   /** Folder name in the library; stable across renames. */
   id: string
   name: string
+}
+
+export interface InstrumentLibraryItem extends LibraryItem {
   kind: Instrument['kind']
+}
+
+export interface SampleLibraryItem extends LibraryItem {
+  sample: Omit<SampleEntity, 'id' | 'name'>
+  /** The audio file's name inside the item folder. */
+  fileName: string
 }
 
 export interface LibraryFilter {
@@ -40,7 +49,7 @@ export function parseTags(text: string): string[] {
   return normalizeTags(text.split(/[,\s]+/))
 }
 
-export function filterLibrary(items: LibraryItem[], filter: LibraryFilter): LibraryItem[] {
+export function filterLibrary<T extends LibraryItem>(items: T[], filter: LibraryFilter): T[] {
   const words = filter.text.toLowerCase().split(/\s+/).filter(Boolean)
   return items.filter((item) => {
     if (filter.category !== null && item.category !== filter.category) return false
@@ -49,7 +58,7 @@ export function filterLibrary(items: LibraryItem[], filter: LibraryFilter): Libr
   })
 }
 
-export function sortLibrary(items: LibraryItem[], key: LibrarySortKey, descending = false): LibraryItem[] {
+export function sortLibrary<T extends LibraryItem>(items: T[], key: LibrarySortKey, descending = false): T[] {
   const sort = LIBRARY_SORTS.find((s) => s.key === key) ?? LIBRARY_SORTS[0]
   const sorted = [...items].sort(sort.compare)
   return descending ? sorted.reverse() : sorted

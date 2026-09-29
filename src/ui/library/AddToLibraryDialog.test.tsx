@@ -11,13 +11,13 @@ const choices = [
 
 describe('AddToLibraryDialog', () => {
   it('pre-checks the instruments not yet in the library', () => {
-    const { baseElement } = render(<AddToLibraryDialog choices={choices} onConfirm={() => {}} onCancel={() => {}} />)
+    const { baseElement } = render(<AddToLibraryDialog noun="instrument" choices={choices} onConfirm={() => {}} onCancel={() => {}} />)
     expect(baseElement.innerHTML).toMatchSnapshot()
   })
 
   it('toggles all/none and confirms the checked keys in list order', () => {
     const onConfirm = vi.fn()
-    render(<AddToLibraryDialog choices={choices} onConfirm={onConfirm} onCancel={() => {}} />)
+    render(<AddToLibraryDialog noun="instrument" choices={choices} onConfirm={onConfirm} onCancel={() => {}} />)
     fireEvent.click(screen.getByText('Select all'))
     expect(screen.getByText('Add 3 to library')).toBeTruthy()
     fireEvent.click(screen.getByText('Select none'))
@@ -29,7 +29,7 @@ describe('AddToLibraryDialog', () => {
   })
 
   it('skips the toggle for a single file', () => {
-    render(<AddToLibraryDialog choices={choices.slice(0, 1)} onConfirm={() => {}} onCancel={() => {}} />)
+    render(<AddToLibraryDialog noun="instrument" choices={choices.slice(0, 1)} onConfirm={() => {}} onCancel={() => {}} />)
     expect(screen.queryByText(/Select (all|none)/)).toBeNull()
   })
 })

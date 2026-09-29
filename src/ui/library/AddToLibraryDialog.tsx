@@ -7,12 +7,14 @@ export interface AddToLibraryChoice {
   key: string
   name: string
   fileName: string
-  /** An instrument with this name is already in the library; unchecked by default. */
+  /** Something with this name is already in the library; unchecked by default. */
   inLibrary: boolean
 }
 
-/** Asks which just-imported instruments to also keep in the library. */
-export function AddToLibraryDialog({ choices, onConfirm, onCancel }: {
+/** Asks which just-imported items to also keep in the library. */
+export function AddToLibraryDialog({ noun, choices, onConfirm, onCancel }: {
+  /** Singular, lowercase: "instrument", "sample". */
+  noun: string
   choices: AddToLibraryChoice[]
   onConfirm: (keys: string[]) => void
   onCancel: () => void
@@ -29,7 +31,7 @@ export function AddToLibraryDialog({ choices, onConfirm, onCancel }: {
           {checked.length ? `Add ${checked.length} to library` : 'Add to library'}
         </Button>
       </>}>
-      <p>{choices.length === 1 ? 'The instrument was added to the song.' : `${choices.length} instruments were added to the song.`} Keep them in your library too?</p>
+      <p>{choices.length === 1 ? `The ${noun} was added to the song. Keep it in your library too?` : `${choices.length} ${noun}s were added to the song. Keep them in your library too?`}</p>
       {choices.length > 1 && (
         <div className={s.listHead}>
           <Button size="xs" onClick={() => setChecked(all ? [] : choices.map((c) => c.key))}>{all ? 'Select none' : 'Select all'}</Button>

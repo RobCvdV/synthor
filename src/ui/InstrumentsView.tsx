@@ -11,6 +11,7 @@ import { exportInstrumentFile, saveSongInstrumentToLibrary } from './instrumentA
 import { hasStorage } from '../persist/storage'
 import { InstrumentRail } from './InstrumentRail'
 import { SaveToLibraryDialog, type SaveToLibraryValues } from './library/SaveToLibraryDialog'
+import { instrumentLibrary } from './library/librarySource'
 import type { AudioHost } from '../audio/host'
 import type { KeyboardPlayer } from '../audio/keyboardPlayer'
 import type { Id } from '../domain/types'
@@ -146,7 +147,7 @@ export function InstrumentsView({ host, keyboardPlayer }: { host: AudioHost; key
         />
       )}
       {savingId && doc.entities.instruments[savingId] && (
-        <SaveToLibraryDialog defaultName={doc.entities.instruments[savingId].name}
+        <SaveToLibraryDialog source={instrumentLibrary} defaultName={doc.entities.instruments[savingId].name}
           onSave={(values) => void saveToLibrary(values)} onCancel={() => setSavingId(null)} />
       )}
     </div>

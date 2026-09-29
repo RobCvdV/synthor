@@ -7,8 +7,9 @@
  *       samples/<hash>.bin
  */
 import type { InstrumentBundle } from '../domain/instrumentBundle'
-import { normalizeTags, uniqueLibraryId, type LibraryItem, type LibraryMeta } from '../domain/library'
+import { normalizeTags, uniqueLibraryId, type InstrumentLibraryItem, type LibraryMeta } from '../domain/library'
 import { packInstrumentFile, parseInstrumentJson, serializeInstrumentBundle, type InstrumentDocument } from './instrumentFile'
+import { createKeyedQueue } from './keyedQueue'
 import { slugify } from './songStore'
 import { joinPath, requireStorage } from './storage'
 
@@ -19,14 +20,14 @@ const itemDir = (id: string) => joinPath(LIBRARY_DIR, id)
 const itemFile = (id: string) => joinPath(itemDir(id), ITEM_FILE)
 const samplePath = (id: string, hash: string) => joinPath(itemDir(id), 'samples', `${hash}.bin`)
 
-function toItem(id: string, doc: InstrumentDocument): LibraryItem {
+function toItem(id: string, doc: InstrumentDocument): InstrumentLibraryItem {
   const root = doc.bundle.instruments[doc.bundle.rootId]
   const meta = doc.meta ?? { category: '', tags: [], createdAt: '', modifiedAt: '' }
   return { id, name: root.name, kind: root.kind, ...meta }
 }
 
 /** Reads one library instrument, or null if it's missing. */
-export async function readLibraryInstrument(id: string): Promise<(InstrumentDocument & { item: LibraryItem }) | null> {
+export async function readLibraryInstrument(id: string): Promise<(InstrumentDocument & { item: InstrumentLibraryItem }) | null> {
   const text = await requireStorage().readText(itemFile(id))
   if (text === null) return null
   const doc = parseInstrumentJson(text)
@@ -34,8 +35,8 @@ export async function readLibraryInstrument(id: string): Promise<(InstrumentDocu
 }
 
 /** Every readable library instrument; unreadable folders are skipped. */
-export async function listLibraryInstruments(): Promise<LibraryItem[]> {
-  const out: LibraryItem[] = []
+export async function listLibraryInstruments(): Promise<InstrumentLibraryItem[]> {
+  const out: InstrumentLibraryItem[] = []
   for (const entry of await requireStorage().list(LIBRARY_DIR)) {
     if (entry.kind !== 'directory') continue
     const item = await readLibraryInstrument(entry.name).then((r) => r?.item ?? null, () => null)
@@ -88,17 +89,14 @@ export interface LibraryItemPatch {
   tags?: string[]
 }
 
-const pendingUpdates = new Map<string, Promise<unknown>>()
+const updates = createKeyedQueue()
 
 /** Renames or re-tags a library instrument; the name is the root instrument's name. Updates to one item run in order. */
-export function updateLibraryItem(id: string, patch: LibraryItemPatch): Promise<LibraryItem> {
-  const run = () => applyUpdate(id, patch)
-  const next = (pendingUpdates.get(id) ?? Promise.resolve()).then(run, run)
-  pendingUpdates.set(id, next)
-  return next
+export function updateLibraryItem(id: string, patch: LibraryItemPatch): Promise<InstrumentLibraryItem> {
+  return updates(id, () => applyUpdate(id, patch))
 }
 
-async function applyUpdate(id: string, patch: LibraryItemPatch): Promise<LibraryItem> {
+async function applyUpdate(id: string, patch: LibraryItemPatch): Promise<InstrumentLibraryItem> {
   const current = await readLibraryInstrument(id)
   if (!current) throw new Error(`Library instrument not found: ${id}`)
   const { bundle } = current
