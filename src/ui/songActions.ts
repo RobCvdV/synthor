@@ -1,8 +1,9 @@
 import { createDefaultDoc } from '../domain/factory'
-import { isOpfsSupported, listSongs, readSong, saveRecent, slugify } from '../persist/opfsStore'
+import { isOpfsSupported, listSongs, loadRecent, readSong, saveRecent, slugify } from '../persist/opfsStore'
 import { saveCurrentSong } from '../persist/saveCurrent'
 import { importSongZip } from '../persist/songExport'
 import { songNameConflict, uniqueSongName } from '../persist/songNames'
+import { clampCursor, useAppStore } from '../state/appStore'
 import { askConfirm, askText } from '../state/dialogStore'
 import { useDocStore } from '../state/docStore'
 import { useProjectStore } from '../state/projectStore'
@@ -73,4 +74,32 @@ export async function importSongFile(data: ArrayBuffer): Promise<void> {
   useDocStore.getState().loadDoc(file.doc)
   useProjectStore.getState().reset(name, file.meta.createdAt, slug)
   if (isOpfsSupported()) await saveCurrentSong()
+}
+
+/** Opens the song from the last session, or names the default song; then fits the saved UI state to it. */
+export async function loadStartupSong(): Promise<void> {
+  try {
+    const slug = await loadRecent()
+    const file = slug ? await readSong(slug) : null
+    if (slug && file) {
+      let doc = file.doc
+      if (!doc.entities.patterns[doc.patternId]) {
+        const firstPat = Object.keys(doc.entities.patterns)[0]
+        if (firstPat) doc = { ...doc, patternId: firstPat }
+      }
+      useProjectStore.getState().reset(file.meta.name, file.meta.createdAt, slug)
+      useDocStore.getState().loadDoc(doc)
+    } else if (!slug) {
+      useProjectStore.getState().reset('Untitled', new Date().toISOString())
+    }
+  } catch (err) {
+    console.error('Failed to load recent song:', err)
+  }
+  const app = useAppStore.getState()
+  const { doc } = useDocStore.getState()
+  const pattern = doc.entities.patterns[doc.patternId]
+  if (pattern) app.setTrackerCursor(clampCursor(app.trackerCursor, pattern, doc))
+  if (!app.selectedInstrumentId || !doc.entities.instruments[app.selectedInstrumentId]) {
+    app.setSelectedInstrumentId(Object.keys(doc.entities.instruments)[0] ?? null)
+  }
 }

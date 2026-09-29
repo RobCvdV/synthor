@@ -1,8 +1,9 @@
-import { memo, type RefObject } from 'react'
+import { memo } from 'react'
 import { PLAY_MODES, type PlayMode, type View } from '../state/appStore'
 import type { AudioStatus } from '../state/audioStore'
 import type { Instrument } from '../domain/types'
 import { FreePlayToggle } from './FreePlayToggle'
+import { TempoControl } from './TempoControl'
 import { InstrumentSelect } from './components/InstrumentSelect'
 import { EditableLabel } from './components/EditableLabel'
 import { Button } from './components/Button'
@@ -16,16 +17,6 @@ interface ToolbarProps {
   onSetPlayMode: (mode: PlayMode) => void
   projectName: string
   onRenameSong: (name: string) => void
-  editingTempo: boolean
-  tempoDraft: string
-  bpm: number
-  tapFlash: boolean
-  tempoInputRef: RefObject<HTMLInputElement | null>
-  onTempoDraftChange: (v: string) => void
-  onCommitTempo: () => void
-  onCancelTempoEdit: () => void
-  onBeginEditTempo: () => void
-  onTapBpm: () => void
   instruments: Instrument[]
   selectedInstrumentId: string | null
   onSelectInstrument: (id: string) => void
@@ -47,16 +38,6 @@ export const Toolbar = memo(function Toolbar({
   onSetPlayMode,
   projectName,
   onRenameSong,
-  editingTempo,
-  tempoDraft,
-  bpm,
-  tapFlash,
-  tempoInputRef,
-  onTempoDraftChange,
-  onCommitTempo,
-  onCancelTempoEdit,
-  onBeginEditTempo,
-  onTapBpm,
   instruments,
   selectedInstrumentId,
   onSelectInstrument,
@@ -103,37 +84,7 @@ export const Toolbar = memo(function Toolbar({
         className="toolbar-title" inputClassName="toolbar-title-input" title="Double-click to rename the song" />
 
       {/* Tempo */}
-      <span className="toolbar-tempo-group">
-        {editingTempo ? (
-          <input
-            ref={tempoInputRef}
-            className="toolbar-tempo-input"
-            value={tempoDraft}
-            onChange={(e) => onTempoDraftChange(e.target.value)}
-            onBlur={onCommitTempo}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') onCommitTempo()
-              if (e.key === 'Escape') onCancelTempoEdit()
-            }}
-          />
-        ) : (
-          <span
-            className="toolbar-tempo"
-            title="Double-click to edit tempo"
-            onDoubleClick={onBeginEditTempo}
-          >
-            {bpm}
-          </span>
-        )}
-        <span className="muted">BPM</span>
-        <button
-          className={'toolbar-tap-btn' + (tapFlash ? ' flash' : '')}
-          title="Tap tempo"
-          onClick={onTapBpm}
-        >
-          TAP
-        </button>
-      </span>
+      <TempoControl />
 
       <span className="spacer" />
 

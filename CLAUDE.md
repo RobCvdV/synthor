@@ -90,5 +90,5 @@ Chains are ordered; each hop is verified. Skipping the tail is how features half
 
 - Function-first. Classes only for a mutable resource with a lifecycle (`AudioHost`, `KeyboardPlayer`, `ParamRefRegistry`); everything else is pure functions, stores and components. Don't wrap pure modules in classes.
 - Respect layer direction: UI → state → engine → domain. The engine imports no React and no AudioContext.
-- Don't grow `App.tsx` (~260 lines) or `docStore.ts` (~100 lines) — new features get a new module or view, wired in from there.
+- Don't grow `App.tsx` (~140 lines) or `docStore.ts` (~100 lines) — new features get a new module or view, wired in from there.
 - Comments stay short, English, why-not-what.

@@ -4,9 +4,11 @@ import { makeSongFile, serializeSong } from '../persist/serialize'
 import { useDialogStore, type TextRequest } from '../state/dialogStore'
 import { useDocStore } from '../state/docStore'
 import { useProjectStore } from '../state/projectStore'
-import { createNewSong, importSongFile, renameCurrentSong } from './songActions'
+import { useAppStore } from '../state/appStore'
+import type { SongFile } from '../persist/serialize'
+import { createNewSong, importSongFile, loadStartupSong, renameCurrentSong } from './songActions'
 
-const saved = vi.hoisted(() => ({ slugs: [] as string[] }))
+const saved = vi.hoisted(() => ({ slugs: [] as string[], recent: null as string | null, files: {} as Record<string, SongFile> }))
 const saveCurrentSong = vi.hoisted(() => vi.fn(async () => {}))
 
 vi.mock('../persist/opfsStore', async (orig) => ({
@@ -14,6 +16,8 @@ vi.mock('../persist/opfsStore', async (orig) => ({
   isOpfsSupported: () => true,
   listSongs: async () => saved.slugs.map((slug) => ({ slug, meta: {} })),
   saveRecent: async () => {},
+  loadRecent: async () => saved.recent,
+  readSong: async (slug: string) => saved.files[slug] ?? null,
 }))
 vi.mock('../persist/saveCurrent', () => ({ saveCurrentSong }))
 
@@ -28,6 +32,8 @@ const answer = (a: string | boolean | null) => useDialogStore.getState().answer(
 describe('songActions', () => {
   beforeEach(() => {
     saved.slugs = []
+    saved.recent = null
+    saved.files = {}
     saveCurrentSong.mockClear()
     useDialogStore.setState({ request: null, resolve: null })
     useProjectStore.getState().reset('Current', '2026-01-01T00:00:00.000Z')
@@ -80,5 +86,25 @@ describe('songActions', () => {
     const file = makeSongFile(createDefaultDoc(), { name: 'Groove', createdAt: '2026-02-02T00:00:00.000Z', modifiedAt: '2026-02-02T00:00:00.000Z' })
     await importSongFile(new TextEncoder().encode(serializeSong(file)).buffer as ArrayBuffer)
     expect(useProjectStore.getState()).toMatchObject({ name: 'Groove 2', slug: 'groove-2', savedSlug: 'groove-2' })
+  })
+
+  it('opens the last session’s song and fits the saved cursor and instrument to it', async () => {
+    const doc = createDefaultDoc()
+    saved.recent = 'groove'
+    saved.files.groove = makeSongFile(doc, { name: 'Groove', createdAt: '2026-03-03T00:00:00.000Z', modifiedAt: '2026-03-03T00:00:00.000Z' })
+    useAppStore.setState({ trackerCursor: { row: 999, track: 99, col: 0, laneIndex: null }, selectedInstrumentId: 'gone' })
+
+    await loadStartupSong()
+
+    expect(useProjectStore.getState()).toMatchObject({ name: 'Groove', slug: 'groove' })
+    expect(useDocStore.getState().doc.entities.instruments).toEqual(doc.entities.instruments)
+    const { trackerCursor, selectedInstrumentId } = useAppStore.getState()
+    expect(trackerCursor.track).toBe(doc.entities.patterns[doc.patternId].trackIds.length - 1)
+    expect(Object.keys(doc.entities.instruments)).toContain(selectedInstrumentId)
+  })
+
+  it('names the default song Untitled without a previous session', async () => {
+    await loadStartupSong()
+    expect(useProjectStore.getState().name).toBe('Untitled')
   })
 })
