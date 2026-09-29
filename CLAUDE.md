@@ -38,6 +38,7 @@ Chains are ordered; each hop is verified. Skipping the tail is how features half
 | Transport / BPM / note timing | `state/transportStore.ts` + `player/` — must not cause a recompile |
 | New keyboard shortcut | `ui/useAppKeys.ts` (global + mixer), `ui/tracker/useTrackerKeys.ts` (tracker editing; cursor math in `tracker/trackerNav.ts`), or the view's own handler (`InstrumentsView`, `SampleLibraryView`, `ModularEditor`, `SampleEditor`). `ui/keymap.ts` is only the note layout |
 | Save / load / project format | `persist/serialize.ts`: bump `CURRENT_SCHEMA_VERSION` **and** add the `migrate` case |
+| Instrument files / instrument library | `domain/instrumentBundle.ts` (collect + insert with fresh ids) → `persist/instrumentFile.ts` (`.synthinst`, migrated like songs) → `persist/instrumentLibrary.ts` (`instruments/<id>/`) → `ui/instrumentActions.ts` → `ui/library/` dialogs |
 | Sample import / edit / storage | `audio/sampleLoader.ts`, `audio/sampleEdit.ts`, `persist/sampleStorage.ts` (OPFS) |
 | Something should change audibly without a recompile | a `paramRefs` ref, not `compileGraph` |
 

@@ -44,13 +44,8 @@ body {
   border-right: 1px solid #000;
   overflow: hidden;
 }
-.inst-rail-actions { display: flex; gap: 6px; padding: 10px; }
-.inst-rail-actions button {
-  flex: 1;
-  background: #222; color: var(--fg); border: 1px solid #333;
-  border-radius: 4px; padding: 4px 6px; font: inherit; cursor: pointer;
-}
-.inst-rail-actions button:hover { border-color: var(--accent); }
+.inst-rail-actions { display: flex; gap: 6px; padding: 10px; align-items: stretch; }
+.inst-rail-actions .inst-add { flex: 1; font-size: 12px; padding: 4px 6px; }
 
 .inst-list { list-style: none; margin: 0; padding: 0; overflow: auto; }
 .inst-item {
@@ -76,7 +71,7 @@ body {
   display: flex; flex-direction: column; gap: 8px;
 }
 .inst-settings-actions {
-  display: flex; gap: 6px;
+  display: flex; flex-wrap: wrap; gap: 6px;
 }
 .inst-settings-actions button {
   flex: 1;

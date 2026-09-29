@@ -1,0 +1,3 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`TagEditor > renders chips 1`] = `"<div class="tags"><span class="tag">warm<button type="button" class="tagRemove" title="Remove tag &quot;warm&quot;" aria-label="Remove tag warm">×</button></span><span class="tag">pad<button type="button" class="tagRemove" title="Remove tag &quot;pad&quot;" aria-label="Remove tag pad">×</button></span><input class="tagInput" placeholder="" aria-label="Add tag" list="_r_0_" value=""><datalist id="_r_0_"></datalist></div>"`;

@@ -135,6 +135,23 @@ export function newModularInstrument(name: string): ModularInstrument {
   }
 }
 
+/** A synth with only the fixed sources and the output, unwired. */
+export function newEmptyModularInstrument(name: string): ModularInstrument {
+  const modules = [newModule('note', 40, 40), newModule('gate', 40, 240), newModule('volume', 40, 440), newModule('output', 480, 160)]
+  return {
+    id: makeId('inst'),
+    kind: 'modular',
+    name,
+    modules: Object.fromEntries(modules.map((m) => [m.id, m])),
+    connections: {},
+    outputId: modules[3].id,
+    effectSettings: { ...DEFAULT_EFFECT_SETTINGS },
+    channelId: MASTER_CHANNEL_ID,
+    pan: 0,
+    voices: DEFAULT_LIVE_VOICES,
+  }
+}
+
 /**
  * Deep-clone an instrument with fresh ids. For modular instruments every module
  * and connection gets a new id and all `Port.moduleId` references (and

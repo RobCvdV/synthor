@@ -8,10 +8,12 @@ interface DialogProps {
   err?: string | null
   /** Focused and text-selected on mount, when given. */
   initialFocusRef?: RefObject<HTMLInputElement | null>
+  /** Extra class on the box, e.g. to widen it. */
+  className?: string
 }
 
 /** Modal shell shared by all dialogs — overlay click and Escape close it. */
-export function Dialog({ title, onClose, children, actions, err, initialFocusRef }: DialogProps) {
+export function Dialog({ title, onClose, children, actions, err, initialFocusRef, className }: DialogProps) {
   const overlayRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -33,7 +35,7 @@ export function Dialog({ title, onClose, children, actions, err, initialFocusRef
         if (e.key === 'Escape') onClose()
       }}
     >
-      <div className="dialog-box" onClick={(e) => e.stopPropagation()}>
+      <div className={className ? `dialog-box ${className}` : 'dialog-box'} onClick={(e) => e.stopPropagation()}>
         {title && <h3>{title}</h3>}
         {children}
         {err && <div className="dialog-err">{err}</div>}

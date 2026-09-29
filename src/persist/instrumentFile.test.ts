@@ -30,6 +30,12 @@ describe('instrument files', () => {
     expect(unpackInstrumentFile(zip).sampleData).toEqual({})
   })
 
+  it('carries library metadata, normalizing its tags', async () => {
+    const meta = { category: ' Keys ', tags: ['Warm', 'warm', ' soft '], createdAt: 'c', modifiedAt: 'm' }
+    const zip = await packInstrumentFile(sampleSynth(), async () => null, meta)
+    expect(unpackInstrumentFile(zip).meta).toEqual({ category: 'Keys', tags: ['warm', 'soft'], createdAt: 'c', modifiedAt: 'm' })
+  })
+
   it('reads plain instrument JSON', () => {
     const bundle = sampleSynth()
     const { bundle: back } = unpackInstrumentFile(strToU8(serializeInstrumentBundle(bundle)))
@@ -43,14 +49,15 @@ describe('instrument files', () => {
     synth.modules.s = { ...old, params: { sampleIndex: 0, gain: 1 } }
     const text = JSON.stringify({ format: 'synthor-instrument', schemaVersion: 12, bundle })
 
-    const migrated = parseInstrumentJson(text).instruments[bundle.rootId] as ModularInstrument
+    const migrated = parseInstrumentJson(text).bundle.instruments[bundle.rootId] as ModularInstrument
     expect(migrated.modules.s.sampleId).toBe(Object.keys(bundle.samples)[0])
     expect(migrated.modules.s.params).toEqual({ gain: 1 })
   })
 
   it('imports legacy `.synthor.inst.json` exports', () => {
     const synth = newModularInstrument('Old Lead')
-    const b = parseInstrumentJson(JSON.stringify({ schemaVersion: 1, instrument: synth }))
+    const { bundle: b, meta } = parseInstrumentJson(JSON.stringify({ schemaVersion: 1, instrument: synth }))
+    expect(meta).toBeNull()
     expect(b.rootId).toBe(synth.id)
     expect(b.instruments[synth.id].name).toBe('Old Lead')
     expect(b.samples).toEqual({})

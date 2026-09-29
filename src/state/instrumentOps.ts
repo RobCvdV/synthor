@@ -1,9 +1,11 @@
 import { MAX_LIVE_VOICES, type Id, type Instrument } from '../domain/types'
-import { cloneInstrument, newDrumKitInstrument, newModularInstrument } from '../domain/factory'
+import { cloneInstrument, newDrumKitInstrument, newEmptyModularInstrument, newModularInstrument } from '../domain/factory'
 import type { DocState } from './docStore'
 
 export interface InstrumentOps {
   addInstrument: (kind: Instrument['kind']) => Id
+  /** A named empty synth (fixed sources + output only) or an empty drum kit. */
+  addEmptyInstrument: (kind: Instrument['kind'], name: string) => Id
   removeInstrument: (instrumentId: Id) => void
   renameInstrument: (instrumentId: Id, name: string) => void
   /** Set an effect range max value on an instrument. */
@@ -16,18 +18,20 @@ export interface InstrumentOps {
 }
 
 export function instrumentOps(get: () => DocState): InstrumentOps {
+  const insertInstrument = (inst: Instrument): Id => {
+    get().mutate((draft) => {
+      draft.entities.instruments[inst.id] = inst
+      if (!draft.entities.mixerInstrumentOrder.includes(inst.id)) draft.entities.mixerInstrumentOrder.push(inst.id)
+    })
+    return inst.id
+  }
+
   return {
-    addInstrument: (kind) => {
-      const inst: Instrument =
-        kind === 'drumkit' ? newDrumKitInstrument('Drum Kit') : newModularInstrument('Synth')
-      get().mutate((draft) => {
-        draft.entities.instruments[inst.id] = inst
-        if (!draft.entities.mixerInstrumentOrder.includes(inst.id)) {
-          draft.entities.mixerInstrumentOrder.push(inst.id)
-        }
-      })
-      return inst.id
-    },
+    addInstrument: (kind) =>
+      insertInstrument(kind === 'drumkit' ? newDrumKitInstrument('Drum Kit') : newModularInstrument('Synth')),
+
+    addEmptyInstrument: (kind, name) =>
+      insertInstrument(kind === 'drumkit' ? newDrumKitInstrument(name) : newEmptyModularInstrument(name)),
 
     removeInstrument: (instrumentId) =>
       get().mutate((draft) => {

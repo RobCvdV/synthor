@@ -1,33 +1,114 @@
-import { collectInstrumentBundle, insertInstrumentBundle } from '../domain/instrumentBundle'
+import { collectInstrumentBundle, insertInstrumentBundle, type InstrumentBundle } from '../domain/instrumentBundle'
 import type { Id } from '../domain/types'
-import { INSTRUMENT_FILE_EXT, packInstrumentFile, unpackInstrumentFile } from '../persist/instrumentFile'
+import {
+  exportLibraryInstrument, readLibraryInstrument, readLibrarySample, saveToLibrary, type SaveToLibraryOptions,
+} from '../persist/instrumentLibrary'
+import { INSTRUMENT_FILE_EXT, packInstrumentFile, unpackInstrumentFile, type InstrumentFileContents } from '../persist/instrumentFile'
 import { readSampleAsset, writeSampleData } from '../persist/sampleStorage'
 import { hasStorage } from '../persist/storage'
 import { useDocStore } from '../state/docStore'
 import { useProjectStore } from '../state/projectStore'
 
+const currentSlug = () => useProjectStore.getState().slug
+
+function readSongSample(hash: string): Promise<ArrayBuffer | null> {
+  return hasStorage() ? readSampleAsset(currentSlug(), hash) : Promise.resolve(null)
+}
+
+function zipBlob(zip: Uint8Array, name: string) {
+  return { blob: new Blob([zip as BlobPart], { type: 'application/zip' }), filename: `${name || 'instrument'}${INSTRUMENT_FILE_EXT}` }
+}
+
+/** Copies sample bytes into the open song, then adds all bundles as one undoable edit. */
+async function addBundlesToSong(bundles: InstrumentBundle[], readSample: (bundleIndex: number, hash: string) => Promise<ArrayBuffer | null>): Promise<Id[]> {
+  if (hasStorage()) {
+    for (const [i, bundle] of bundles.entries()) {
+      for (const smp of Object.values(bundle.samples)) {
+        const data = await readSample(i, smp.hash)
+        if (data) await writeSampleData(currentSlug(), smp.hash, data)
+      }
+    }
+  }
+  const ids: Id[] = []
+  useDocStore.getState().mutate((draft) => {
+    for (const bundle of bundles) ids.push(insertInstrumentBundle(draft.entities, bundle))
+  })
+  return ids
+}
+
+const bytesToBuffer = (bytes: Uint8Array | undefined) => (bytes ? bytes.slice().buffer as ArrayBuffer : null)
+
 /** A `.synthinst` file of the instrument with its sub-instruments and sample data. */
 export async function exportInstrumentFile(instrumentId: Id): Promise<{ blob: Blob; filename: string }> {
   const { entities } = useDocStore.getState().doc
-  const bundle = collectInstrumentBundle(entities, instrumentId)
-  const { slug } = useProjectStore.getState()
-  const zip = await packInstrumentFile(bundle, (hash) => (hasStorage() ? readSampleAsset(slug, hash) : Promise.resolve(null)))
-  const name = entities.instruments[instrumentId].name || 'instrument'
-  return { blob: new Blob([zip as BlobPart], { type: 'application/zip' }), filename: `${name}${INSTRUMENT_FILE_EXT}` }
+  const zip = await packInstrumentFile(collectInstrumentBundle(entities, instrumentId), readSongSample)
+  return zipBlob(zip, entities.instruments[instrumentId].name)
 }
 
-/** Adds an instrument file to the open song (sample data first, so it loads right away); returns the new instrument id. */
+/** Adds one instrument file to the open song; returns the new instrument id. */
 export async function importInstrumentFile(data: ArrayBuffer): Promise<Id> {
   const { bundle, sampleData } = unpackInstrumentFile(data)
-  if (hasStorage()) {
-    const { slug } = useProjectStore.getState()
-    for (const [hash, bytes] of Object.entries(sampleData)) {
-      await writeSampleData(slug, hash, bytes.slice().buffer as ArrayBuffer)
+  const [id] = await addBundlesToSong([bundle], async (_, hash) => bytesToBuffer(sampleData[hash]))
+  return id
+}
+
+export interface ImportedInstrument {
+  fileName: string
+  /** The copy added to the song. */
+  instrumentId: Id
+  name: string
+  contents: InstrumentFileContents
+}
+
+/** Adds instrument files to the open song as one undoable edit; unreadable files are reported, not thrown. */
+export async function importInstrumentFiles(files: File[]): Promise<{ imported: ImportedInstrument[]; failed: { fileName: string; error: string }[] }> {
+  const parsed: { fileName: string; contents: InstrumentFileContents }[] = []
+  const failed: { fileName: string; error: string }[] = []
+  for (const file of files) {
+    try {
+      parsed.push({ fileName: file.name, contents: unpackInstrumentFile(await file.arrayBuffer()) })
+    } catch (err) {
+      failed.push({ fileName: file.name, error: (err as Error).message })
     }
   }
-  let rootId: Id = ''
-  useDocStore.getState().mutate((draft) => {
-    rootId = insertInstrumentBundle(draft.entities, bundle)
-  })
-  return rootId
+  const ids = await addBundlesToSong(parsed.map((p) => p.contents.bundle), async (i, hash) => bytesToBuffer(parsed[i].contents.sampleData[hash]))
+  const imported = parsed.map((p, i) => ({
+    fileName: p.fileName,
+    instrumentId: ids[i],
+    name: p.contents.bundle.instruments[p.contents.bundle.rootId].name,
+    contents: p.contents,
+  }))
+  return { imported, failed }
+}
+
+/** Stores imported files in the library, keeping the category and tags they carried. */
+export async function addImportedToLibrary(items: ImportedInstrument[]): Promise<void> {
+  for (const { contents } of items) {
+    await saveToLibrary(contents.bundle, async (hash) => bytesToBuffer(contents.sampleData[hash]) ?? readSongSample(hash), {
+      category: contents.meta?.category, tags: contents.meta?.tags,
+    })
+  }
+}
+
+/** Saves a song instrument (with its sub-instruments and samples) to the library under `name`. */
+export async function saveSongInstrumentToLibrary(instrumentId: Id, name: string, options: SaveToLibraryOptions): Promise<string> {
+  const bundle = collectInstrumentBundle(useDocStore.getState().doc.entities, instrumentId)
+  const root = bundle.instruments[bundle.rootId]
+  const named = { ...bundle, instruments: { ...bundle.instruments, [bundle.rootId]: { ...root, name: name.trim() || root.name } } }
+  return saveToLibrary(named, readSongSample, options)
+}
+
+/** Adds copies of library instruments to the open song as one undoable edit; returns their new ids. */
+export async function addLibraryInstrumentsToSong(libraryIds: string[]): Promise<Id[]> {
+  const docs: { id: string; bundle: InstrumentBundle }[] = []
+  for (const id of libraryIds) {
+    const doc = await readLibraryInstrument(id)
+    if (doc) docs.push({ id, bundle: doc.bundle })
+  }
+  return addBundlesToSong(docs.map((d) => d.bundle), (i, hash) => readLibrarySample(docs[i].id, hash))
+}
+
+export async function exportLibraryInstrumentFile(libraryId: string): Promise<{ blob: Blob; filename: string }> {
+  const { zip, name } = await exportLibraryInstrument(libraryId)
+  return zipBlob(zip, name)
 }

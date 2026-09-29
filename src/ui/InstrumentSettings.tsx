@@ -16,11 +16,13 @@ interface Props {
   usage: number
   onDuplicate: () => void
   onExport: () => void
+  /** Omitted where there is no library (no persistent storage). */
+  onSaveToLibrary?: () => void
   onDelete: () => void
 }
 
 /** Settings pane for an instrument: name, actions, and effect range presets. */
-export function InstrumentSettings({ inst, usage, onDuplicate, onExport, onDelete }: Props) {
+export function InstrumentSettings({ inst, usage, onDuplicate, onExport, onSaveToLibrary, onDelete }: Props) {
   const renameInstrument = useDocStore((s) => s.renameInstrument)
   const setEffectSetting = useDocStore((s) => s.setEffectSetting)
   const setInstrumentVoices = useDocStore((s) => s.setInstrumentVoices)
@@ -41,7 +43,10 @@ export function InstrumentSettings({ inst, usage, onDuplicate, onExport, onDelet
           <button title="Duplicate this instrument" onClick={onDuplicate}>
             Duplicate
           </button>
-          <button onClick={onExport}>Export</button>
+          <button title="Export as a .synthinst file (includes samples)" onClick={onExport}>Export</button>
+          {onSaveToLibrary && (
+            <button title="Keep a copy in your instrument library" onClick={onSaveToLibrary}>Save to Library</button>
+          )}
           <button
             disabled={usage > 0}
             title={usage > 0 ? 'In use by a track — reassign first' : 'Delete instrument'}

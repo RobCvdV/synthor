@@ -7,7 +7,12 @@ import { readSampleAsset, writeSampleData } from '../persist/sampleStorage'
 import { setStorage } from '../persist/storage'
 import { useDocStore } from '../state/docStore'
 import { useProjectStore } from '../state/projectStore'
-import { exportInstrumentFile, importInstrumentFile } from './instrumentActions'
+import { listLibraryInstruments, readLibraryInstrument, readLibrarySample, saveToLibrary } from '../persist/instrumentLibrary'
+import { packInstrumentFile } from '../persist/instrumentFile'
+import {
+  addImportedToLibrary, addLibraryInstrumentsToSong, exportInstrumentFile, importInstrumentFile, importInstrumentFiles,
+  saveSongInstrumentToLibrary,
+} from './instrumentActions'
 
 describe('instrumentActions', () => {
   beforeEach(() => {
@@ -50,6 +55,68 @@ describe('instrumentActions', () => {
     const { blob } = await exportInstrumentFile(synth.id)
     const before = useDocStore.getState().doc
     await importInstrumentFile(await blob.arrayBuffer())
+    useDocStore.getState().undo()
+    expect(useDocStore.getState().doc).toEqual(before)
+  })
+
+  /** A sample-playing synth bundle whose sample bytes are [1, 2]. */
+  function toneBundle(name: string) {
+    const synth = newModularInstrument(name)
+    const smp = newSampleEntity('Tone', 'beef01', 'tone.wav', 48000, 1, 4)
+    synth.modules.s = { id: 's', type: 'sample', params: {}, pos: { x: 0, y: 0 }, sampleId: smp.id }
+    return { rootId: synth.id, instruments: { [synth.id]: synth }, samples: { [smp.id]: smp } }
+  }
+  const toneBytes = async () => new Uint8Array([1, 2]).buffer
+
+  it('imports several files as one undo step and reports the unreadable ones', async () => {
+    const meta = { category: 'Keys', tags: ['soft'], createdAt: 'c', modifiedAt: 'm' }
+    const a = new File([await packInstrumentFile(toneBundle('A'), toneBytes, meta) as BlobPart], 'a.synthinst')
+    const b = new File([await packInstrumentFile(toneBundle('B'), toneBytes) as BlobPart], 'b.synthinst')
+    const bad = new File(['{"nope":1}'], 'bad.json')
+    const before = useDocStore.getState().doc
+
+    const { imported, failed } = await importInstrumentFiles([a, bad, b])
+
+    expect(imported.map((i) => [i.fileName, i.name])).toEqual([['a.synthinst', 'A'], ['b.synthinst', 'B']])
+    expect(failed.map((f) => f.fileName)).toEqual(['bad.json'])
+    const { entities } = useDocStore.getState().doc
+    expect(entities.instruments[imported[0].instrumentId].name).toBe('A')
+    expect(Object.values(entities.samples).filter((smp) => smp.hash === 'beef01')).toHaveLength(1)
+    useDocStore.getState().undo()
+    expect(useDocStore.getState().doc).toEqual(before)
+
+    await addImportedToLibrary(imported.slice(0, 1))
+    const [item] = await listLibraryInstruments()
+    expect(item).toMatchObject({ name: 'A', category: 'Keys', tags: ['soft'] })
+    expect([...new Uint8Array((await readLibrarySample(item.id, 'beef01'))!)]).toEqual([1, 2])
+  })
+
+  it('saves a song instrument to the library under a new name without renaming it in the song', async () => {
+    const bundle = toneBundle('Keys')
+    useDocStore.getState().mutate((d) => {
+      Object.assign(d.entities.instruments, bundle.instruments)
+      Object.assign(d.entities.samples, bundle.samples)
+    })
+    await writeSampleData(useProjectStore.getState().slug, 'beef01', new Uint8Array([3]).buffer)
+
+    const id = await saveSongInstrumentToLibrary(bundle.rootId, 'Soft Keys', { category: 'Keys', tags: ['soft'] })
+
+    const saved = (await readLibraryInstrument(id))!
+    expect(saved.item).toMatchObject({ name: 'Soft Keys', category: 'Keys', tags: ['soft'] })
+    expect([...new Uint8Array((await readLibrarySample(id, 'beef01'))!)]).toEqual([3])
+    expect(useDocStore.getState().doc.entities.instruments[bundle.rootId].name).toBe('Keys')
+  })
+
+  it('adds library instruments to the song with their sample bytes', async () => {
+    const one = await saveToLibrary(toneBundle('One'), toneBytes)
+    const two = await saveToLibrary(toneBundle('Two'), toneBytes)
+    const before = useDocStore.getState().doc
+
+    const ids = await addLibraryInstrumentsToSong([one, 'missing', two])
+
+    const { entities } = useDocStore.getState().doc
+    expect(ids.map((id) => entities.instruments[id].name)).toEqual(['One', 'Two'])
+    expect([...new Uint8Array((await readSampleAsset(useProjectStore.getState().slug, 'beef01'))!)]).toEqual([1, 2])
     useDocStore.getState().undo()
     expect(useDocStore.getState().doc).toEqual(before)
   })

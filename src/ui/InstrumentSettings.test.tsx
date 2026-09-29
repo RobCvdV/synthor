@@ -36,4 +36,14 @@ describe('InstrumentSettings', () => {
     const { queryByText } = renderFor(firstOfKind('drumkit'))
     expect(queryByText('Live Voices')).toBeNull()
   })
+
+  it('offers Save to Library only when a handler is given', () => {
+    const synth = firstOfKind('modular')
+    expect(renderFor(synth).queryByText('Save to Library')).toBeNull()
+    let saved = 0
+    const { getAllByText } = render(<InstrumentSettings inst={synth} usage={0} onDuplicate={noop} onExport={noop}
+      onSaveToLibrary={() => saved++} onDelete={noop} />)
+    fireEvent.click(getAllByText('Save to Library')[0])
+    expect(saved).toBe(1)
+  })
 })
