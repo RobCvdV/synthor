@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AudioHost } from '../../audio/host'
 import { framesOf } from '../../audio/sampleEdit'
 import { fitsWaveform } from '../../domain/sampleChoices'
@@ -20,9 +20,10 @@ import { SaveAsDialog } from './SampleSaveAsDialog'
 import { fitToLength, pointerDown, pointerMove, pointerUp, type Drag, type Sel } from './selectionGestures'
 import { useSamplePcm } from './useSamplePcm'
 import { useWaveformCanvas } from './useWaveformCanvas'
-import { useElementWidth, useWaveView } from './useWaveView'
+import { useElementSize, useWaveView } from './useWaveView'
 import { WaveScrollbar } from './WaveScrollbar'
-import { frameAtX, visibleFrames } from './waveView'
+import { frameAtX, laneLayout, visibleFrames } from './waveView'
+import { AmplitudeAxis } from './AmplitudeAxis'
 import s from './SampleEditor.module.css'
 
 interface Props {
@@ -52,10 +53,12 @@ export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: 
 
   const waveRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const width = useElementWidth(waveRef)
+  const { width, height } = useElementSize(waveRef)
   const view = useWaveView(frames, width, waveRef)
   const { fit } = view
-  useWaveformCanvas(canvasRef, waveRef, { pcm, width, px: view.px, scroll: view.scroll, sel, cursor })
+  const laneCount = pcm?.length ?? 0
+  const lanes = useMemo(() => laneLayout(height, laneCount), [height, laneCount])
+  useWaveformCanvas(canvasRef, { pcm, width, height, lanes, px: view.px, scroll: view.scroll, sel, cursor })
 
   // Handlers read the latest values without re-subscribing.
   const live = useRef({ pcm, meta, sel, cursor, busy, dialog, view })
@@ -216,9 +219,12 @@ export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: 
         </div>
       )}
 
-      <div className={s.wave} ref={waveRef}>
-        <canvas ref={canvasRef} className={s.canvas}
-          onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} />
+      <div className={s.wave}>
+        <AmplitudeAxis lanes={lanes} />
+        <div className={s.canvasBox} ref={waveRef}>
+          <canvas ref={canvasRef} className={s.canvas}
+            onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} />
+        </div>
         {missing && (
           <div className={s.overlay}>
             <p className="muted">{entity ? sample.error ?? 'Loading…' : 'Sample deleted'}</p>

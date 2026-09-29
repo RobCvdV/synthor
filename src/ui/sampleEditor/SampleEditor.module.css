@@ -17,12 +17,14 @@
 .wave {
   flex: 1;
   min-height: 0;
+  display: flex;
   position: relative;
   overflow: hidden;
   background: var(--bg);
   border: 1px solid #222;
   border-radius: 4px;
 }
+.canvasBox { flex: 1; min-width: 0; position: relative; }
 .canvas {
   position: absolute;
   inset: 0;

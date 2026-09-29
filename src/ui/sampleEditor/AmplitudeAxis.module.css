@@ -1,0 +1,16 @@
+.axis { position: relative; width: 30px; flex: none; }
+
+.tick {
+  position: absolute;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  transform: translateY(-50%);
+  color: var(--muted);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.tick::after { content: ''; width: 4px; height: 1px; background: var(--muted); }
+.zero { color: var(--fg); }

@@ -49,6 +49,24 @@ export function columnPeak(ch: Float32Array, x: number, px: number, scroll: numb
   return [min, max]
 }
 
+export interface Lane { top: number; height: number }
+
+const LANE_PAD = 8
+const LANE_GAP = 10
+const MIN_LANE_H = 24
+
+/** Splits `height` pixels into one lane per channel, with padding around and gaps between. */
+export function laneLayout(height: number, lanes: number): Lane[] {
+  if (lanes === 0) return []
+  const h = Math.max(MIN_LANE_H, (height - 2 * LANE_PAD - (lanes - 1) * LANE_GAP) / lanes)
+  return Array.from({ length: lanes }, (_, i) => ({ top: LANE_PAD + i * (h + LANE_GAP), height: h }))
+}
+
+/** Y of sample value `v` (-1..1) in a lane; +1 is the lane's top. */
+export function amplitudeY(lane: Lane, v: number): number {
+  return lane.top + ((1 - v) * lane.height) / 2
+}
+
 export interface Thumb { width: number; left: number; maxScroll: number }
 
 /** Scrollbar thumb size and position for a track `trackWidth` pixels wide. */

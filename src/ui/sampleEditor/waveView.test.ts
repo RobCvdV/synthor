@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  MAX_PX, MIN_PX, clampScroll, columnPeak, fitZoom, frameAtX, scrollAtThumb, scrollThumb, zoomAround,
+  MAX_PX, MIN_PX, amplitudeY, clampScroll, laneLayout, columnPeak, fitZoom, frameAtX, scrollAtThumb, scrollThumb, zoomAround,
 } from './waveView'
 
 describe('waveView', () => {
@@ -35,6 +35,19 @@ describe('waveView', () => {
     expect(columnPeak(ch, 0, 0.25, 0)).toEqual([-0.25, 0.5])
     expect(columnPeak(ch, 1, 0.25, 0)).toEqual([-0.5, 0.75])
     expect(columnPeak(ch, 2, 0.25, 0)).toBeNull()
+  })
+
+  it('splits the full height into lanes', () => {
+    // 300 px: 8 padding top and bottom, one 10 px gap → two lanes of 137.
+    expect(laneLayout(300, 2)).toEqual([{ top: 8, height: 137 }, { top: 155, height: 137 }])
+    expect(laneLayout(300, 1)).toEqual([{ top: 8, height: 284 }])
+    expect(laneLayout(10, 1)[0].height).toBe(24)
+    expect(laneLayout(300, 0)).toEqual([])
+  })
+
+  it('maps amplitude to lane height, full scale at the lane edges', () => {
+    const lane = { top: 8, height: 100 }
+    expect([1, 0, -1, 0.5].map((v) => amplitudeY(lane, v))).toEqual([8, 58, 108, 33])
   })
 
   it('sizes and places the scrollbar thumb, with a minimum width', () => {
