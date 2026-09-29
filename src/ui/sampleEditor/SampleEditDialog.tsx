@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
-import { Dialog } from './Dialog'
-import { Button } from './components/Button'
+import { Dialog } from '../Dialog'
+import { Button } from '../components/Button'
 
 export function EditDialog({
   kind,

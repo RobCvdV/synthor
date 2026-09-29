@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Dialog } from './Dialog'
-import { sampleDialogOpenRef } from './sampleDialogRef'
-import { Button } from './components/Button'
+import { Dialog } from '../Dialog'
+import { sampleDialogOpenRef } from '../sampleDialogRef'
+import { Button } from '../components/Button'
 
 export function SaveAsDialog({
   defaultName,
