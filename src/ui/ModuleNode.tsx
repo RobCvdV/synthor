@@ -1,15 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { useDocStore } from '../state/docStore'
 import { useMidiStore } from '../state/midiStore'
 import { MODULE_DEFS } from '../domain/moduleDefs'
-import { sampleChoices } from '../domain/sampleChoices'
 import type { AudioHost } from '../audio/host'
 import type { Id } from '../domain/types'
 import { CLIP_THRESHOLD, drawScope } from './scope'
 import { round } from './format'
 import { ParamControl } from './components/ParamControl'
-import { useSortedSamples } from './hooks/useSortedSamples'
+import { SamplePicker } from './components/SamplePicker'
 import { BypassToggle } from './components/BypassToggle'
 import { EditableLabel } from './components/EditableLabel'
 
@@ -35,6 +34,7 @@ export function ModuleNode({ data }: NodeProps) {
   })
   const setModuleParam = useDocStore((s) => s.setModuleParam)
   const setModuleParamSilent = useDocStore((s) => s.setModuleParamSilent)
+  const setModuleSample = useDocStore((s) => s.setModuleSample)
   const removeModule = useDocStore((s) => s.removeModule)
   const renameModule = useDocStore((s) => s.renameModule)
   const [ccLearning, setCcLearning] = useState(false)
@@ -64,11 +64,6 @@ export function ModuleNode({ data }: NodeProps) {
   const isInput = def?.inlets.length === 0 && def?.outlets.length > 0
   const hasBypass = def?.params.some((p) => p.key === 'bypass') ?? false
   const bypassed = hasBypass && (module?.params.bypass ?? 0) === 1
-  const sortedSamples = useSortedSamples()
-  const sampleNames = useMemo(
-    () => (module ? sampleChoices(module.type, sortedSamples).map((smp) => smp.name) : []),
-    [module, sortedSamples],
-  )
 
   // --- oscilloscope / clip LED for the output node --------------------
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -151,6 +146,10 @@ export function ModuleNode({ data }: NodeProps) {
       ))}
 
       <div className="mod-node-body" style={{ paddingTop: Math.max(def.inlets.length, def.outlets.length) * 24 }}>
+        {def.samplePicker && (
+          <SamplePicker className="mod-param nodrag" moduleType={module.type} label={def.samplePicker}
+            sampleId={module.sampleId} onChange={(id) => setModuleSample(instrumentId, moduleId, id)} />
+        )}
         {def.params.map((p) => {
           // Scale params are rendered inline alongside their parent param
           // (the one with showScale); skip them in the normal loop.
@@ -203,7 +202,6 @@ export function ModuleNode({ data }: NodeProps) {
 
           return (
             <ParamControl key={p.key} className="mod-param nodrag" param={p} value={value}
-              choices={p.key === 'sampleIndex' ? sampleNames : undefined}
               readout={readout} readOnly={isCcParam}
               onChange={(v) => setModuleParamSilent(instrumentId, moduleId, p.key, v)} />
           )

@@ -103,8 +103,8 @@ export function useEngine(): AudioHost {
           const mods = Object.keys(inst.modules).sort().map((mid) => {
             const mod = inst.modules[mid]
             let key = `${mid}:${mod.type}`
-            // Sample index changes are structural (different hash → different table key).
-            if (mod.type === 'sample' || mod.type === 'wave' || mod.type === 'conv') key += `:s${mod.params.sampleIndex ?? 0}`
+            // Sample changes are structural (different hash → different table key).
+            if (mod.sampleId) key += `:s${mod.sampleId}`
             return key
           }).join(',')
           const conns = Object.values(inst.connections)
@@ -128,10 +128,8 @@ export function useEngine(): AudioHost {
 
       // Mix channels.
       for (const [id, c] of Object.entries(doc.entities.mixChannels)) {
-        // conv's sampleIndex is structural: different hash → different VFS path.
-        const fx = c.effects.map((e) =>
-          `${e.type}:${e.id}` + (e.type === 'conv' ? `:s${e.params.sampleIndex ?? 0}` : ''),
-        ).join(',')
+        // conv's sample is structural: different hash → different VFS path.
+        const fx = c.effects.map((e) => `${e.type}:${e.id}` + (e.sampleId ? `:s${e.sampleId}` : '')).join(',')
         parts.push(`chan:${id}:${c.kind}:${fx}`)
       }
 

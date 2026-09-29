@@ -103,6 +103,8 @@ export interface Module {
   /** User-assigned name for `eff` modules (the modulation inlet name).
    *  Undefined for other module types. */
   name?: string
+  /** The sample a `sample` / `wave` / `conv` module plays. */
+  sampleId?: Id
 }
 
 /** A patch cord from one module's outlet to another's inlet. */
@@ -250,6 +252,8 @@ export interface ChannelEffect {
    *  Used for mono effects (filter, gain, etc.) so L and R can be tuned independently.
    *  Stereo effects (reverb, delay, echo) and unset = process both channels. */
   side?: 'L' | 'R'
+  /** The impulse-response sample of a `conv` effect. */
+  sampleId?: Id
 }
 
 /** A mix channel (sub or master). Always stereo. */

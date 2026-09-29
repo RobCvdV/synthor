@@ -186,6 +186,40 @@ describe('migration v11→v12 — live voice count', () => {
   })
 })
 
+describe('migration v12→v13 — sample references by id', () => {
+  const smp = (id: string, name: string, frames: number) =>
+    ({ id, name, hash: `h-${id}`, originalName: `${name}.wav`, sampleRate: 48000, channels: 1, frames })
+  const mod = (id: string, type: string, params: Record<string, number>) => ({ id, type, params, pos: { x: 0, y: 0 } })
+
+  function v12(): any {
+    const doc = createDefaultDoc() as any
+    // Name order: Alpha (long), Beta (short), Gamma (short) → waveform-eligible: Beta, Gamma.
+    doc.entities.samples = { a: smp('a', 'Gamma', 100), b: smp('b', 'Alpha', 480000), c: smp('c', 'Beta', 100) }
+    const inst = Object.values(doc.entities.instruments).find((i: any) => i.kind === 'modular') as any
+    inst.modules.s1 = mod('s1', 'sample', { sampleIndex: 1, gain: 1 })
+    inst.modules.w1 = mod('w1', 'wave', { sampleIndex: 1, gain: 1 })
+    inst.modules.c1 = mod('c1', 'conv', { mix: 0.5 })
+    inst.modules.x1 = mod('x1', 'sample', { sampleIndex: 7 })
+    doc.entities.mixChannels.master.effects = [{ id: 'fx1', type: 'conv', params: { sampleIndex: 2, mix: 1 } }, { id: 'fx2', type: 'reverb', params: {} }]
+    return JSON.parse(JSON.stringify({ schemaVersion: 12, meta: META, doc }))
+  }
+
+  it('turns name-sorted indices into sample ids, wave indexing the waveform-sized samples', () => {
+    const raw = v12()
+    const result = migrate(raw)
+    const inst = Object.values(result.doc.entities.instruments).find((i) => i.kind === 'modular') as any
+    expect(inst.modules.s1.sampleId).toBe('c') // index 1 of Alpha, Beta, Gamma
+    expect(inst.modules.w1.sampleId).toBe('a') // index 1 of Beta, Gamma
+    expect(inst.modules.c1.sampleId).toBe('b') // missing index meant 0
+    expect(inst.modules.x1.sampleId).toBeUndefined()
+    expect(inst.modules.s1.params).toEqual({ gain: 1 })
+    expect(result.doc.entities.mixChannels.master.effects[0]).toMatchObject({ sampleId: 'a', params: { mix: 1 } })
+    expect(result.doc.entities.mixChannels.master.effects[0].params).not.toHaveProperty('sampleIndex')
+    expect(result.doc.entities.mixChannels.master.effects[1]).toBe(raw.doc.entities.mixChannels.master.effects[1])
+    expect(result.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
+  })
+})
+
 describe('migration v5→v6', () => {
   it('strips effect/effectValue from cells', () => {
     const v5 = {

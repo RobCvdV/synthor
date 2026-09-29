@@ -85,7 +85,7 @@ describe('defaultParams', () => {
 
   it('conv defaults to a half-dry IR mix with unity gain', () => {
     const p = defaultParams('conv')
-    expect(p.sampleIndex).toBe(0)
+    expect(p.sampleIndex).toBeUndefined()
     expect(p.mix).toBe(0.5)
     expect(p.gain).toBe(1)
     expect(p.width).toBe(1)
@@ -121,8 +121,8 @@ describe('defaultParams', () => {
     expect(defaultParams('noise')).toEqual({ mode: 0, level: 1 })
   })
 
-  it('wave defaults to the first sample, no finetune', () => {
-    expect(defaultParams('wave')).toEqual({ sampleIndex: 0, finetune: 0, gain: 1 })
+  it('wave defaults to no finetune (its sample is Module.sampleId)', () => {
+    expect(defaultParams('wave')).toEqual({ finetune: 0, gain: 1 })
   })
 
   it('comp defaults to soft knee, −20 dB, 4:1', () => {

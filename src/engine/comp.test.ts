@@ -46,7 +46,7 @@ function mockParamRefs() {
 const compile = (inst: ModularInstrument, paramRefs?: ReturnType<typeof mockParamRefs>) =>
   compileModular(
     inst, el.const({ value: 440 }), el.const({ value: 1 }), 'voice',
-    [], 1, {}, undefined, paramRefs as never,
+    {}, 1, {}, undefined, paramRefs as never,
   )
 
 /** Visit every Elementary node in a repr tree (see delayTime.test.ts). */

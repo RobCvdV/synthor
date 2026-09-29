@@ -172,7 +172,7 @@ describe('stereo delay/echo as modular modules', () => {
     const refs = mockParamRefs()
     compileModular(
       makePatch('echoS', DEFAULT_ECHOS), el.const({ value: 440 }), el.in({ channel: 0 }), 'voice',
-      [], 1, {}, undefined, refs as never, undefined, ROW_HZ,
+      {}, 1, {}, undefined, refs as never, undefined, ROW_HZ,
     )
     expect(refs.keys.has('i1:ds:pingpong')).toBe(true)
     expect(refs.keys.has('i1:ds:feedback')).toBe(true)
@@ -183,7 +183,7 @@ describe('stereo delay/echo as modular modules', () => {
     const { left, right } = compileModular(
       makePatch('echoS', { ...DEFAULT_ECHOS, pingpong: 1 }),
       el.const({ value: 440 }), el.in({ channel: 0 }), 'voice',
-      [], 1, {}, undefined, undefined, undefined, ROW_HZ,
+      {}, 1, {}, undefined, undefined, undefined, ROW_HZ,
     )
     // Single input channel for the gate impulse.
     const r = new OfflineRenderer()

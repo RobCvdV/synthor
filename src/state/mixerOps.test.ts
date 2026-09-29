@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
 import { useDocStore } from './docStore'
-import { createDefaultDoc } from '../domain/factory'
+import { createDefaultDoc, newSampleEntity } from '../domain/factory'
 import { setActiveParamRefs, type ParamRefRegistry } from '../audio/paramRefs'
 import { MASTER_CHANNEL_ID } from '../domain/types'
 
@@ -153,5 +153,19 @@ describe('mixerOps', () => {
 
   afterEach(() => {
     setActiveParamRefs(null)
+  })
+
+  it('addChannelEffect gives conv the first sample; setChannelEffectSample repoints it', () => {
+    const store = useDocStore.getState()
+    store.addSampleEntity(newSampleEntity('Room', 'h-room', 'room.wav', 48000, 1, 4800))
+    store.addSampleEntity(newSampleEntity('Hall', 'h-hall', 'hall.wav', 48000, 1, 4800))
+    const ids = Object.fromEntries(Object.values(doc().entities.samples).map((smp) => [smp.name, smp.id]))
+    const fxId = store.addChannelEffect(MASTER_CHANNEL_ID, 'conv')
+    const fx = () => doc().entities.mixChannels[MASTER_CHANNEL_ID].effects.find((e) => e.id === fxId)!
+    expect(fx().sampleId).toBe(ids.Hall)
+    store.setChannelEffectSample(MASTER_CHANNEL_ID, fxId, ids.Room)
+    expect(fx().sampleId).toBe(ids.Room)
+    store.setChannelEffectSample(MASTER_CHANNEL_ID, fxId, 'nope')
+    expect(fx().sampleId).toBe(ids.Room)
   })
 })

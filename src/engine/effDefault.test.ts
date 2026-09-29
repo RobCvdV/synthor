@@ -37,7 +37,7 @@ async function renderSettled(pair: { left: NodeRepr_t; right: NodeRepr_t }): Pro
 
 describe('eff module Default param', () => {
   const compile = (inst: ModularInstrument, inletSignals: Record<string, NodeRepr_t> = {}, midiCcValues?: Record<number, number>) =>
-    compileModular(inst, el.const({ value: 440 }), el.const({ value: 1 }), 'voice', [], 1, inletSignals, midiCcValues)
+    compileModular(inst, el.const({ value: 440 }), el.const({ value: 1 }), 'voice', {}, 1, inletSignals, midiCcValues)
 
   it('outputs the Default value when no lane and no CC drive the inlet', async () => {
     const { left, right } = compile(makePatch({ cc: 0, default: 0.4 }))

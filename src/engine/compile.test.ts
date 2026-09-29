@@ -360,12 +360,13 @@ describe('buildSampleMeta', () => {
     ({ id, name, hash, originalName: `${name}.wav`, sampleRate: 48000, channels: 1, frames: 480 })
   const samples = { a: sample('a', 'Bass', 'h-bass'), b: sample('b', 'Alpha', 'h-alpha'), c: sample('c', 'Crash', 'h-crash') }
 
-  it('lists samples by name', () => {
-    expect(buildSampleMeta(samples).map((m) => m.hash)).toEqual(['h-alpha', 'h-bass', 'h-crash'])
+  it('keys sample metadata by sample id', () => {
+    const meta = buildSampleMeta(samples)
+    expect(Object.fromEntries(Object.entries(meta).map(([id, m]) => [id, m.hash]))).toEqual({ a: 'h-bass', b: 'h-alpha', c: 'h-crash' })
   })
 
-  it('keeps an unloaded sample at its index so later samples do not shift', () => {
+  it('blanks the hash of a sample not yet loaded', () => {
     const meta = buildSampleMeta(samples, new Set(['h-bass', 'h-crash']))
-    expect(meta.map((m) => m.hash)).toEqual(['', 'h-bass', 'h-crash'])
+    expect([meta.a.hash, meta.b.hash, meta.c.hash]).toEqual(['h-bass', '', 'h-crash'])
   })
 })

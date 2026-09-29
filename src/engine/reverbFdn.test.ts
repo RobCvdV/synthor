@@ -94,7 +94,7 @@ const compilePatch = (params: Record<string, number> = {}, refs?: ReturnType<typ
   compileModular(
     makeReverbPatch({ ...REVERB_DEFAULTS, ...params }),
     el.const({ value: 440 }), el.const({ value: 1 }), 'voice',
-    [], 1, {}, undefined, refs as never,
+    {}, 1, {}, undefined, refs as never,
   )
 
 /** Collect topology facts across both output channels — walking one side

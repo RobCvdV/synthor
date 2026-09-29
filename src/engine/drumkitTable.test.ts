@@ -26,7 +26,7 @@ for (let i = 495; i <= 505; i++) kick[i] = 0.7
 const slot: DrumKitSlot = {
   id: 's1', note: 40, sampleId: 'k1', instrumentId: null, baseNote: 60, volume: 1, pan: -1,
 }
-const meta = [{ hash: HASH, channels: 1, sampleRate: SR, frames: FRAMES }]
+const meta = { k1: { hash: HASH, channels: 1, sampleRate: SR, frames: FRAMES } }
 const hashById = { k1: HASH }
 
 /** Render with the gate held for whole blocks listed in `gateBlocks`.
@@ -110,7 +110,7 @@ describe('drumkit table one-shot', () => {
     for (let i = 0; i < 100; i++) kickR[i] = (i / 100) * 0.8
     for (let i = 695; i <= 705; i++) kickR[i] = -0.6
     const vfs = { [HASH]: [kick, kickR] }
-    const metaStereo = [{ hash: HASH, channels: 2, sampleRate: SR, frames: FRAMES }]
+    const metaStereo = { k1: { hash: HASH, channels: 2, sampleRate: SR, frames: FRAMES } }
 
     // Render each output in its own renderer (the offline renderer handles
     // the shared subgraph poorly when rendered as two outputs at once).

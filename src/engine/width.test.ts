@@ -170,7 +170,7 @@ describe('width as a modular stereo module', () => {
   const compilePatch = (inst: ModularInstrument, paramRefs?: ReturnType<typeof mockParamRefs>) =>
     compileModular(
       inst, el.const({ value: 440 }), el.const({ value: 1 }), 'voice',
-      [], 1, {}, undefined, paramRefs as never,
+      {}, 1, {}, undefined, paramRefs as never,
     )
 
   const renderPatch = async (inst: ModularInstrument) => {

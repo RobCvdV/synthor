@@ -12,12 +12,13 @@ const META_SHORT_2: SampleMeta = { hash: 'wavehash2', channels: 1, sampleRate: 4
 const META_LONG: SampleMeta = { hash: 'longhash', channels: 1, sampleRate: 44100, frames: 44100 }
 
 /** A minimal patch: note → wave.freq, wave.out → output.inL. */
-function makeWavePatch(params: Record<string, number>): ModularInstrument {
+/** `params.sampleIndex` picks sample `s<index>` from the metadata passed to `compile`. */
+function makeWavePatch({ sampleIndex = 0, ...params }: Record<string, number>): ModularInstrument {
   return {
     id: 'i1', kind: 'modular', name: 'Test',
     modules: {
       note: { id: 'note', type: 'note', params: {}, pos: { x: 0, y: 0 } },
-      wv: { id: 'wv', type: 'wave', params, pos: { x: 0, y: 0 } },
+      wv: { id: 'wv', type: 'wave', params, sampleId: `s${sampleIndex}`, pos: { x: 0, y: 0 } },
       out: { id: 'out', type: 'output', params: { gain: 1 }, pos: { x: 0, y: 0 } },
     },
     connections: {
@@ -51,7 +52,7 @@ const compile = (
 ) =>
   compileModular(
     inst, el.const({ value: freqHz }), el.const({ value: 0 }), 'voice',
-    sampleMeta, 1, {}, undefined, paramRefs as never,
+    Object.fromEntries(sampleMeta.map((m, i) => [`s${i}`, m])), 1, {}, undefined, paramRefs as never,
   )
 
 /** Visit every Elementary node in a repr tree (see delayTime.test.ts). */
@@ -132,18 +133,18 @@ describe('wave module structure', () => {
   })
 
   it('filters out samples longer than the max waveform length', () => {
-    // The long sample is ineligible, so index 0 resolves to nothing.
+    // The long sample is ineligible, so referencing it plays nothing.
     const { left } = compile(makeWavePatch({ sampleIndex: 0, finetune: 0, gain: 1 }), 440, [META_LONG])
     expect(collect(left).some((n) => ['table', 'mc.table'].includes(n.kind as string))).toBe(false)
 
-    // With both, the index maps into the FILTERED list: 0 → short, 1 → none.
+    // With both: the short one plays, the long one stays silent.
     const both0 = compile(makeWavePatch({ sampleIndex: 0, finetune: 0, gain: 1 }), 440, [META_SHORT, META_LONG])
     expect(collect(both0.left).find((n) => ['table', 'mc.table'].includes(n.kind as string))?.props.path).toBe('wavehash')
     const both1 = compile(makeWavePatch({ sampleIndex: 1, finetune: 0, gain: 1 }), 440, [META_SHORT, META_LONG])
     expect(collect(both1.left).some((n) => ['table', 'mc.table'].includes(n.kind as string))).toBe(false)
   })
 
-  it('switching sampleIndex swaps the table path', () => {
+  it('switching the sample swaps the table path', () => {
     const { left } = compile(makeWavePatch({ sampleIndex: 1, finetune: 0, gain: 1 }), 440, [META_SHORT, META_SHORT_2])
     expect(collect(left).find((n) => ['table', 'mc.table'].includes(n.kind as string))?.props.path).toBe('wavehash2')
   })

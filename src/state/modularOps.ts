@@ -1,6 +1,7 @@
 import type { Connection, Id, Module, ModuleType, Port } from '../domain/types'
 import { defaultParams, MODULE_DEFS } from '../domain/moduleDefs'
 import { makeId, nextEffName } from '../domain/factory'
+import { defaultSampleId } from '../domain/sampleChoices'
 import { updateParamRef } from '../audio/paramRefs'
 import type { DocState } from './docStore'
 
@@ -14,6 +15,8 @@ export interface ModularOps {
   /** Batch-move multiple modules in one undo step (multi-node drag stop). */
   moveModules: (instrumentId: Id, moves: Array<{ id: Id; pos: { x: number; y: number } }>) => void
   setModuleParam: (instrumentId: Id, moduleId: Id, key: string, value: number) => void
+  /** Points a sample / wave / conv module at a sample. */
+  setModuleSample: (instrumentId: Id, moduleId: Id, sampleId: Id) => void
   /** Persist a module param to the store + undo history WITHOUT triggering
    *  a graph recompile. Use on slider mouseUp after the fast path already
    *  updated the ref. */
@@ -70,7 +73,16 @@ export function modularOps(get: () => DocState): ModularOps {
         if (type === 'eff') {
           mod.name = nextEffName(Object.values(inst.modules).map((m) => m.name ?? ''))
         }
+        if (MODULE_DEFS[type].samplePicker) mod.sampleId = defaultSampleId(type, draft.entities.samples)
         inst.modules[id] = mod
+      }),
+
+    setModuleSample: (instrumentId, moduleId, sampleId) =>
+      get().mutate((draft) => {
+        const inst = draft.entities.instruments[instrumentId]
+        if (inst?.kind !== 'modular' || !draft.entities.samples[sampleId]) return
+        const mod = inst.modules[moduleId]
+        if (mod) mod.sampleId = sampleId
       }),
 
     renameModule: (instrumentId, moduleId, name) =>

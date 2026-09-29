@@ -1,6 +1,6 @@
 import { el, type NodeRepr_t } from '@elemaudio/core'
 import { makeSampleLoop, makeSampleOneShot } from './samplePlay'
-import type { Connection, Module, ModularInstrument } from '../domain/types'
+import type { Connection, Id, Module, ModularInstrument } from '../domain/types'
 import { midiToFreq } from '../domain/notes'
 import { fitsWaveform } from '../domain/sampleChoices'
 import { makeFdnReverb } from './reverbFdn'
@@ -95,8 +95,8 @@ export function compileModular(
   freq: Node,
   gate: Node,
   keyPrefix: string = inst.id,
-  /** Sample metadata indexed by sampleIndex param — sorted by sample name. */
-  sampleMeta: SampleMeta[] = [],
+  /** Sample metadata by sample id (`Module.sampleId`). */
+  sampleMeta: Record<Id, SampleMeta> = {},
   /** Per-cell volume signal (0..1), available to the `volume` source module. */
   vol: Node = 1,
   /** Per-effect-lane seq2 signals for named instrument inlets, keyed by
@@ -582,9 +582,7 @@ export function compileModular(
           memo.set(`${m.id}:outR`, r)
           return inputL
         }
-        // Resolve sample index → VFS path (hash), same as sample/wave.
-        const idx = Math.round(p.sampleIndex ?? 0)
-        const meta = idx >= 0 && idx < sampleMeta.length ? sampleMeta[idx] : null
+        const meta = m.sampleId ? sampleMeta[m.sampleId] : undefined
         // Missing/unloaded IR → dry passthrough rather than silence.
         if (!meta?.hash) {
           memo.set(`${m.id}:outR`, r)
@@ -672,9 +670,7 @@ export function compileModular(
         const gateSig = inlet(m.id, 'gate') ?? SILENCE
         const freqIn = inlet(m.id, 'freq')
 
-        // Resolve sample index → VFS path (hash) + channel count.
-        const idx = Math.round(p.sampleIndex ?? 0)
-        const meta = idx >= 0 && idx < sampleMeta.length ? sampleMeta[idx] : null
+        const meta = m.sampleId ? sampleMeta[m.sampleId] : undefined
         if (!meta?.hash) return SILENCE
 
         const pitchTrack = Math.round(p.pitchTrack ?? 1)
@@ -724,12 +720,9 @@ export function compileModular(
         const freqIn = inlet(m.id, 'freq')
         // The whole sample is one cycle, so the phasor runs directly at the
         // requested frequency — the sample's native rate/length is irrelevant.
-        // Same eligibility as the UI's sampleChoices.
-        const waveMeta = sampleMeta.filter(fitsWaveform)
-        const idx = Math.round(p.sampleIndex ?? 0)
-        const meta = idx >= 0 && idx < waveMeta.length ? waveMeta[idx] : null
-        // Also covers stale patches whose sample no longer qualifies.
-        if (!meta?.hash) return SILENCE
+        const meta = m.sampleId ? sampleMeta[m.sampleId] : undefined
+        // Same eligibility as the UI's sampleChoices; also covers a sample that no longer qualifies.
+        if (!meta?.hash || !fitsWaveform(meta)) return SILENCE
 
         const gain = kconst(key('gain'), p.gain ?? 1)
         const finetuneRef = kconst(key('finetune'), p.finetune ?? 0)

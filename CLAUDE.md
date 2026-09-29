@@ -65,7 +65,8 @@ Chains are ordered; each hop is verified. Skipping the tail is how features half
 - **TrackerGrid `muted`/`soloed` props are keyed 1-based** (`muted[ti + 1]`), not by track id.
 - **Shared slots are a known limitation, not a bug:** two patterns can map different track numbers to the same (instrument, slot); mute refs are static, so current-pattern-last wins.
 - **The host is inert until a user gesture** (autoplay policy) — synthetic/synthesized key events won't start the AudioContext.
-- **Elementary VFS keys are content hashes**; changing a conv/wave/sample module's `sampleIndex` is a structural change (forces recompile + VFS path change).
+- **Samples are referenced by id** (`Module.sampleId`, `ChannelEffect.sampleId`, `DrumKitSlot.sampleId`), never by position in a sorted list — adding or renaming a sample must not repoint anything. Modules with a `samplePicker` in `MODULE_DEFS` get one.
+- **Elementary VFS keys are content hashes**; changing a conv/wave/sample module's `sampleId` is a structural change (forces recompile + VFS path change).
 
 ## Electron build (feature/electron-build)
 
