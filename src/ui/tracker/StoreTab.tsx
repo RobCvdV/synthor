@@ -3,12 +3,13 @@ import { useProjectStore } from '../../state/projectStore'
 import { askConfirm } from '../../state/dialogStore'
 import { deleteSong, listSongs } from '../../persist/songStore'
 import { hasStorage } from '../../persist/storage'
+import { electronApi } from '../../persist/electronBridge'
 import { currentSongFile, saveCurrentSong } from '../../persist/saveCurrent'
 import { serializeSong, type SongFile } from '../../persist/serialize'
 import { exportSongZip } from '../../persist/songExport'
 import { downloadBlob } from '../download'
 import { pickFiles } from '../pickFiles'
-import { saveLabel } from '../format'
+import { saveLabel, tildePath } from '../format'
 import { createNewSong, importSongFile, openSavedSong } from '../songActions'
 import { Button } from '../components/Button'
 
@@ -94,6 +95,7 @@ export function StoreTab({ slug }: { slug: string }) {
       {opfs && (
         <div className="store-list">
           <h4 className="store-list-title">Saved Songs</h4>
+          <StorageLocation />
           {songs.length === 0 && <p className="muted">No saved songs yet.</p>}
           <ul className="store-song-list">
             {songs.map((s) => (
@@ -121,5 +123,17 @@ export function StoreTab({ slug }: { slug: string }) {
         </div>
       )}
     </div>
+  )
+}
+
+/** Where saved songs live: the library folder in Electron, browser storage on the web. */
+export function StorageLocation() {
+  const api = electronApi()
+  if (!api) return <p className="muted store-location">Stored in this browser</p>
+  return (
+    <p className="muted store-location">
+      <span className="store-location-path" title={api.libraryPath}>{tildePath(api.libraryPath)}</span>
+      <Button size="sm" onClick={() => void api.revealLibrary()} title="Show the library folder">Reveal</Button>
+    </p>
   )
 }

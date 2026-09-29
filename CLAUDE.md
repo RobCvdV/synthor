@@ -73,7 +73,11 @@ Chains are ordered; each hop is verified. Skipping the tail is how features half
 - The renderer needs COOP/COEP headers — `electron/main.ts` injects them for `file://` responses inside `app.whenReady().then(…)` (touching `session.defaultSession` earlier hangs the main process).
 - `index.html` guards the service-worker registration with `location.protocol !== 'file:'`.
 - The Electron bundle should hash-match the web build of the same commit (`index-*.js`) — a mismatch means a stale vite dep cache (`node_modules/.vite`): clear it and rebuild.
-- OPFS storage is per-origin — the Electron (`file://`) app does not share songs with the https site.
+- Storage goes through `persist/storage.ts` (`StorageBackend`): OPFS on the web, the library folder (`~/Documents/Synthor`, main-process `electron/libraryFs.ts`) in Electron. Never call OPFS or `fs` directly from persist modules.
+- Electron app settings (incl. the appStore key-value store) live in `userData/settings.json` (`electron/appSettings.ts`), loaded synchronously by the preload so the store hydrates before first render.
+- The preload is CommonJS (`electron/preload.cts` → `preload.cjs`) — Electron ignores `"type": "module"` for preloads. Its surface is typed in `src/persist/electronBridge.ts`; change both together.
+- On first launch per renderer origin, browser-stored (OPFS) songs are copied into the library (`persist/importBrowserStorage.ts`); dev (`localhost:5193`) and packaged (`file://`) are separate origins.
+- `SYNTHOR_USER_DATA=<dir>` runs Electron on an isolated profile (put a `settings.json` there with `libraryPath` to redirect the library too).
 - Deploys: push a `deploy-vx.y.z` tag → web deploy (FTP) + Electron release (GitHub Releases) workflows.
 
 ## Testing — required on every code change

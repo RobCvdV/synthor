@@ -1,0 +1,5 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`StorageLocation > names browser storage on the web 1`] = `"<p class="muted store-location">Stored in this browser</p>"`;
+
+exports[`StorageLocation > shows the library folder in Electron and reveals it 1`] = `"<p class="muted store-location"><span class="store-location-path" title="/Users/me/Documents/Synthor">~/Documents/Synthor</span><button type="button" class="button sm" title="Show the library folder">Reveal</button></p>"`;

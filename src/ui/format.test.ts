@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { clamp, formatDuration, formatSize, round, saveLabel } from './format'
+import { clamp, formatDuration, formatSize, round, saveLabel, tildePath } from './format'
 
 describe('round', () => {
   it('renders integers from 100 up', () => {
@@ -79,5 +79,17 @@ describe('clamp', () => {
   it('clamps above hi', () => {
     expect(clamp(1.1, 0, 1)).toBe(1)
     expect(clamp(200, -1, 1)).toBe(1)
+  })
+})
+
+describe('tildePath', () => {
+  it('abbreviates macOS and Linux home folders', () => {
+    expect(tildePath('/Users/me/Documents/Synthor')).toBe('~/Documents/Synthor')
+    expect(tildePath('/home/me/Documents/Synthor')).toBe('~/Documents/Synthor')
+  })
+
+  it('leaves other paths alone', () => {
+    expect(tildePath('/Volumes/Music/Synthor')).toBe('/Volumes/Music/Synthor')
+    expect(tildePath('C:\\Users\\me\\Documents\\Synthor')).toBe('C:\\Users\\me\\Documents\\Synthor')
   })
 })

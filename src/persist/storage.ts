@@ -3,6 +3,8 @@
  * `/`-separated and relative to the storage root (e.g. `songs/demo/song.json`);
  * the backend decides where that root lives (OPFS, a disk folder, memory).
  */
+import { createElectronBackend } from './electronBackend'
+import { electronApi } from './electronBridge'
 import { createOpfsBackend, isOpfsSupported } from './opfsBackend'
 
 export interface StorageEntry {
@@ -39,9 +41,15 @@ export function joinPath(...parts: string[]): string {
 
 let active: StorageBackend | null | undefined
 
+function defaultBackend(): StorageBackend | null {
+  const api = electronApi()
+  if (api) return createElectronBackend(api.storage)
+  return isOpfsSupported() ? createOpfsBackend() : null
+}
+
 /** The active backend, or null where no persistent storage exists (tests, old browsers). */
 export function storage(): StorageBackend | null {
-  if (active === undefined) active = isOpfsSupported() ? createOpfsBackend() : null
+  if (active === undefined) active = defaultBackend()
   return active
 }
 
@@ -64,19 +72,20 @@ export function setStorage(backend: StorageBackend | null): void {
 /** Copies `from` into `to` (existing files at `to` win), then deletes `from`. */
 export async function mergeMove(s: StorageBackend, from: string, to: string): Promise<void> {
   if (!await s.exists(from)) return
-  await copyTree(s, from, to)
+  await copyTree(s, from, s, to)
   await s.remove(from)
 }
 
-async function copyTree(s: StorageBackend, from: string, to: string): Promise<void> {
-  for (const entry of await s.list(from)) {
-    const src = joinPath(from, entry.name)
-    const dst = joinPath(to, entry.name)
+/** Copies a tree between (possibly different) backends; existing files at the destination win. */
+export async function copyTree(src: StorageBackend, from: string, dst: StorageBackend, to: string): Promise<void> {
+  for (const entry of await src.list(from)) {
+    const srcPath = joinPath(from, entry.name)
+    const dstPath = joinPath(to, entry.name)
     if (entry.kind === 'directory') {
-      await copyTree(s, src, dst)
-    } else if (!await s.exists(dst)) {
-      const data = await s.readBytes(src)
-      if (data) await s.write(dst, data)
+      await copyTree(src, srcPath, dst, dstPath)
+    } else if (!await dst.exists(dstPath)) {
+      const data = await src.readBytes(srcPath)
+      if (data) await dst.write(dstPath, data)
     }
   }
 }

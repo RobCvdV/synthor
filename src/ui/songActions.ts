@@ -2,6 +2,7 @@ import { createDefaultDoc } from '../domain/factory'
 import { hasStorage } from '../persist/storage'
 import { listSongs, loadRecent, readSong, saveRecent, slugify } from '../persist/songStore'
 import { saveCurrentSong } from '../persist/saveCurrent'
+import { importBrowserStorageOnce } from '../persist/importBrowserStorage'
 import { importSongZip } from '../persist/songExport'
 import { songNameConflict, uniqueSongName } from '../persist/songNames'
 import { clampCursor, useAppStore } from '../state/appStore'
@@ -80,6 +81,7 @@ export async function importSongFile(data: ArrayBuffer): Promise<void> {
 /** Opens the song from the last session, or names the default song; then fits the saved UI state to it. */
 export async function loadStartupSong(): Promise<void> {
   try {
+    await importBrowserStorageOnce()
     const slug = await loadRecent()
     const file = slug ? await readSong(slug) : null
     if (slug && file) {
