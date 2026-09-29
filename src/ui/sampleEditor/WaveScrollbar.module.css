@@ -1,0 +1,19 @@
+.track {
+  height: 10px;
+  position: relative;
+  flex: none;
+  background: #14181f;
+  border: 1px solid #222;
+  border-radius: 5px;
+}
+.disabled { opacity: 0.4; }
+
+.thumb {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  border-radius: 4px;
+  background: var(--cursor);
+  cursor: grab;
+}
+.thumb:hover { background: var(--accent); }

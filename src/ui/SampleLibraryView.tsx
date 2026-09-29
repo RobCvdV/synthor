@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useDocStore } from '../state/docStore'
 import { useProjectStore } from '../state/projectStore'
 import { useAppStore } from '../state/appStore'
@@ -8,7 +8,8 @@ import { newSampleEntity } from '../domain/factory'
 import { samplePlaybackRate } from '../domain/notes'
 import { codeToSemitone, isEditableTarget } from './keymap'
 import { formatDuration, formatSize } from './format'
-import { SampleEditor } from './SampleEditor'
+import { pickFiles } from './pickFiles'
+import { SampleEditor } from './sampleEditor/SampleEditor'
 import { CreateSampleDialog } from './CreateSampleDialog'
 import { sampleDialogOpenRef } from './sampleDialogRef'
 import type { AudioHost } from '../audio/host'
@@ -36,8 +37,6 @@ export function SampleLibraryView({ host }: Props) {
   const slug = useProjectStore((s) => s.slug)
   const selectedSampleId = useAppStore((s) => s.selectedSampleId)
   const setSelectedSampleId = useAppStore((s) => s.setSelectedSampleId)
-  const fileRef = useRef<HTMLInputElement>(null)
-  const relinkRef = useRef<{ id: string; oldHash: string } | null>(null)
 
 
   /** Sample loaded in the editor below the list (null = editor closed). */
@@ -45,9 +44,8 @@ export function SampleLibraryView({ host }: Props) {
   const [createDialog, setCreateDialog] = useState(false)
 
   const doImport = useCallback(async () => {
-    const files = fileRef.current?.files
-    if (!files || files.length === 0) return
-    for (const file of Array.from(files)) {
+    const files = await pickFiles({ accept: 'audio/*', multiple: true })
+    for (const file of files) {
       try {
         const loaded = await loadAudioFile(file)
         const entity = newSampleEntity(
@@ -65,7 +63,6 @@ export function SampleLibraryView({ host }: Props) {
         console.error('Failed to import sample:', file.name, err)
       }
     }
-    if (fileRef.current) fileRef.current.value = ''
   }, [slug, addSampleEntity])
 
   const doDelete = useCallback(
@@ -76,10 +73,10 @@ export function SampleLibraryView({ host }: Props) {
     [slug, removeSampleEntity],
   )
 
-  const doRelink = useCallback(async () => {
-    const relinkInfo = relinkRef.current
-    if (!relinkInfo || !slug) return
-    const file = fileRef.current?.files?.[0]
+  /** Replaces a sample's audio file, e.g. when its binary went missing. */
+  const doRelink = useCallback(async (relinkInfo: { id: string; oldHash: string }) => {
+    if (!slug) return
+    const [file] = await pickFiles({ accept: 'audio/*' })
     if (!file) return
 
     try {
@@ -121,8 +118,6 @@ export function SampleLibraryView({ host }: Props) {
     } catch (err) {
       console.error('Failed to relink sample:', err)
     }
-    relinkRef.current = null
-    if (fileRef.current) fileRef.current.value = ''
   }, [slug, host, replaceSampleAsset])
 
   /** One-shot preview via plain Web Audio (host.ctx → destination). */
@@ -185,23 +180,11 @@ export function SampleLibraryView({ host }: Props) {
   return (
     <div className={'sample-library-view' + (editingId ? ' has-editor' : '')}>
       <div className="slv-toolbar">
-        <button onClick={() => fileRef.current?.click()}>Import Samples</button>
+        <button onClick={() => void doImport()}>Import Samples</button>
         <button onClick={() => setCreateDialog(true)}>Create Sample…</button>
         <span className="muted">{samples.length} sample{samples.length === 1 ? '' : 's'}</span>
         <span className="spacer" />
         <span className="muted">Play keys to preview (C-4 = original pitch)</span>
-        <input
-          ref={fileRef}
-          type="file"
-          accept="audio/*"
-          multiple
-          hidden
-          onChange={() => {
-            // If relink is pending, handle that; otherwise import.
-            if (relinkRef.current) doRelink()
-            else doImport()
-          }}
-        />
       </div>
       {samples.length === 0 ? (
         <div className="slv-empty">
@@ -245,10 +228,7 @@ export function SampleLibraryView({ host }: Props) {
                       <span
                         title={'Click to replace' + (missing ? ' (binary missing)' : '')}
                         className="relink-target"
-                        onClick={() => {
-                          relinkRef.current = { id: s.id, oldHash: s.hash }
-                          fileRef.current?.click()
-                        }}
+                        onClick={() => void doRelink({ id: s.id, oldHash: s.hash })}
                       >
                         {s.originalName}
                       </span>

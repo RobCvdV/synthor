@@ -1,0 +1,13 @@
+.toggle {
+  background: none;
+  border: 1px solid var(--line);
+  color: #3a9;
+  border-radius: 3px;
+  padding: 1px 7px;
+  font-size: 13px;
+  line-height: 16px;
+  cursor: pointer;
+}
+.toggle:hover { border-color: var(--accent); }
+.off { color: #4a5568; }
+.off:hover { color: #718096; border-color: #555; }

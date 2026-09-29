@@ -4,6 +4,7 @@ import { useAppStore } from '../../state/appStore'
 import { useTransportStore } from '../../state/transportStore'
 import { useAudioStore } from '../../state/audioStore'
 import { useProjectStore } from '../../state/projectStore'
+import { useDialogStore } from '../../state/dialogStore'
 import type { AudioHost } from '../../audio/host'
 
 /** Reset every zustand store to its initial state. Call in beforeEach. */
@@ -46,6 +47,7 @@ export function resetStores(): void {
     status: 'idle',
     lastSavedAt: null,
   })
+  useDialogStore.setState({ request: null, resolve: null })
   // appStore is zustand persist — clear localStorage so side effects don't leak
   localStorage.clear()
 }

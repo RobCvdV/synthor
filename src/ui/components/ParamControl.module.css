@@ -1,0 +1,11 @@
+.param { display: block; }
+.head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 2px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.value { color: var(--fg); font-variant-numeric: tabular-nums; }
+.slider { width: 100%; }

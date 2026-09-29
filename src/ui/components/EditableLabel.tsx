@@ -27,7 +27,7 @@ export const EditableLabel = memo(function EditableLabel({
 
   if (!editing) {
     return (
-      <span className={className} title={title ?? 'Double-click to rename'} onDoubleClick={startEdit}>
+      <span className={className} title={title ?? 'Double-click to rename'} onDoubleClick={(e) => { e.stopPropagation(); startEdit() }}>
         {value}
       </span>
     )
@@ -40,6 +40,7 @@ export const EditableLabel = memo(function EditableLabel({
       defaultValue={value}
       autoFocus
       onFocus={(e) => e.target.select()}
+      onClick={(e) => e.stopPropagation()}
       onBlur={() => { commitOnBlur ? commit() : cancel() }}
       onKeyDown={(e) => {
         if (e.key === 'Enter') commit()

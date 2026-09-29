@@ -1,0 +1,45 @@
+.strip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 80px;
+  flex-shrink: 0;
+  padding: 4px;
+  border: 1px solid #444;
+  border-radius: 4px;
+}
+.selectable { cursor: pointer; border-color: #555; }
+.selected { border-color: var(--selected); box-shadow: 0 0 0 1px var(--selected); }
+
+.instrument { background: #1a1a2e; }
+.sub { background: #1a2e1a; }
+.sub.selected { background: #253525; }
+.master { background: #1a1a3e; }
+.master.selected { background: #252550; }
+
+.actions { display: flex; align-items: center; gap: 1px; width: 100%; min-height: 14px; }
+.actionsEnd { margin-left: auto; display: flex; gap: 1px; }
+.kind { font-size: 8px; color: #888; }
+.name {
+  width: 100%;
+  font-size: 11px;
+  font-weight: bold;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.nameInput { width: 100%; font-size: 10px; text-align: center; }
+
+/* Pushes everything below it to the bottom, so the controls of all strips line up. */
+.spacer { flex: 1; min-height: 4px; }
+
+.muteSolo { display: flex; gap: 4px; margin-top: 2px; }
+.label { font-size: 8px; color: #aaa; }
+.pan { width: 100%; }
+
+/* A fixed share of the strip, so faders neither stretch nor overflow. */
+.fader { flex: 0 1 40%; min-height: 60px; }
+
+/* Always rendered, so strips without a footer still align with those that have one. */
+.footer { height: 18px; width: 100%; margin-top: 2px; flex-shrink: 0; display: flex; }
+.footer > * { flex: 1; min-width: 0; }

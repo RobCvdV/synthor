@@ -1,0 +1,22 @@
+.group { display: flex; align-items: center; gap: 4px; flex: none; }
+
+.bpm {
+  color: var(--fg); font-weight: 600; font-variant-numeric: tabular-nums;
+  cursor: default; min-width: 28px; text-align: right;
+}
+.bpm:hover { color: var(--accent); }
+.bpmInput {
+  background: var(--bg); color: var(--fg); border: 1px solid var(--accent);
+  border-radius: 4px; padding: 2px 4px; font: inherit; font-weight: 600;
+  width: 44px; text-align: right; font-variant-numeric: tabular-nums;
+}
+.bpmInput:focus { outline: none; }
+.unit { color: var(--muted); }
+
+.tap {
+  background: var(--control-bg); color: var(--muted); border: 1px solid var(--control-border);
+  border-radius: 4px; padding: 2px 8px; font: inherit; font-size: 11px;
+  cursor: pointer; transition: background 0.1s;
+}
+.tap:hover { border-color: var(--accent); color: var(--fg); }
+.flash { background: rgb(79 209 197 / 0.3); color: var(--accent); border-color: var(--accent); }

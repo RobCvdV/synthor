@@ -33,10 +33,10 @@ Chains are ordered; each hop is verified. Skipping the tail is how features half
 |---|---|
 | New module type (osc / filter / fx node in the modular editor) | `domain/types.ts` `ModuleType` → `domain/moduleDefs.ts` `MODULE_DEFS` entry (`group` is what puts it in the Add palette) → `engine/modular.ts` `render` case → `persist/serialize.ts` version bump. `ModularEditor` renders from `MODULE_DEFS` — only touch it for a control that isn't a slider |
 | New param on an existing module | `domain/moduleDefs.ts` `params` (the slider is automatic) → read it in that module's `engine/modular.ts` case; via `paramRefs` if it must apply without recompiling |
-| New effect lane (tracker column) | `domain/effects.ts` (`BUILTIN_LANE_TYPES` + `LANE_DEFS`) → `engine/voiceSlotLayout.ts` channel counts → `player/playbackData.ts` (fill the channel + its neutral default) → `src/native/TxSeq.h`, only if it needs sub-row behaviour → `engine/compile.ts` (txSeq outlet read + apply) → `ui/TrackerGrid.tsx` column |
+| New effect lane (tracker column) | `domain/effects.ts` (`BUILTIN_LANE_TYPES` + `LANE_DEFS`) → `engine/voiceSlotLayout.ts` channel counts → `player/playbackData.ts` (fill the channel + its neutral default) → `src/native/TxSeq.h`, only if it needs sub-row behaviour → `engine/compile.ts` (txSeq outlet read + apply) → `ui/tracker/TrackerGrid.tsx` column |
 | New persisted UI preference | `state/appStore.ts`: state + action + **`partialize`** — a key missing from `partialize` silently doesn't persist |
 | Transport / BPM / note timing | `state/transportStore.ts` + `player/` — must not cause a recompile |
-| New keyboard shortcut | the owning keydown handler: `App.tsx` (global; tracker + mixer) or the view's own (`InstrumentsView`, `SampleLibraryView`, `ModularEditor`, `SampleEditor`). `ui/keymap.ts` is only the note layout |
+| New keyboard shortcut | `ui/useAppKeys.ts` (global + mixer), `ui/tracker/useTrackerKeys.ts` (tracker editing; cursor math in `tracker/trackerNav.ts`), or the view's own handler (`InstrumentsView`, `SampleLibraryView`, `ModularEditor`, `SampleEditor`). `ui/keymap.ts` is only the note layout |
 | Save / load / project format | `persist/serialize.ts`: bump `CURRENT_SCHEMA_VERSION` **and** add the `migrate` case |
 | Sample import / edit / storage | `audio/sampleLoader.ts`, `audio/sampleEdit.ts`, `persist/sampleStorage.ts` (OPFS) |
 | Something should change audibly without a recompile | a `paramRefs` ref, not `compileGraph` |
@@ -49,7 +49,7 @@ Chains are ordered; each hop is verified. Skipping the tail is how features half
 - **Voice slots are pre-allocated** per instrument (max concurrent tracks in any pattern); tracks in non-overlapping pattern windows share slots. Mute refs are per slot: `tracker:{instId}:ts:{si}:mute`.
 - **docStore** — Immer `mutate` recipes with undo; `mutateSilent` persists without triggering recompiles (slider drags). Only the `Doc` autosaves (OPFS `song.json`).
 - **appStore** — persisted UI/performance state (localStorage): playMode, view, cursor, selected instrument/sample, **octave** (the single global keyboard range), and **mutedTrackNumbers/soloedTrackNumbers keyed by 1-based Track #**, not track id — so a mute applies to that position in every pattern.
-- **`KeyboardPlayer`** (`audio/keyboardPlayer.ts`) — the one PC-keyboard note player: kit resolution + held-key tracking. App owns the global keydown/keyup listeners; views play through it.
+- **`KeyboardPlayer`** (`audio/keyboardPlayer.ts`) — the one PC-keyboard note player: kit resolution + held-key tracking. `useAppKeys` owns the global keydown/keyup listeners; views play through it.
 
 ## Rules that prevent recurring mistakes
 
@@ -59,9 +59,9 @@ Chains are ordered; each hop is verified. Skipping the tail is how features half
 - **Staccato is block-quantized and handled inside the node** — the graph never consumes the staccato channel.
 - **Recompiles wipe param refs** (`paramRefs.clear()` resets them audible). After any structural recompile, mutes must be re-applied — `useEngine.applyMuteRefs` does this; keep calling it after `host.render`.
 - **Never hand-roll track→slot mapping.** Use `mapPatternTracksToSlots` from `playbackData` — the per-pattern per-instrument counter increments even when a slot exceeds `slotCount`. Mute application and playback data must not drift.
-- **Octave is one global** (`appStore.octave`). No local `useState` copies in views; `-`/`=` is handled once in App's global keydown — a second window listener double-fires.
+- **Octave is one global** (`appStore.octave`). No local `useState` copies in views; `-`/`=` is handled once in `useAppKeys` — a second window listener double-fires.
 - **Note keys are physical codes** (`CODE_TO_SEMITONE`: Z-row + Q-row). `KeyA` is not a piano key.
-- **Keyboard routing per view:** App's keydown handles tracker (writes cells + short pip) and mixer (held notes via KeyboardPlayer); InstrumentsView/SampleLibraryView have their own keydown handlers. Don't add global handling for those views without removing the view's handler.
+- **Keyboard routing per view:** `useAppKeys` handles the mixer (held notes via KeyboardPlayer) and forwards tracker keys to `useTrackerKeys.handleKeyDown` (writes cells + short pip) — the tracker hook has no listener of its own; InstrumentsView/SampleLibraryView have their own keydown handlers. Don't add global handling for those views without removing the view's handler.
 - **TrackerGrid `muted`/`soloed` props are keyed 1-based** (`muted[ti + 1]`), not by track id.
 - **Shared slots are a known limitation, not a bug:** two patterns can map different track numbers to the same (instrument, slot); mute refs are static, so current-pattern-last wins.
 - **The host is inert until a user gesture** (autoplay policy) — synthetic/synthesized key events won't start the AudioContext.
@@ -80,7 +80,7 @@ Chains are ordered; each hop is verified. Skipping the tail is how features half
 
 - Changes in `domain/`, `engine/`, `state/`, `persist/`, `player/playbackData` **ship a vitest** in the same folder. These are pure and have no excuse. Extend the existing `*.test.ts` next to the file rather than starting a parallel one.
 - `src/native/` (C++) is **not unit-tested** — it ships with the vendored renderer. The txSeq node IS covered via the offline renderer in `src/engine/txSeq.test.ts` (SDK-wasm based).
-- UI components ship jsdom/RTL **snapshot tests** colocated in `src/ui/*.test.tsx` with `// @vitest-environment jsdom` and `src/test/setup.ts` stubs. Seed stores via `resetStores()` from `src/ui/test/testUtils.tsx`; avoid locale/date-dependent output. Currently excluded: `App`, `ModularEditor`/`ModuleNode` (xyflow native deps), `SampleEditor` + its dialogs (host/WASM flows), and canvas content (null-ctx guarded).
+- UI components ship jsdom/RTL **snapshot tests** colocated in `src/ui/*.test.tsx` with `// @vitest-environment jsdom` and `src/test/setup.ts` stubs. Seed stores via `resetStores()` from `src/ui/test/testUtils.tsx`; avoid locale/date-dependent output. Currently excluded: `App`, `ModularEditor`/`ModuleNode` (xyflow native deps), the `SampleEditor` shell + its dialogs (host/OPFS/decode flows — its gestures, edit commands and view math are pure modules in `ui/sampleEditor/` and tested), and canvas content (null-ctx guarded).
 - Cover `audio/host`, `midi/`, and any UI logic too coupled for jsdom by `npm run typecheck` plus running the app.
 - New logic that would be awkward to test belongs one layer down as a pure function, not inline in a view. That's what keeps coverage high.
 - A schema change ships a `migrate` test that loads an old-version fixture.
@@ -90,5 +90,5 @@ Chains are ordered; each hop is verified. Skipping the tail is how features half
 
 - Function-first. Classes only for a mutable resource with a lifecycle (`AudioHost`, `KeyboardPlayer`, `ParamRefRegistry`); everything else is pure functions, stores and components. Don't wrap pure modules in classes.
 - Respect layer direction: UI → state → engine → domain. The engine imports no React and no AudioContext.
-- Don't grow `App.tsx` (~850 lines) or `docStore.ts` (~100 lines) — new features get a new module or view, wired in from there.
+- Don't grow `App.tsx` (~140 lines) or `docStore.ts` (~100 lines) — new features get a new module or view, wired in from there.
 - Comments stay short, English, why-not-what.

@@ -2,12 +2,16 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { useDocStore } from '../state/docStore'
 import { useMidiStore } from '../state/midiStore'
-import { MODULE_DEFS, WAVEFORM_MAX_LENGTH_SECONDS } from '../domain/moduleDefs'
+import { MODULE_DEFS } from '../domain/moduleDefs'
+import { sampleChoices } from '../domain/sampleChoices'
 import type { AudioHost } from '../audio/host'
 import type { Id } from '../domain/types'
 import { CLIP_THRESHOLD, drawScope } from './scope'
 import { round } from './format'
-import { ParamSlider } from './components/ParamSlider'
+import { ParamControl } from './components/ParamControl'
+import { useSortedSamples } from './hooks/useSortedSamples'
+import { BypassToggle } from './components/BypassToggle'
+import { EditableLabel } from './components/EditableLabel'
 
 export interface ModuleNodeData {
   instrumentId: Id
@@ -34,7 +38,6 @@ export function ModuleNode({ data }: NodeProps) {
   const removeModule = useDocStore((s) => s.removeModule)
   const renameModule = useDocStore((s) => s.renameModule)
   const [ccLearning, setCcLearning] = useState(false)
-  const [editingName, setEditingName] = useState(false)
   const ccLearningRef = useRef(false)
   ccLearningRef.current = ccLearning
 
@@ -61,30 +64,11 @@ export function ModuleNode({ data }: NodeProps) {
   const isInput = def?.inlets.length === 0 && def?.outlets.length > 0
   const hasBypass = def?.params.some((p) => p.key === 'bypass') ?? false
   const bypassed = hasBypass && (module?.params.bypass ?? 0) === 1
-  const sampleEntities = useDocStore((s) => s.doc.entities.samples)
-  const samples = useMemo(
-    () => Object.values(sampleEntities).sort((a, b) => a.name.localeCompare(b.name)),
-    [sampleEntities],
+  const sortedSamples = useSortedSamples()
+  const sampleNames = useMemo(
+    () => (module ? sampleChoices(module.type, sortedSamples).map((smp) => smp.name) : []),
+    [module, sortedSamples],
   )
-  const sampleLabels = samples.map((s) => s.name)
-  // Dynamically override the sampleIndex param when samples exist. The wave
-  // module only lists samples ≤ WAVEFORM_MAX_LENGTH_SECONDS — the same filter
-  // the engine applies, over the same name-sorted order. conv (IR) lists all.
-  const moduleLabels =
-    module?.type === 'sample' || module?.type === 'conv'
-      ? sampleLabels
-      : module?.type === 'wave'
-        ? samples.filter((s) => s.frames / s.sampleRate <= WAVEFORM_MAX_LENGTH_SECONDS).map((s) => s.name)
-        : undefined
-  const paramOverrides =
-    moduleLabels === undefined
-      ? undefined
-      : new Map<string, { max?: number; enumLabels?: string[] }>([
-          [
-            'sampleIndex',
-            { max: Math.max(0, moduleLabels.length - 1), enumLabels: moduleLabels.length ? moduleLabels : ['(none)'] },
-          ],
-        ])
 
   // --- oscilloscope / clip LED for the output node --------------------
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -135,45 +119,14 @@ export function ModuleNode({ data }: NodeProps) {
           />
         )}
         {isEff ? (
-          editingName ? (
-            <input
-              className="mod-name-input nodrag"
-              defaultValue={module.name ?? ''}
-              autoFocus
-              onFocus={(e) => e.target.select()}
-              onClick={(e) => e.stopPropagation()}
-              onBlur={() => setEditingName(false)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  renameModule(instrumentId, moduleId, (e.target as HTMLInputElement).value)
-                  setEditingName(false)
-                }
-                if (e.key === 'Escape') setEditingName(false)
-              }}
-            />
-          ) : (
-            <span
-              className="mod-name nodrag"
-              title="Double-click to rename"
-              onDoubleClick={(e) => { e.stopPropagation(); setEditingName(true) }}
-            >
-              {module.name ?? def.label}
-            </span>
-          )
+          <EditableLabel value={module.name ?? def.label} onCommit={(name) => renameModule(instrumentId, moduleId, name)}
+            className="mod-name nodrag" inputClassName="mod-name-input nodrag" />
         ) : (
           <span>{def.label}</span>
         )}
         {hasBypass && (
-          <button
-            className={'mod-bypass-btn nodrag' + (bypassed ? ' off' : '')}
-            title={bypassed ? 'Bypassed — click to engage' : 'Active — click to bypass'}
-            onClick={(e) => {
-              e.preventDefault()
-              setModuleParam(instrumentId, moduleId, 'bypass', bypassed ? 0 : 1)
-            }}
-          >
-            ⏻
-          </button>
+          <BypassToggle className="mod-bypass-pos nodrag" bypassed={bypassed}
+            onToggle={(b) => setModuleParam(instrumentId, moduleId, 'bypass', b ? 1 : 0)} />
         )}
         <span className="mod-head-right">
           {isEff && (
@@ -222,83 +175,47 @@ export function ModuleNode({ data }: NodeProps) {
             if (Math.round(wf) !== pulseIdx) return null
           }
 
-          const value = module.params[p.key] ?? p.default
-          const over = paramOverrides?.get(p.key)
-          const labels = over?.enumLabels ?? p.enumLabels
-          const max = over?.max ?? p.max
+          // Bypass is rendered as a header toggle, not a body slider.
+          if (p.key === 'bypass') return null
 
+          const value = module.params[p.key] ?? p.default
+          const isCcParam = p.key === 'cc' && module.type === 'eff'
           // Companion scale param (e.g. modDepthScale for modDepth).
           const scaleKey = p.showScale ? `${p.key}Scale` : null
           const scaleVal = scaleKey ? (module.params[scaleKey] ?? 1) : null
+          const setScale = (e: React.MouseEvent, delta: number) => {
+            e.preventDefault()
+            const step = e.shiftKey ? 10 : 1
+            setModuleParam(instrumentId, moduleId, scaleKey!, Math.max(1, Math.min(99, scaleVal! + delta * step)))
+          }
 
-          const displayVal = scaleVal !== null ? value * scaleVal : value
-          const isCcParam = p.key === 'cc' && module.type === 'eff'
-          const isBypass = p.key === 'bypass'
-
-          // Bypass is rendered as a header toggle, not a body slider.
-          if (isBypass) return null
+          const readout = isCcParam ? (
+            <>
+              {value === 0 ? 'off' : `CC ${value}`}{' '}
+              <button
+                className={`mod-scale-btn nodrag${ccLearning ? ' active' : ''}`}
+                title={ccLearning ? 'Listening for CC… click to cancel' : 'Learn CC — click then turn a knob'}
+                onClick={(e) => { e.preventDefault(); setCcLearning((v) => !v) }}
+              >
+                {ccLearning ? '…' : 'learn'}
+              </button>
+            </>
+          ) : scaleVal !== null ? (
+            <>
+              {round(value * scaleVal)}{' '}
+              <button className="mod-scale-btn nodrag" title="Decrease scale · hold Shift for −10"
+                onClick={(e) => setScale(e, -1)}>−</button>{' '}
+              <span className="mod-scale-val">{scaleVal}</span>{' '}
+              <button className="mod-scale-btn nodrag" title="Increase scale · hold Shift for +10"
+                onClick={(e) => setScale(e, 1)}>+</button>
+            </>
+          ) : undefined
 
           return (
-            <label className="mod-param" key={p.key}>
-              <span className="mod-param-label">
-                {p.label}
-                <span className="mod-param-value">
-                  {isCcParam ? (
-                    <>
-                      {value === 0 ? 'off' : `CC ${value}`}
-                      {' '}
-                      <button
-                        className={`mod-scale-btn nodrag${ccLearning ? ' active' : ''}`}
-                        title={ccLearning ? 'Listening for CC… click to cancel' : 'Learn CC — click then turn a knob'}
-                        onClick={(e) => { e.preventDefault(); setCcLearning((v) => !v) }}
-                      >
-                        {ccLearning ? '…' : 'learn'}
-                      </button>
-                    </>
-                  ) : labels ? (
-                    labels[Math.round(value)] ?? '?'
-                  ) : (
-                    round(displayVal)
-                  )}
-                  {scaleVal !== null && (
-                    <>{' '}
-                      <button
-                        className="mod-scale-btn nodrag"
-                        title="Decrease scale · hold Shift for −10"
-                        onClick={(e) => {
-                          e.preventDefault()
-                          const step = e.shiftKey ? 10 : 1
-                          setModuleParam(instrumentId, moduleId, scaleKey!, Math.max(1, scaleVal - step))
-                        }}
-                      >
-                        −
-                      </button>
-                      {' '}
-                      <span className="mod-scale-val">{scaleVal}</span>
-                      {' '}
-                      <button
-                        className="mod-scale-btn nodrag"
-                        title="Increase scale · hold Shift for +10"
-                        onClick={(e) => {
-                          e.preventDefault()
-                          const step = e.shiftKey ? 10 : 1
-                          setModuleParam(instrumentId, moduleId, scaleKey!, Math.min(99, scaleVal + step))
-                        }}
-                      >
-                        +
-                      </button>
-                    </>
-                  )}
-                </span>
-              </span>
-              {!isCcParam && (
-                <ParamSlider
-                  className="nodrag"
-                  value={value} min={p.min} max={max} step={p.step}
-                  onChange={(v) => setModuleParamSilent(instrumentId, moduleId, p.key, v)}
-                />
-              )}
-            </label>
+            <ParamControl key={p.key} className="mod-param nodrag" param={p} value={value}
+              choices={p.key === 'sampleIndex' ? sampleNames : undefined}
+              readout={readout} readOnly={isCcParam}
+              onChange={(v) => setModuleParamSilent(instrumentId, moduleId, p.key, v)} />
           )
         })}
         {isOutput && host && (

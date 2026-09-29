@@ -4,6 +4,7 @@ import { usePreviewStore } from '../state/previewStore'
 import { useAppStore } from '../state/appStore'
 import { codeToSemitone, isEditableTarget } from './keymap'
 import { downloadBlob } from './download'
+import { pickFiles } from './pickFiles'
 import { ModularEditor } from './ModularEditor'
 import { DrumKitEditor } from './DrumKitEditor'
 import { InstrumentSettings } from './InstrumentSettings'
@@ -90,8 +91,6 @@ export function InstrumentsView({ host, keyboardPlayer }: { host: AudioHost; key
   /** How many tracks reference each instrument (delete is blocked while > 0). */
   const usage = (id: Id) => Object.values(doc.entities.tracks).filter((t) => t.instrumentId === id).length
 
-  const fileInput = useRef<HTMLInputElement>(null)
-
   /** Serialize the selected instrument and trigger a download. */
   const exportInstrument = () => {
     if (!selected) return
@@ -100,9 +99,8 @@ export function InstrumentsView({ host, keyboardPlayer }: { host: AudioHost; key
   }
 
   /** Parse an instrument file and add it to the current song with fresh ids. */
-  const importInstrument = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0]
-    e.target.value = '' // allow re-importing the same file
+  const importInstrument = async () => {
+    const [f] = await pickFiles({ accept: '.json,application/json' })
     if (!f) return
     try {
       const raw = JSON.parse(await f.text())
@@ -126,7 +124,7 @@ export function InstrumentsView({ host, keyboardPlayer }: { host: AudioHost; key
         <div className="inst-rail-actions">
           <button onClick={() => setSelectedId(addInstrument('modular'))}>+ Synth</button>
           <button onClick={() => setSelectedId(addInstrument('drumkit'))}>+ Drum Kit</button>
-          <button onClick={() => fileInput.current?.click()}>Import</button>
+          <button onClick={() => void importInstrument()}>Import</button>
         </div>
         <ul className="inst-list">
           {instruments.map((inst) => {
@@ -172,14 +170,6 @@ export function InstrumentsView({ host, keyboardPlayer }: { host: AudioHost; key
           onDelete={() => removeInstrument(selected.id)}
         />
       )}
-
-      <input
-        ref={fileInput}
-        type="file"
-        accept=".json,application/json"
-        hidden
-        onChange={(e) => void importInstrument(e)}
-      />
     </div>
   )
 }

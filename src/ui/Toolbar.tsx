@@ -1,8 +1,12 @@
-import { memo, type RefObject } from 'react'
+import { memo } from 'react'
 import { PLAY_MODES, type PlayMode, type View } from '../state/appStore'
 import type { AudioStatus } from '../state/audioStore'
 import type { Instrument } from '../domain/types'
 import { FreePlayToggle } from './FreePlayToggle'
+import { TempoControl } from './TempoControl'
+import { InstrumentSelect } from './components/InstrumentSelect'
+import { EditableLabel } from './components/EditableLabel'
+import { Button } from './components/Button'
 
 interface ToolbarProps {
   playing: boolean
@@ -11,24 +15,8 @@ interface ToolbarProps {
   onTogglePlay: () => void
   playMode: PlayMode
   onSetPlayMode: (mode: PlayMode) => void
-  editingTitle: boolean
-  titleDraft: string
   projectName: string
-  titleInputRef: RefObject<HTMLInputElement | null>
-  onTitleDraftChange: (v: string) => void
-  onCommitTitle: () => void
-  onCancelTitleEdit: () => void
-  onBeginEditTitle: () => void
-  editingTempo: boolean
-  tempoDraft: string
-  bpm: number
-  tapFlash: boolean
-  tempoInputRef: RefObject<HTMLInputElement | null>
-  onTempoDraftChange: (v: string) => void
-  onCommitTempo: () => void
-  onCancelTempoEdit: () => void
-  onBeginEditTempo: () => void
-  onTapBpm: () => void
+  onRenameSong: (name: string) => void
   instruments: Instrument[]
   selectedInstrumentId: string | null
   onSelectInstrument: (id: string) => void
@@ -48,24 +36,8 @@ export const Toolbar = memo(function Toolbar({
   onTogglePlay,
   playMode,
   onSetPlayMode,
-  editingTitle,
-  titleDraft,
   projectName,
-  titleInputRef,
-  onTitleDraftChange,
-  onCommitTitle,
-  onCancelTitleEdit,
-  onBeginEditTitle,
-  editingTempo,
-  tempoDraft,
-  bpm,
-  tapFlash,
-  tempoInputRef,
-  onTempoDraftChange,
-  onCommitTempo,
-  onCancelTempoEdit,
-  onBeginEditTempo,
-  onTapBpm,
+  onRenameSong,
   instruments,
   selectedInstrumentId,
   onSelectInstrument,
@@ -108,86 +80,25 @@ export const Toolbar = memo(function Toolbar({
       </span>
 
       {/* Song title */}
-      {editingTitle ? (
-        <input
-          ref={titleInputRef}
-          className="toolbar-title-input"
-          value={titleDraft}
-          onChange={(e) => onTitleDraftChange(e.target.value)}
-          onBlur={onCommitTitle}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') onCommitTitle()
-            if (e.key === 'Escape') onCancelTitleEdit()
-          }}
-        />
-      ) : (
-        <span
-          className="toolbar-title"
-          title="Double-click to rename"
-          onDoubleClick={onBeginEditTitle}
-        >
-          {projectName}
-        </span>
-      )}
+      <EditableLabel value={projectName} onCommit={onRenameSong} commitOnBlur
+        className="toolbar-title" inputClassName="toolbar-title-input" title="Double-click to rename the song" />
 
       {/* Tempo */}
-      <span className="toolbar-tempo-group">
-        {editingTempo ? (
-          <input
-            ref={tempoInputRef}
-            className="toolbar-tempo-input"
-            value={tempoDraft}
-            onChange={(e) => onTempoDraftChange(e.target.value)}
-            onBlur={onCommitTempo}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') onCommitTempo()
-              if (e.key === 'Escape') onCancelTempoEdit()
-            }}
-          />
-        ) : (
-          <span
-            className="toolbar-tempo"
-            title="Double-click to edit tempo"
-            onDoubleClick={onBeginEditTempo}
-          >
-            {bpm}
-          </span>
-        )}
-        <span className="muted">BPM</span>
-        <button
-          className={'toolbar-tap-btn' + (tapFlash ? ' flash' : '')}
-          title="Tap tempo"
-          onClick={onTapBpm}
-        >
-          TAP
-        </button>
-      </span>
+      <TempoControl />
 
       <span className="spacer" />
 
       {/* Global keyboard instrument */}
-      <select
-        className="midi-inst-select"
-        value={selectedInstrumentId ?? ''}
-        onChange={(e) => {
-          const id = e.target.value
-          if (!id) return
-          onSelectInstrument(id)
-        }}
-        title="Global keyboard instrument — note keys play this in every view"
-      >
-        {instruments.length === 0 && <option value="">No instruments</option>}
-        {instruments.map((inst) => (
-          <option key={inst.id} value={inst.id}>{inst.name}</option>
-        ))}
-      </select>
+      <InstrumentSelect className="midi-inst-select" instruments={instruments}
+        value={selectedInstrumentId ?? ''} onChange={onSelectInstrument} emptyLabel="No instruments"
+        title="Global keyboard instrument — note keys play this in every view" />
       <FreePlayToggle />
 
       {/* Octave group */}
       <span className="toolbar-octave-group" title="Keyboard playable note range">
         <span className="muted toolbar-octave-range">{noteRange}</span>
-        <button className="octbtn" onClick={onOctaveDown}>oct −</button>
-        <button className="octbtn" onClick={onOctaveUp}>oct +</button>
+        <Button onClick={onOctaveDown}>oct −</Button>
+        <Button onClick={onOctaveUp}>oct +</Button>
       </span>
 
       {/* Global panic */}
@@ -200,34 +111,26 @@ export const Toolbar = memo(function Toolbar({
       </button>
 
       {/* Page switch buttons */}
-      <button
-        className={'octbtn' + (view === 'tracker' ? ' active' : '')}
-        onClick={() => onSetView('tracker')}
+      <Button active={view === 'tracker'} onClick={() => onSetView('tracker')}
         title="Tracker (⌘T)"
       >
         Tracker
-      </button>
-      <button
-        className={'octbtn' + (view === 'instruments' ? ' active' : '')}
-        onClick={() => onSetView('instruments')}
+      </Button>
+      <Button active={view === 'instruments'} onClick={() => onSetView('instruments')}
         title="Instruments (⌘I)"
       >
         Instruments
-      </button>
-      <button
-        className={'octbtn' + (view === 'samples' ? ' active' : '')}
-        onClick={() => onSetView('samples')}
+      </Button>
+      <Button active={view === 'samples'} onClick={() => onSetView('samples')}
         title="Samples (⌘S)"
       >
         Samples
-      </button>
-      <button
-        className={'octbtn' + (view === 'mixer' ? ' active' : '')}
-        onClick={() => onSetView('mixer')}
+      </Button>
+      <Button active={view === 'mixer'} onClick={() => onSetView('mixer')}
         title="Mixer (⌘M)"
       >
         Mixer
-      </button>
+      </Button>
     </header>
   )
 })

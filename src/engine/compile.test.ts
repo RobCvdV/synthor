@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createNode, el } from '@elemaudio/core'
-import { compileGraph } from '../engine/compile'
+import { buildSampleMeta, compileGraph } from '../engine/compile'
 import type { RenderContext } from '../engine/compile'
 import { buildArrangement } from '../engine/arrangement'
 import { newTrack, newModularInstrument, createMasterChannel, newDrumKitInstrument } from '../domain/factory'
@@ -352,5 +352,20 @@ describe('compileLiveVoices', () => {
     const refs = mockParamRefs()
     const out = compileGraph(doc, defaultCtx({ paramRefs: refs as any, playing: 0 }))
     expect(out).toBeDefined()
+  })
+})
+
+describe('buildSampleMeta', () => {
+  const sample = (id: string, name: string, hash: string) =>
+    ({ id, name, hash, originalName: `${name}.wav`, sampleRate: 48000, channels: 1, frames: 480 })
+  const samples = { a: sample('a', 'Bass', 'h-bass'), b: sample('b', 'Alpha', 'h-alpha'), c: sample('c', 'Crash', 'h-crash') }
+
+  it('lists samples by name', () => {
+    expect(buildSampleMeta(samples).map((m) => m.hash)).toEqual(['h-alpha', 'h-bass', 'h-crash'])
+  })
+
+  it('keeps an unloaded sample at its index so later samples do not shift', () => {
+    const meta = buildSampleMeta(samples, new Set(['h-bass', 'h-crash']))
+    expect(meta.map((m) => m.hash)).toEqual(['', 'h-bass', 'h-crash'])
   })
 })

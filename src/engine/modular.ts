@@ -2,7 +2,7 @@ import { el, type NodeRepr_t } from '@elemaudio/core'
 import { makeSampleLoop, makeSampleOneShot } from './samplePlay'
 import type { Connection, Module, ModularInstrument } from '../domain/types'
 import { midiToFreq } from '../domain/notes'
-import { WAVEFORM_MAX_LENGTH_SECONDS } from '../domain/moduleDefs'
+import { fitsWaveform } from '../domain/sampleChoices'
 import { makeFdnReverb } from './reverbFdn'
 import type { SampleMeta } from './instruments'
 
@@ -724,9 +724,8 @@ export function compileModular(
         const freqIn = inlet(m.id, 'freq')
         // The whole sample is one cycle, so the phasor runs directly at the
         // requested frequency — the sample's native rate/length is irrelevant.
-        // Only samples ≤ WAVEFORM_MAX_LENGTH_SECONDS are eligible; same filter
-        // the UI dropdown applies over the name-sorted sample list.
-        const waveMeta = sampleMeta.filter((meta) => meta.frames / meta.sampleRate <= WAVEFORM_MAX_LENGTH_SECONDS)
+        // Same eligibility as the UI's sampleChoices.
+        const waveMeta = sampleMeta.filter(fitsWaveform)
         const idx = Math.round(p.sampleIndex ?? 0)
         const meta = idx >= 0 && idx < waveMeta.length ? waveMeta[idx] : null
         // Also covers stale patches whose sample no longer qualifies.

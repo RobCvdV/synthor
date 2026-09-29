@@ -45,6 +45,8 @@ export async function exportSongZip(
 /** Result of importing a `.synthor` or `.json` song file. */
 export interface ImportResult {
   file: SongFile
+  /** Where the samples were written, as chosen by `chooseSlug`. */
+  slug: string
   /** Number of sample binaries extracted from the zip into OPFS. */
   samplesImported: number
 }
@@ -54,19 +56,19 @@ export interface ImportResult {
  *
  * If the data starts with `{` it's treated as plain JSON (backward compat).
  * Otherwise it's unzipped: `song.json` is parsed and every `samples/<hash>.bin`
- * entry is written to OPFS.
+ * entry is written to OPFS under the slug `chooseSlug` picks for the parsed song.
  */
 export async function importSongZip(
   data: ArrayBuffer,
-  slug: string,
+  chooseSlug: (file: SongFile) => string,
 ): Promise<ImportResult> {
   // Detect format: JSON starts with '{', zip starts with 'PK' (0x50 0x4B).
   const view = new Uint8Array(data)
   const isJson = view[0] === 0x7B // '{'
 
   if (isJson) {
-    const text = new TextDecoder().decode(data)
-    return { file: deserializeSong(text), samplesImported: 0 }
+    const file = deserializeSong(new TextDecoder().decode(data))
+    return { file, slug: chooseSlug(file), samplesImported: 0 }
   }
 
   // Unzip
@@ -76,6 +78,7 @@ export async function importSongZip(
 
   const text = strFromU8(songEntry)
   const file = deserializeSong(text)
+  const slug = chooseSlug(file)
   let samplesImported = 0
 
   // Write sample binaries to OPFS
@@ -87,5 +90,5 @@ export async function importSongZip(
     samplesImported++
   }
 
-  return { file, samplesImported }
+  return { file, slug, samplesImported }
 }

@@ -1,0 +1,30 @@
+.view { display: flex; height: 100%; overflow: hidden; }
+
+.strips {
+  flex: 1;
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  min-height: 0;
+  padding: 8px 8px 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+/* Small controls between strips sit at the top instead of stretching. */
+.between { align-self: flex-start; flex-shrink: 0; }
+.hidden { margin-left: 4px; }
+
+.sidebar {
+  width: 280px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  overflow-y: auto;
+  border-left: 2px solid #555;
+  background: #12121f;
+}
+.sidebarTitle { font-size: 13px; font-weight: bold; }
+.sidebarKind { font-size: 10px; color: #888; margin-left: 8px; }
+.empty { font-size: 11px; color: #666; font-style: italic; }

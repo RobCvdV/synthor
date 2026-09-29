@@ -9,17 +9,19 @@ import type { ArrangementItem } from './arrangement'
 import { computeSlotLayouts, slotGlobalIndex, MAX_SLOT_SIGNALS, REGULAR_CH, DRUMKIT_CH, DRUMKIT_EXTRA_CHANNELS } from './voiceSlotLayout'
 import type { InstrumentSlotLayout } from './voiceSlotLayout'
 
-/** Build the sorted sample metadata list for sampleIndex → VFS key + channels resolution. */
-function buildSampleMeta(
+/**
+ * Name-sorted sample metadata, indexed like the UI's sampleIndex choices. A sample not yet
+ * in the VFS keeps its index with an empty hash, so later samples don't shift onto it.
+ */
+export function buildSampleMeta(
   samples: Record<Id, SampleEntity>,
   vfsLoaded?: Set<string>,
   l1Sums?: Record<string, number>,
 ): { hash: string; channels: number; sampleRate: number; frames: number; l1?: number }[] {
   return Object.values(samples)
-    .filter((s) => !vfsLoaded || vfsLoaded.has(s.hash))
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((s) => ({
-      hash: s.hash,
+      hash: !vfsLoaded || vfsLoaded.has(s.hash) ? s.hash : '',
       channels: s.channels,
       sampleRate: s.sampleRate,
       frames: s.frames,

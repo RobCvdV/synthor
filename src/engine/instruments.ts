@@ -11,6 +11,7 @@ import { makeSampleOneShot } from './samplePlay'
  */
 /** Sample metadata needed by the compile pipeline. */
 export interface SampleMeta {
+  /** VFS path; empty while the sample isn't loaded, which callers treat as missing. */
   hash: string
   channels: number
   /** Sample rate in Hz (e.g. 44100). */

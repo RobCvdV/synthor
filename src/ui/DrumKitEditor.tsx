@@ -4,6 +4,11 @@ import type { DrumKitInstrument, Id } from '../domain/types'
 import { getSlotForNote } from '../domain/types'
 import { midiToName } from '../domain/notes'
 import { ParamSlider } from './components/ParamSlider'
+import { ParamControl } from './components/ParamControl'
+import { useSortedSamples } from './hooks/useSortedSamples'
+
+const MASTER_GAIN: ParamDef = { key: 'gain', label: 'Master', min: 0, max: 2, default: 1, step: 0.01 }
+import type { ParamDef } from '../domain/moduleDefs'
 
 /** Note name for display. */
 function noteLabel(midi: number): string {
@@ -54,7 +59,6 @@ function getEffective(note: number, kit: DrumKitInstrument, sampleNames: Record<
 
 /** Editor for a single drum kit: vertical piano keys with per-note assignments. */
 export function DrumKitEditor({ inst }: { inst: DrumKitInstrument }) {
-  const sampleEntities = useDocStore((s) => s.doc.entities.samples)
   const instrumentEntities = useDocStore((s) => s.doc.entities.instruments)
   const addSlot = useDocStore((s) => s.addDrumKitSlot)
   const removeSlot = useDocStore((s) => s.removeDrumKitSlot)
@@ -65,7 +69,7 @@ export function DrumKitEditor({ inst }: { inst: DrumKitInstrument }) {
   const setKitParamSilent = useDocStore((s) => s.setDrumKitParamSilent)
   const setKeyRange = useDocStore((s) => s.setDrumKitKeyRange)
 
-  const samples = useMemo(() => Object.values(sampleEntities).sort((a, b) => a.name.localeCompare(b.name)), [sampleEntities])
+  const samples = useSortedSamples()
   const instruments = useMemo(
     () => Object.values(instrumentEntities).filter((i) => i.id !== inst.id).sort((a, b) => a.name.localeCompare(b.name)),
     [instrumentEntities, inst.id],
@@ -139,16 +143,9 @@ export function DrumKitEditor({ inst }: { inst: DrumKitInstrument }) {
     <div className="drumkit-editor">
       {/* Master gain */}
       <div className="dk-master">
-        <label className="mod-param">
-          <span className="mod-param-label">
-            Master<span className="mod-param-value">{inst.params.gain.toFixed(2)}</span>
-          </span>
-          <ParamSlider
-            value={inst.params.gain} min={0} max={2} step={0.01}
-            onChange={(v) => setKitParamSilent(inst.id, 'gain', v)}
-            onCommit={(v) => setKitParam(inst.id, 'gain', v)}
-          />
-        </label>
+        <ParamControl param={MASTER_GAIN} value={inst.params.gain}
+          onChange={(v) => setKitParamSilent(inst.id, 'gain', v)}
+          onCommit={(v) => setKitParam(inst.id, 'gain', v)} />
       </div>
 
       {/* Key range selector */}
