@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
-import { useDocStore } from '../state/docStore'
-import { EditableLabel } from './components/EditableLabel'
-import type { Doc, Id } from '../domain/types'
-import { Button } from './components/Button'
+import { useDocStore } from '../../state/docStore'
+import { EditableLabel } from '../components/EditableLabel'
+import type { Doc, Id } from '../../domain/types'
+import { Button } from '../components/Button'
 
 /* ------------------------------------------------------------------ */
 /*  Arrange tab — pattern palette, sections, drag-and-drop             */

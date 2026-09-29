@@ -1,0 +1,77 @@
+// @vitest-environment jsdom
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, renderHook } from '@testing-library/react'
+import { useTrackerKeys } from './useTrackerKeys'
+import { resetStores, stubHost } from '../test/testUtils'
+import { useAppStore } from '../../state/appStore'
+import { useDocStore } from '../../state/docStore'
+import type { KeyboardPlayer } from '../../audio/keyboardPlayer'
+
+const player = { noteOn: vi.fn(), noteOffNote: vi.fn() } as unknown as KeyboardPlayer
+
+function setup() {
+  const { result } = renderHook(() => useTrackerKeys(stubHost(), player))
+  const press = (code: string, mods: KeyboardEventInit = {}) =>
+    act(() => result.current.handleKeyDown(new KeyboardEvent('keydown', { code, ...mods })))
+  return { result, press }
+}
+
+const cursor = () => useAppStore.getState().trackerCursor
+function trackId(track = 0) {
+  const { doc } = useDocStore.getState()
+  return doc.entities.patterns[doc.patternId].trackIds[track]
+}
+const cell = (row: number) => useDocStore.getState().doc.entities.tracks[trackId()].cells[row]
+
+describe('useTrackerKeys', () => {
+  beforeEach(() => {
+    resetStores()
+    useAppStore.setState({ trackerCursor: { row: 1, track: 0, col: 0, laneIndex: null } })
+  })
+
+  it('writes a note in the current octave and advances', () => {
+    const { press } = setup()
+    press('KeyQ')
+    expect(cell(1).note).toBe(useAppStore.getState().octave * 12 + 12)
+    expect(cursor().row).toBe(2)
+  })
+
+  it('enters a volume as two hex digits, advancing after the second', () => {
+    const { result, press } = setup()
+    useAppStore.setState({ trackerCursor: { row: 1, track: 0, col: 1, laneIndex: null } })
+    press('KeyA')
+    expect(result.current.volumeEntry).toBe(0xa)
+    expect(cursor().row).toBe(1)
+    press('Digit5')
+    expect(cell(1).volume).toBeCloseTo(0xa5 / 255)
+    expect(result.current.volumeEntry).toBeNull()
+    expect(cursor().row).toBe(2)
+  })
+
+  it('selects with Shift+arrows and clears the selection with Delete', () => {
+    const { result, press } = setup()
+    press('ArrowDown', { shiftKey: true })
+    press('ArrowDown', { shiftKey: true })
+    expect(result.current.selection).toEqual({ startRow: 1, startTrack: 0, endRow: 3, endTrack: 0 })
+    for (const row of [1, 2, 3]) useDocStore.getState().setCellNote(trackId(), row, 60)
+    press('Delete')
+    expect([1, 2, 3].map((r) => cell(r).note)).toEqual([null, null, null])
+    expect(result.current.selection).toBeNull()
+  })
+
+  it('copies with Cmd+C and Ctrl+C alike', () => {
+    const { press } = setup()
+    for (const mods of [{ metaKey: true }, { ctrlKey: true }]) {
+      useDocStore.setState({ trackClipboard: null })
+      press('KeyC', mods)
+      expect(useDocStore.getState().trackClipboard).not.toBeNull()
+    }
+  })
+
+  it('moves the cursor on a cell click and extends the selection with Shift', () => {
+    const { result } = setup()
+    act(() => result.current.onCellClick(4, 0, true))
+    expect(cursor()).toMatchObject({ row: 4, track: 0 })
+    expect(result.current.selection).toEqual({ startRow: 1, startTrack: 0, endRow: 4, endTrack: 0 })
+  })
+})

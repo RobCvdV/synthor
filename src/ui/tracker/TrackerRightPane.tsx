@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Legend } from './Legend'
 import { ArrangeTab } from './ArrangeTab'
 import { StoreTab } from './StoreTab'
-import type { Doc } from '../domain/types'
+import type { Doc } from '../../domain/types'
 
 type TabId = 'arrange' | 'store' | 'legend'
 

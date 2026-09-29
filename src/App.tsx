@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useDocStore } from './state/docStore'
 import { useTransportStore } from './state/transportStore'
-import { useAppStore, clampCursor, type TrackerCursor } from './state/appStore'
+import { useAppStore, clampCursor } from './state/appStore'
 import { useEngine } from './ui/useEngine'
 import { useAutosave } from './ui/useAutosave'
 import { usePatternSync } from './ui/usePlayhead'
-import { codeToSemitone, isEditableTarget, keyToHex } from './ui/keymap'
 import { Toolbar } from './ui/Toolbar'
-import { TrackerGrid, type Selection } from './ui/TrackerGrid'
-import { TrackerRightPane } from './ui/TrackerRightPane'
+import { TrackerGrid } from './ui/tracker/TrackerGrid'
+import { useTrackerKeys } from './ui/tracker/useTrackerKeys'
+import { useAppKeys } from './ui/useAppKeys'
+import { TrackerRightPane } from './ui/tracker/TrackerRightPane'
 import { InstrumentsView } from './ui/InstrumentsView'
 import { SampleLibraryView } from './ui/SampleLibraryView'
 import { MixerView } from './ui/mixer/MixerView'
@@ -21,7 +22,6 @@ import { useMidi } from './midi/useMidi'
 import { useMidiStore } from './state/midiStore'
 import { usePreviewStore } from './state/previewStore'
 import { KeyboardPlayer } from './audio/keyboardPlayer'
-import { trackLiveSlot } from './player/liveSlot'
 import { installWarmup } from './audio/warmup'
 import { useAudioStore } from './state/audioStore'
 
@@ -84,24 +84,6 @@ export default function App() {
 
   const doc = useDocStore((s) => s.doc)
   const instruments = Object.values(doc.entities.instruments)
-  const setCellNote = useDocStore((s) => s.setCellNote)
-  const setCellHold = useDocStore((s) => s.setCellHold)
-  const setCellVolume = useDocStore((s) => s.setCellVolume)
-  const setCellEffectLane = useDocStore((s) => s.setCellEffectLane)
-  const addEffectLane = useDocStore((s) => s.addEffectLane)
-  const removeEffectLane = useDocStore((s) => s.removeEffectLane)
-  const undo = useDocStore((s) => s.undo)
-  const redo = useDocStore((s) => s.redo)
-  const addTrack = useDocStore((s) => s.addTrack)
-  const removeTrack = useDocStore((s) => s.removeTrack)
-  const moveTrack = useDocStore((s) => s.moveTrack)
-  const copyTrack = useDocStore((s) => s.copyTrack)
-  const pasteTrack = useDocStore((s) => s.pasteTrack)
-  const duplicateTrack = useDocStore((s) => s.duplicateTrack)
-  const shiftTrack = useDocStore((s) => s.shiftTrack)
-  const copyRect = useDocStore((s) => s.copyRect)
-  const cutRect = useDocStore((s) => s.cutRect)
-  const pasteRect = useDocStore((s) => s.pasteRect)
 
   const projectName = useProjectStore((s) => s.name)
   const slug = useProjectStore((s) => s.slug)
@@ -113,15 +95,12 @@ export default function App() {
   const toggle = useTransportStore((s) => s.toggle)
   const playMode = useAppStore((s) => s.playMode)
   const setPlayMode = useAppStore((s) => s.setPlayMode)
-  const cyclePlayMode = useAppStore((s) => s.cyclePlayMode)
   const view = useAppStore((s) => s.view)
   const setView = useAppStore((s) => s.setView)
   const trackerCursor = useAppStore((s) => s.trackerCursor)
   const selectedInstrumentId = useAppStore((s) => s.selectedInstrumentId)
   const octave = useAppStore((s) => s.octave)
   const setOctave = useAppStore((s) => s.setOctave)
-  const toggleMute = useAppStore((s) => s.toggleMute)
-  const toggleSolo = useAppStore((s) => s.toggleSolo)
   const mutedTrackNumbers = useAppStore((s) => s.mutedTrackNumbers)
   const soloedTrackNumbers = useAppStore((s) => s.soloedTrackNumbers)
 
@@ -164,41 +143,8 @@ export default function App() {
   }, [tempoDraft, setBpm])
 
   const pattern = doc.entities.patterns[doc.patternId]
-  // Thin wrapper so existing setCursor(fn) call sites keep working with appStore.
-  const setCursor = (fn: TrackerCursor | ((c: TrackerCursor) => TrackerCursor)) => {
-    useAppStore.setState((s) => ({
-      trackerCursor: typeof fn === 'function' ? fn(s.trackerCursor) : fn,
-    }))
-  }
-  const cursor = trackerCursor
-
-  const [selection, setSelection] = useState<Selection | null>(null)
-
   // Compute keyboard note range for the octave display
   const noteRange = `${midiToName(octave * 12)} … ${midiToName(octave * 12 + 30)}`
-
-  const cursorRef = useRef(trackerCursor)
-  cursorRef.current = trackerCursor
-  const selectionRef = useRef(selection)
-  selectionRef.current = selection
-  const octaveRef = useRef(octave)
-  octaveRef.current = octave
-
-  // Volume entry state
-  const volumeEntryRef = useRef<number | null>(null)
-  const [volumeEntry, setVolumeEntry] = useState<number | null>(null)
-
-  // Lane value entry state (2 hex digits, like volume)
-  const laneEntryRef = useRef<number | null>(null)
-  const [laneEntry, setLaneEntry] = useState<number | null>(null)
-
-  /** Clear all pending entry state. */
-  const clearEntry = useCallback(() => {
-    setVolumeEntry(null)
-    volumeEntryRef.current = null
-    setLaneEntry(null)
-    laneEntryRef.current = null
-  }, [setVolumeEntry, setLaneEntry])
 
   const trackCount = pattern.trackIds.length
   // When the pattern changes (song load, pattern switch), clamp the cursor
@@ -206,11 +152,9 @@ export default function App() {
   // `ready` so validation never runs against the store's factory default.
   useEffect(() => {
     if (!ready) return
-    setCursor((c) => {
-      const state = useDocStore.getState()
-      const pat = state.doc.entities.patterns[state.doc.patternId]
-      return clampCursor(c, pat, state.doc)
-    })
+    const { doc } = useDocStore.getState()
+    const app = useAppStore.getState()
+    app.setTrackerCursor(clampCursor(app.trackerCursor, doc.entities.patterns[doc.patternId], doc))
   }, [trackCount, ready])
 
   // Auto-select the global keyboard instrument from the cursor's current
@@ -230,404 +174,8 @@ export default function App() {
   // no rAF — transportStore.currentRow is audio-thread exact).
   usePatternSync(host)
 
-  const liveTrackCount = () => useDocStore.getState().doc.entities.patterns[doc.patternId].trackIds.length
-
-  /** Get the number of effect lane columns for the current track. */
-  const laneCountForTrack = useCallback((trackIndex: number): number => {
-    const state = useDocStore.getState()
-    const pat = state.doc.entities.patterns[state.doc.patternId]
-    const tid = pat?.trackIds[trackIndex]
-    const track = tid ? state.doc.entities.tracks[tid] : null
-    return track?.effectLanes.length ?? 0
-  }, [])
-
-  const onCellClick = useCallback((row: number, track: number, shiftKey: boolean) => {
-    clearEntry()
-    if (shiftKey) {
-      const sel = selectionRef.current
-      if (sel) {
-        setSelection({ ...sel, endRow: row, endTrack: track })
-      } else {
-        const cur = cursorRef.current
-        setSelection({ startRow: cur.row, startTrack: cur.track, endRow: row, endTrack: track })
-      }
-    } else {
-      setSelection(null)
-    }
-    setCursor((c) => ({ ...c, row, track }))
-  }, [clearEntry])
-
-  const onKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      // Read the parts of state that change on every keystroke via getState so
-      // the listener is never torn down mid-edit. View and zustand actions are
-      // stable enough to stay in deps.
-      const doc = useDocStore.getState().doc
-      const pattern = doc.entities.patterns[doc.patternId]
-      if (!pattern) return
-
-      // --- Transport (spacebar) ---
-      if (e.code === 'Space' && !e.ctrlKey && !e.metaKey && !isEditableTarget(e.target)) {
-        e.preventDefault()
-        // start() is idempotent; useEngine defers the actual scheduler start
-        // until the graph is live (play from cursor).
-        void host.start()
-        toggle(host.currentTime, cursorRef.current.row)
-        return
-      }
-
-      // --- Transport: Ctrl+Space (play from top) ---
-      if (e.code === 'Space' && e.ctrlKey && !e.metaKey && !isEditableTarget(e.target)) {
-        e.preventDefault()
-        void host.start()
-        toggle(host.currentTime, 0)
-        return
-      }
-
-      // --- Undo / redo (Cmd+Z / Ctrl+Z) ---
-      if ((e.metaKey || e.ctrlKey) && e.code === 'KeyZ') {
-        e.preventDefault()
-        if (e.shiftKey) redo()
-        else undo()
-        return
-      }
-
-      // --- Panic (Esc) ---
-      if (e.code === 'Escape' && !isEditableTarget(e.target)) {
-        e.preventDefault()
-        keyboardPlayer.clearHeld()
-        host.panic()
-        useAudioStore.getState().setPlaybackStarted(false)
-        return
-      }
-
-      // --- Mute / Solo toggle: F1..F12 (by Track #) ---
-      const fkey = /^F([1-9]|1[0-2])$/.exec(e.code)
-      if (fkey) {
-        e.preventDefault()
-        const trackNum = Number(fkey[1])
-        if (pattern.trackIds[trackNum - 1]) {
-          if (e.shiftKey) toggleSolo(trackNum)
-          else toggleMute(trackNum)
-        }
-        return
-      }
-
-      if (isEditableTarget(e.target)) return
-
-      // --- Tab: cycle play mode ---
-      if (e.code === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey) {
-        e.preventDefault()
-        cyclePlayMode()
-        return
-      }
-
-      // --- Mod+T/I/S: switch views ---
-      if ((e.metaKey || e.ctrlKey) && !e.altKey) {
-        if (e.code === 'KeyT') { e.preventDefault(); setView('tracker'); return }
-        if (e.code === 'KeyI') { e.preventDefault(); setView('instruments'); return }
-        if (e.code === 'KeyS') { e.preventDefault(); setView('samples'); return }
-        if (e.code === 'KeyM') { e.preventDefault(); setView('mixer'); return }
-      }
-
-      const cur = cursorRef.current
-      const ids = pattern.trackIds
-      const trackId = ids[cur.track]
-      const stepRows = (n: number) => (c: TrackerCursor) => {
-        const next = { ...c, row: ((c.row + n) % pattern.length + pattern.length) % pattern.length }
-        if (e.shiftKey) {
-          const sel = selectionRef.current
-          setSelection(sel ? { ...sel, endRow: next.row, endTrack: next.track } : { startRow: c.row, startTrack: c.track, endRow: next.row, endTrack: next.track })
-        } else {
-          setSelection(null)
-        }
-        return next
-      }
-
-      const snapStep = (step: number, dir: 1 | -1) => (c: TrackerCursor) => {
-        const len = pattern.length
-        const grids: number[] = []
-        for (let i = 0; i < len; i += step) grids.push(i)
-        let nextRow: number
-        if (dir > 0) {
-          const idx = grids.findIndex((g) => g > c.row)
-          nextRow = idx !== -1 ? grids[idx] : grids[0]
-        } else {
-          const rev = [...grids].reverse()
-          const idx = rev.findIndex((g) => g < c.row)
-          nextRow = idx !== -1 ? rev[idx] : rev[0]
-        }
-        const next = { ...c, row: nextRow }
-        if (e.shiftKey) {
-          const sel = selectionRef.current
-          setSelection(sel ? { ...sel, endRow: nextRow, endTrack: next.track } : { startRow: c.row, startTrack: c.track, endRow: nextRow, endTrack: next.track })
-        } else {
-          setSelection(null)
-        }
-        return next
-      }
-
-      // --- Octave shift ( - / = ) — global across all views ---
-      if (!e.metaKey && !e.ctrlKey && !e.altKey) {
-        if (e.code === 'Minus') { e.preventDefault(); setOctave(octaveRef.current - 1); return }
-        if (e.code === 'Equal') { e.preventDefault(); setOctave(octaveRef.current + 1); return }
-      }
-
-      if (view !== 'tracker') {
-        // Note keys play the global instrument on the mixer — held until
-        // key-up (see onKeyUp), no cell writes.
-        if (view === 'mixer' && !e.metaKey && !e.ctrlKey && !e.altKey) {
-          const semi = codeToSemitone(e.code)
-          if (semi !== undefined) {
-            e.preventDefault()
-            if (e.repeat) return // one attack per physical press
-            const instId = useAppStore.getState().selectedInstrumentId
-            if (instId) {
-              const note = octaveRef.current * 12 + semi
-              void host.start().then(() => keyboardPlayer.noteOn(instId, note, e.code))
-            }
-          }
-        }
-        return
-      }
-
-      // --- Cmd/Meta shortcuts ---
-      if (e.metaKey && !e.ctrlKey && !e.altKey) {
-        switch (e.code) {
-          case 'KeyC': e.preventDefault(); { const s = selectionRef.current; if (s) copyRect(ids, s.startRow, s.endRow, s.startTrack, s.endTrack); else if (trackId) copyTrack(trackId) } return
-          case 'KeyV': e.preventDefault(); { const rc = useDocStore.getState().rectClipboard; if (rc) { const s = selectionRef.current; const pr = s ? s.startRow : cur.row; const pt = s ? s.startTrack : cur.track; pasteRect(ids, pr, pt) } else { pasteTrack(cur.track + 1); setCursor((c) => ({ ...c, track: Math.min(liveTrackCount() - 1, cur.track + 1) })) } } return
-          case 'KeyX': e.preventDefault(); { const s = selectionRef.current; if (s) { cutRect(ids, s.startRow, s.endRow, s.startTrack, s.endTrack); setSelection(null) } else if (trackId) { copyTrack(trackId); removeTrack(trackId); setCursor((c) => ({ ...c, track: Math.max(0, Math.min(c.track, liveTrackCount() - 1)) })) } } return
-          case 'KeyD': e.preventDefault(); if (trackId) { duplicateTrack(trackId, cur.track + 1); setCursor((c) => ({ ...c, track: Math.min(liveTrackCount() - 1, cur.track + 1) })) } return
-          case 'ArrowUp':   e.preventDefault(); clearEntry(); setCursor(snapStep(8, -1)); return
-          case 'ArrowDown': e.preventDefault(); clearEntry(); setCursor(snapStep(8, 1)); return
-          case 'Minus':
-          case 'Equal': {
-            e.preventDefault()
-            const step = e.code === 'Equal' ? 1 : -1
-            const sel = selectionRef.current
-            if (sel) {
-              const r0 = Math.min(sel.startRow, sel.endRow), r1 = Math.max(sel.startRow, sel.endRow)
-              const t0 = Math.min(sel.startTrack, sel.endTrack), t1 = Math.max(sel.startTrack, sel.endTrack)
-              for (let ti = t0; ti <= t1; ti++) {
-                const tid = ids[ti]; if (!tid) continue
-                for (let r = r0; r <= r1; r++) { const cell = useDocStore.getState().doc.entities.tracks[tid]?.cells[r]; if (cell?.note != null) setCellNote(tid, r, cell.note + step) }
-              }
-            } else if (trackId) {
-              for (let r = 0; r < pattern.length; r++) { const cell = useDocStore.getState().doc.entities.tracks[trackId]?.cells[r]; if (cell?.note != null) setCellNote(trackId, r, cell.note + step) }
-            }
-            return
-          }
-        }
-        return
-      }
-
-      // --- Ctrl shortcuts ---
-      if (e.ctrlKey && !e.metaKey && !e.altKey) {
-        switch (e.code) {
-          case 'KeyC': e.preventDefault(); { const s = selectionRef.current; if (s) copyRect(ids, s.startRow, s.endRow, s.startTrack, s.endTrack); else if (trackId) copyTrack(trackId) } return
-          case 'KeyV': e.preventDefault(); { const rc = useDocStore.getState().rectClipboard; if (rc) { const s = selectionRef.current; const pr = s ? s.startRow : cur.row; const pt = s ? s.startTrack : cur.track; pasteRect(ids, pr, pt) } else { pasteTrack(cur.track + 1); setCursor((c) => ({ ...c, track: Math.min(liveTrackCount() - 1, cur.track + 1) })) } } return
-          case 'KeyX': e.preventDefault(); { const s = selectionRef.current; if (s) { cutRect(ids, s.startRow, s.endRow, s.startTrack, s.endTrack); setSelection(null) } else if (trackId) { copyTrack(trackId); removeTrack(trackId); setCursor((c) => ({ ...c, track: Math.max(0, Math.min(c.track, liveTrackCount() - 1)) })) } } return
-          case 'KeyD': e.preventDefault(); if (trackId) { duplicateTrack(trackId, cur.track + 1); setCursor((c) => ({ ...c, track: Math.min(liveTrackCount() - 1, cur.track + 1) })) } return
-          case 'Backspace': e.preventDefault(); if (trackId) { removeTrack(trackId); setCursor((c) => ({ ...c, track: Math.max(0, Math.min(c.track, liveTrackCount() - 1)) })) } return
-          case 'ArrowUp':   e.preventDefault(); if (trackId) shiftTrack(trackId, 'up'); return
-          case 'ArrowDown': e.preventDefault(); if (trackId) shiftTrack(trackId, 'down'); return
-          case 'Equal': {
-            e.preventDefault()
-            const inheritId = useDocStore.getState().doc.entities.tracks[trackId]?.instrumentId ?? Object.keys(useDocStore.getState().doc.entities.instruments)[0] ?? useDocStore.getState().addInstrument('modular')
-            addTrack(cur.track + 1, inheritId)
-            setCursor((c) => ({ ...c, track: cur.track + 1 }))
-            return
-          }
-          case 'Comma':  e.preventDefault(); moveTrack(cur.track, cur.track - 1); setCursor((c) => ({ ...c, track: Math.max(0, cur.track - 1) })); return
-          case 'Period': e.preventDefault(); moveTrack(cur.track, cur.track + 1); setCursor((c) => ({ ...c, track: Math.min(liveTrackCount() - 1, cur.track + 1) })); return
-          // Ctrl+L: add effect lane
-          case 'KeyL': e.preventDefault(); if (trackId) addEffectLane(trackId, 'panning'); return
-          // Ctrl+K: remove last effect lane
-          case 'KeyK': e.preventDefault(); if (trackId) {
-            const track = useDocStore.getState().doc.entities.tracks[trackId]
-            if (track && track.effectLanes.length > 0) {
-              removeEffectLane(trackId, track.effectLanes[track.effectLanes.length - 1].id)
-              setCursor((c) => ({ ...c, col: Math.min(c.col, 1), laneIndex: null }))
-            }
-          }; return
-        }
-        return
-      }
-
-      // --- Alt/Option shortcuts ---
-      if (e.altKey && !e.ctrlKey && !e.metaKey) {
-        switch (e.code) {
-          case 'ArrowUp':   e.preventDefault(); clearEntry(); setCursor(snapStep(4, -1)); return
-          case 'ArrowDown': e.preventDefault(); clearEntry(); setCursor(snapStep(4, 1)); return
-        }
-      }
-
-      // --- Home / End ---
-      if (e.code === 'Home') { e.preventDefault(); clearEntry(); setCursor((c) => ({ ...c, row: 0 })); return }
-      if (e.code === 'End')  { e.preventDefault(); clearEntry(); setCursor((c) => ({ ...c, row: pattern.length - 1 })); return }
-
-      // --- Arrow navigation ---
-      if (e.code === 'ArrowDown')  { e.preventDefault(); clearEntry(); setCursor(stepRows(1)); return }
-      if (e.code === 'ArrowUp')    { e.preventDefault(); clearEntry(); setCursor(stepRows(-1)); return }
-      if (e.code === 'ArrowRight') {
-        e.preventDefault(); clearEntry()
-        if (!ids.length) return
-        setCursor((c) => {
-          let next: TrackerCursor
-          const lc = laneCountForTrack(c.track)
-          if (c.col === 0) next = { ...c, col: 1, laneIndex: null }
-          else if (c.col === 1) next = lc > 0 ? { ...c, col: 2, laneIndex: 0 } : { ...c, col: 0, laneIndex: null, track: (c.track + 1) % ids.length }
-          else if (c.col >= 2 && c.laneIndex !== null && c.laneIndex < lc - 1) next = { ...c, col: c.col + 1, laneIndex: c.laneIndex + 1 }
-          else next = { ...c, col: 0, laneIndex: null, track: (c.track + 1) % ids.length }
-          if (e.shiftKey) { const sel = selectionRef.current; setSelection(sel ? { ...sel, endRow: next.row, endTrack: next.track } : { startRow: c.row, startTrack: c.track, endRow: next.row, endTrack: next.track }) } else setSelection(null)
-          return next
-        })
-        return
-      }
-      if (e.code === 'ArrowLeft') {
-        e.preventDefault(); clearEntry()
-        if (!ids.length) return
-        setCursor((c) => {
-          let next: TrackerCursor
-          if (c.col >= 2 && c.laneIndex !== null && c.laneIndex > 0) next = { ...c, col: c.col - 1, laneIndex: c.laneIndex - 1 }
-          else if (c.col >= 2) next = { ...c, col: 1, laneIndex: null }
-          else if (c.col === 1) next = { ...c, col: 0, laneIndex: null }
-          else {
-            const prevTrack = (c.track - 1 + ids.length) % ids.length
-            const prevLc = laneCountForTrack(prevTrack)
-            next = prevLc > 0
-              ? { col: 1 + prevLc, laneIndex: prevLc - 1, row: c.row, track: prevTrack }
-              : { col: 1, laneIndex: null, row: c.row, track: prevTrack }
-          }
-          if (e.shiftKey) { const sel = selectionRef.current; setSelection(sel ? { ...sel, endRow: next.row, endTrack: next.track } : { startRow: c.row, startTrack: c.track, endRow: next.row, endTrack: next.track }) } else setSelection(null)
-          return next
-        })
-        return
-      }
-
-      // --- Clear cell (Delete / Backspace, no modifiers) ---
-      if (e.code === 'Delete' || e.code === 'Backspace') {
-        e.preventDefault()
-        const sel = selectionRef.current
-        if (sel) {
-          const r0 = Math.min(sel.startRow, sel.endRow), r1 = Math.max(sel.startRow, sel.endRow)
-          const t0 = Math.min(sel.startTrack, sel.endTrack), t1 = Math.max(sel.startTrack, sel.endTrack)
-          for (let ti = t0; ti <= t1; ti++) {
-            const tid = ids[ti]; if (!tid) continue
-            const track = useDocStore.getState().doc.entities.tracks[tid]
-            for (let r = r0; r <= r1; r++) {
-              setCellNote(tid, r, null)
-              setCellVolume(tid, r, null)
-              for (const lane of (track?.effectLanes ?? [])) setCellEffectLane(tid, r, lane.id, null)
-            }
-          }
-          setSelection(null)
-        } else if (trackId) {
-          const track = useDocStore.getState().doc.entities.tracks[trackId]
-          if (cur.col >= 2 && cur.laneIndex !== null && track) {
-            const laneId = track.effectLanes[cur.laneIndex]?.id
-            if (laneId) { setCellEffectLane(trackId, cur.row, laneId, null); clearEntry(); setCursor((c) => ({ ...c, row: (c.row + 1) % pattern.length })) }
-          } else if (cur.col === 1) {
-            setCellVolume(trackId, cur.row, null); clearEntry(); setCursor((c) => ({ ...c, row: (c.row + 1) % pattern.length }))
-          } else {
-            setCellNote(trackId, cur.row, null); setCursor((c) => ({ ...c, row: (c.row + 1) % pattern.length }))
-          }
-        }
-        return
-      }
-
-      // --- Volume column entry (hex digits) ---
-      if (!e.ctrlKey && !e.metaKey && !e.altKey && cur.col === 1) {
-        const hex = keyToHex(e.code)
-        if (hex !== undefined && trackId) {
-          e.preventDefault(); setSelection(null)
-          const pending = volumeEntryRef.current
-          if (pending !== null) {
-            const vol = (pending * 16 + hex) / 255; setCellVolume(trackId, cur.row, vol); clearEntry(); setCursor((c) => ({ ...c, row: (c.row + 1) % pattern.length }))
-          } else {
-            const vol = (hex * 16) / 255; setCellVolume(trackId, cur.row, vol); setVolumeEntry(hex); volumeEntryRef.current = hex
-          }
-          return
-        }
-        return
-      }
-
-      // --- Effect lane value entry (2 hex digits like volume) ---
-      if (!e.ctrlKey && !e.metaKey && !e.altKey && cur.col >= 2 && cur.laneIndex !== null && trackId) {
-        const hex = keyToHex(e.code)
-        if (hex !== undefined) {
-          e.preventDefault(); setSelection(null)
-          const track = useDocStore.getState().doc.entities.tracks[trackId]
-          const laneId = track?.effectLanes[cur.laneIndex]?.id
-          if (!laneId) return
-          const pending = laneEntryRef.current
-          if (pending !== null) {
-            const val = (pending * 16 + hex) / 255; setCellEffectLane(trackId, cur.row, laneId, val); clearEntry(); setCursor((c) => ({ ...c, row: (c.row + 1) % pattern.length }))
-          } else {
-            const val = (hex * 16) / 255; setCellEffectLane(trackId, cur.row, laneId, val); setLaneEntry(hex); laneEntryRef.current = hex
-          }
-          return
-        }
-        return
-      }
-
-      // --- Hold (backslash, displayed as '|') ---
-      if (!e.ctrlKey && !e.metaKey && !e.altKey && e.code === 'Backslash') {
-        e.preventDefault(); setSelection(null)
-        if (trackId) { const cell = useDocStore.getState().doc.entities.tracks[trackId]?.cells[cur.row]; setCellHold(trackId, cur.row, !cell?.hold); setCursor((c) => ({ ...c, row: (c.row + 1) % pattern.length })) }
-        return
-      }
-
-      // --- Volume adjust: [ / ] ---
-      if (!e.ctrlKey && !e.metaKey && !e.altKey && (e.code === 'BracketLeft' || e.code === 'BracketRight')) {
-        e.preventDefault(); setSelection(null)
-        if (trackId) { const cell = useDocStore.getState().doc.entities.tracks[trackId]?.cells[cur.row]; const cv = cell?.volume ?? 1; const step = 1 / 16; setCellVolume(trackId, cur.row, e.code === 'BracketLeft' ? Math.max(0, cv - step) : Math.min(1, cv + step)) }
-        return
-      }
-
-      // --- Note entry (no modifiers) ---
-      if (!e.ctrlKey && !e.metaKey && !e.altKey) {
-        const semi = codeToSemitone(e.code)
-        if (semi !== undefined && trackId) {
-          e.preventDefault(); setSelection(null)
-          const note = octaveRef.current * 12 + semi
-          setCellNote(trackId, cur.row, note)
-          // Preview-pip the note through VoicePool regardless of transport
-          // state so you can hear what you're entering mid-playback.
-          {
-            const instId = useAppStore.getState().selectedInstrumentId
-            if (instId) {
-              const slot = trackLiveSlot(useDocStore.getState().doc, trackId, instId)
-              void host.start().then(() => {
-                keyboardPlayer.noteOn(instId, note, undefined, slot)
-                setTimeout(() => keyboardPlayer.noteOffNote(instId, note), 120)
-              })
-            }
-          }
-          setCursor((c) => ({ ...c, row: (c.row + 1) % pattern.length }))
-        }
-      }
-    },
-    [view, host, toggle, undo, redo, setCellNote, setCellHold, setCellVolume, setCellEffectLane, addEffectLane, removeEffectLane, addTrack, removeTrack, moveTrack, copyTrack, pasteTrack, duplicateTrack, shiftTrack, toggleMute, copyRect, cutRect, pasteRect, clearEntry, laneCountForTrack, cyclePlayMode],
-  )
-
-  const onKeyUp = useCallback(
-    (e: KeyboardEvent) => {
-      const released = keyboardPlayer.noteOff(e.code)
-      if (released) usePreviewStore.getState().noteOff(released.note)
-    },
-    [keyboardPlayer],
-  )
-
-  useEffect(() => {
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [onKeyDown])
-
-  useEffect(() => {
-    window.addEventListener('keyup', onKeyUp)
-    return () => window.removeEventListener('keyup', onKeyUp)
-  }, [onKeyUp])
+  const trackerKeys = useTrackerKeys(host, keyboardPlayer)
+  useAppKeys(host, keyboardPlayer, trackerKeys.handleKeyDown)
 
   return (
     <div className="app">
@@ -637,7 +185,7 @@ export default function App() {
         playbackStarted={playbackStarted}
         onTogglePlay={() => {
           void host.start()
-          toggle(host.currentTime, cursorRef.current.row)
+          toggle(host.currentTime, useAppStore.getState().trackerCursor.row)
         }}
         playMode={playMode}
         onSetPlayMode={setPlayMode}
@@ -660,8 +208,8 @@ export default function App() {
           useMidiStore.getState().setActiveInstrument(id)
         }}
         noteRange={noteRange}
-        onOctaveDown={() => setOctave(octaveRef.current - 1)}
-        onOctaveUp={() => setOctave(octaveRef.current + 1)}
+        onOctaveDown={() => setOctave(octave - 1)}
+        onOctaveUp={() => setOctave(octave + 1)}
         onPanic={() => {
           keyboardPlayer.clearHeld()
           host.panic()
@@ -679,13 +227,13 @@ export default function App() {
             <TrackerGrid
               doc={doc}
               pattern={pattern}
-              cursor={cursor}
+              cursor={trackerCursor}
               muted={mutedTrackNumbers}
               soloed={soloedTrackNumbers}
-              selection={selection}
-              volumeEntry={volumeEntry}
-              laneEntry={laneEntry}
-              onCellClick={onCellClick}
+              selection={trackerKeys.selection}
+              volumeEntry={trackerKeys.volumeEntry}
+              laneEntry={trackerKeys.laneEntry}
+              onCellClick={trackerKeys.onCellClick}
             />
           </main>
           <TrackerRightPane doc={doc} slug={slug} />

@@ -1,12 +1,13 @@
 import { memo, useCallback, useMemo } from 'react'
-import type { Doc, Id, Pattern, Track } from '../domain/types'
-import type { Instrument } from '../domain/types'
-import { midiToName } from '../domain/notes'
-import { effInletNames, isBuiltinLaneType, LANE_DEFS, readableLaneLabel, valueHex } from '../domain/effects'
-import { useDocStore } from '../state/docStore'
-import { EditableLabel } from './components/EditableLabel'
-import { InstrumentSelect } from './components/InstrumentSelect'
-import { usePlayheadRow } from './usePlayhead'
+import type { Doc, Id, Pattern, Track } from '../../domain/types'
+import type { Instrument } from '../../domain/types'
+import { midiToName } from '../../domain/notes'
+import { effInletNames, isBuiltinLaneType, LANE_DEFS, readableLaneLabel, valueHex } from '../../domain/effects'
+import { useDocStore } from '../../state/docStore'
+import { EditableLabel } from '../components/EditableLabel'
+import { InstrumentSelect } from '../components/InstrumentSelect'
+import { usePlayheadRow } from '../usePlayhead'
+import type { Selection } from './trackerNav'
 
 export interface Cursor {
   row: number
@@ -15,12 +16,6 @@ export interface Cursor {
   laneIndex: number | null
 }
 
-export interface Selection {
-  startRow: number
-  startTrack: number
-  endRow: number
-  endTrack: number
-}
 
 interface Props {
   doc: Doc
