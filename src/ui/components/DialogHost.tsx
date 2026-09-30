@@ -15,7 +15,7 @@ export function DialogHost() {
     )
   }
   return (
-    <ConfirmDialog message={request.message} confirmLabel={request.confirmLabel} danger={request.danger}
+    <ConfirmDialog message={request.message} confirmLabel={request.confirmLabel} cancelLabel={request.cancelLabel} danger={request.danger}
       onConfirm={() => answer(true)} onCancel={() => answer(false)} />
   )
 }

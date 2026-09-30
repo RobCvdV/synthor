@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createMemoryBackend } from './memoryBackend'
-import { hasStorage, joinPath, mergeMove, setStorage, splitPath, storage, type StorageBackend } from './storage'
+import { copyTree, hasStorage, joinPath, mergeMove, setStorage, splitPath, storage, type StorageBackend } from './storage'
 
 const bytes = (...b: number[]) => new Uint8Array(b).buffer
 const names = async (s: StorageBackend, dir: string) => (await s.list(dir)).map((e) => `${e.kind}:${e.name}`).sort()
@@ -117,6 +117,17 @@ describe('mergeMove', () => {
     expect(await s.exists('songs/old')).toBe(false)
     expect(await s.readText('songs/new/song.json')).toBe('new')
     expect(await names(s, 'songs/new/samples')).toEqual(['file:a.bin', 'file:b.bin'])
+  })
+
+  it('copyTree overwrites on request', async () => {
+    const a = createMemoryBackend()
+    const b = createMemoryBackend()
+    await a.write('x/f', 'new')
+    await b.write('x/f', 'old')
+    await copyTree(a, 'x', b, 'x')
+    expect(await b.readText('x/f')).toBe('old')
+    await copyTree(a, 'x', b, 'x', true)
+    expect(await b.readText('x/f')).toBe('new')
   })
 
   it('is a no-op when the source is missing', async () => {

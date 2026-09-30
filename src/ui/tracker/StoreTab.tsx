@@ -4,6 +4,8 @@ import { askConfirm } from '../../state/dialogStore'
 import { deleteSong, listSongs } from '../../persist/songStore'
 import { hasStorage } from '../../persist/storage'
 import { electronApi } from '../../persist/electronBridge'
+import { connectedFolderName, isFolderAccessSupported } from '../../persist/webFolder'
+import { backupLibrary, restoreLibrary, stopUsingFolder, moveLibraryToFolder } from '../libraryLocationActions'
 import { currentSongFile, saveCurrentSong } from '../../persist/saveCurrent'
 import { serializeSong, type SongFile } from '../../persist/serialize'
 import { downloadBlob } from '../download'
@@ -71,7 +73,7 @@ export function StoreTab() {
       {opfs && (
         <div className="store-list">
           <h4 className="store-list-title">Saved Songs</h4>
-          <StorageLocation />
+          <StorageLocation onRestored={refreshList} />
           {songs.length === 0 && <p className="muted">No saved songs yet.</p>}
           <ul className="store-song-list">
             {songs.map((s) => (
@@ -102,14 +104,43 @@ export function StoreTab() {
   )
 }
 
-/** Where saved songs live: the library folder in Electron, browser storage on the web. */
-export function StorageLocation() {
+/** Where the library lives (Electron folder, a connected web folder, or browser storage), plus backup and restore. */
+export function StorageLocation({ onRestored }: { onRestored?: () => void }) {
   const api = electronApi()
-  if (!api) return <p className="muted store-location">Stored in this browser</p>
+  const folder = connectedFolderName()
+  let where
+  if (api) {
+    where = (
+      <p className="muted store-location">
+        <span className="store-location-path" title={api.libraryPath}>{tildePath(api.libraryPath)}</span>
+        <Button size="sm" onClick={() => void api.revealLibrary()} title="Show the library folder">Reveal</Button>
+      </p>
+    )
+  } else if (folder) {
+    where = (
+      <p className="muted store-location">
+        <span className="store-location-path" title="The library is kept in this folder">Folder: {folder}</span>
+        <Button size="sm" onClick={() => void stopUsingFolder()} title="Keep the library in this browser again">Disconnect</Button>
+      </p>
+    )
+  } else {
+    where = (
+      <p className="muted store-location">
+        <span className="store-location-path">Stored in this browser</span>
+        {isFolderAccessSupported() && (
+          <Button size="sm" onClick={() => void moveLibraryToFolder()} title="Keep the library in a folder on your computer">Use a folder…</Button>
+        )}
+      </p>
+    )
+  }
   return (
-    <p className="muted store-location">
-      <span className="store-location-path" title={api.libraryPath}>{tildePath(api.libraryPath)}</span>
-      <Button size="sm" onClick={() => void api.revealLibrary()} title="Show the library folder">Reveal</Button>
-    </p>
+    <>
+      {where}
+      <p className="muted store-location">
+        <Button size="sm" onClick={() => void backupLibrary()} title="Download all songs, instruments and samples as one zip">Back up library</Button>
+        <Button size="sm" onClick={() => void restoreLibrary().then((changed) => { if (changed) onRestored?.() })}
+          title="Add songs, instruments and samples from a backup zip">Restore…</Button>
+      </p>
+    </>
   )
 }

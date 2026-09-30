@@ -76,7 +76,8 @@ Chains are ordered; each hop is verified. Skipping the tail is how features half
 - The renderer needs COOP/COEP headers — `electron/main.ts` injects them for `file://` responses inside `app.whenReady().then(…)` (touching `session.defaultSession` earlier hangs the main process).
 - `index.html` guards the service-worker registration with `location.protocol !== 'file:'`.
 - The Electron bundle should hash-match the web build of the same commit (`index-*.js`) — a mismatch means a stale vite dep cache (`node_modules/.vite`): clear it and rebuild.
-- Storage goes through `persist/storage.ts` (`StorageBackend`): OPFS on the web, the library folder (`~/Documents/Synthor`, main-process `electron/libraryFs.ts`) in Electron. Never call OPFS or `fs` directly from persist modules.
+- Storage goes through `persist/storage.ts` (`StorageBackend`): OPFS on the web, the library folder (`~/Documents/Synthor`, main-process `electron/libraryFs.ts`) in Electron, or on the web a folder the user connected (`persist/webFolder.ts`, Chromium only; the handle lives in IndexedDB and is picked up in `loadStartupSong` before anything loads). Never call OPFS or `fs` directly from persist modules.
+- Library backup/restore (`persist/libraryBackup.ts`) covers `songs/`, `instruments/`, `samples/`; restoring merges and never overwrites.
 - Electron app settings (incl. the appStore key-value store) live in `userData/settings.json` (`electron/appSettings.ts`), loaded synchronously by the preload so the store hydrates before first render.
 - The preload is CommonJS (`electron/preload.cts` → `preload.cjs`) — Electron ignores `"type": "module"` for preloads. Its surface is typed in `src/persist/electronBridge.ts`; change both together.
 - On first launch per renderer origin, browser-stored (OPFS) songs are copied into the library (`persist/importBrowserStorage.ts`); dev (`localhost:5193`) and packaged (`file://`) are separate origins.

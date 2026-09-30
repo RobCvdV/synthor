@@ -76,14 +76,14 @@ export async function mergeMove(s: StorageBackend, from: string, to: string): Pr
   await s.remove(from)
 }
 
-/** Copies a tree between (possibly different) backends; existing files at the destination win. */
-export async function copyTree(src: StorageBackend, from: string, dst: StorageBackend, to: string): Promise<void> {
+/** Copies a tree between (possibly different) backends; existing files at the destination win unless `overwrite`. */
+export async function copyTree(src: StorageBackend, from: string, dst: StorageBackend, to: string, overwrite = false): Promise<void> {
   for (const entry of await src.list(from)) {
     const srcPath = joinPath(from, entry.name)
     const dstPath = joinPath(to, entry.name)
     if (entry.kind === 'directory') {
-      await copyTree(src, srcPath, dst, dstPath)
-    } else if (!await dst.exists(dstPath)) {
+      await copyTree(src, srcPath, dst, dstPath, overwrite)
+    } else if (overwrite || !await dst.exists(dstPath)) {
       const data = await src.readBytes(srcPath)
       if (data) await dst.write(dstPath, data)
     }

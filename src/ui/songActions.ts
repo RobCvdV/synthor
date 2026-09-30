@@ -3,6 +3,7 @@ import { copyTree, hasStorage, joinPath, requireStorage } from '../persist/stora
 import { listSongs, loadRecent, readSong, saveRecent, slugify, songDir } from '../persist/songStore'
 import { currentSongFile, saveCurrentSong } from '../persist/saveCurrent'
 import { importBrowserStorageOnce } from '../persist/importBrowserStorage'
+import { openSavedFolder } from '../persist/webFolder'
 import { exportSongZip, importSongZip } from '../persist/songExport'
 import { songNameConflict, uniqueSongName } from '../persist/songNames'
 import { clampCursor, useAppStore } from '../state/appStore'
@@ -133,6 +134,11 @@ export async function exportCurrentSong(): Promise<void> {
 /** Opens the song from the last session, or names the default song; then fits the saved UI state to it. */
 export async function loadStartupSong(): Promise<void> {
   try {
+    await openSavedFolder((folder) => askConfirm({
+      message: `Your library is in the folder “${folder}”. The browser needs your permission again to use it.`,
+      confirmLabel: 'Reconnect',
+      cancelLabel: 'Use browser storage',
+    }))
     await importBrowserStorageOnce()
     const slug = await loadRecent()
     const file = slug ? await readSong(slug) : null

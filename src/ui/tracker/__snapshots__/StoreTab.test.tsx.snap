@@ -1,5 +1,5 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`StorageLocation > names browser storage on the web 1`] = `"<p class="muted store-location">Stored in this browser</p>"`;
+exports[`StorageLocation > names browser storage on the web 1`] = `"<p class="muted store-location"><span class="store-location-path">Stored in this browser</span></p><p class="muted store-location"><button type="button" class="button sm" title="Download all songs, instruments and samples as one zip">Back up library</button><button type="button" class="button sm" title="Add songs, instruments and samples from a backup zip">Restore…</button></p>"`;
 
-exports[`StorageLocation > shows the library folder in Electron and reveals it 1`] = `"<p class="muted store-location"><span class="store-location-path" title="/Users/me/Documents/Synthor">~/Documents/Synthor</span><button type="button" class="button sm" title="Show the library folder">Reveal</button></p>"`;
+exports[`StorageLocation > shows the library folder in Electron and reveals it 1`] = `"<p class="muted store-location"><span class="store-location-path" title="/Users/me/Documents/Synthor">~/Documents/Synthor</span><button type="button" class="button sm" title="Show the library folder">Reveal</button></p><p class="muted store-location"><button type="button" class="button sm" title="Download all songs, instruments and samples as one zip">Back up library</button><button type="button" class="button sm" title="Add songs, instruments and samples from a backup zip">Restore…</button></p>"`;
