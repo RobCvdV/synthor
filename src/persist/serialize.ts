@@ -18,7 +18,7 @@ import { sampleChoices, sortSamples } from '../domain/sampleChoices'
 /**
  * Bump when the on-disk shape changes; add a matching `migrate` case.
  */
-export const CURRENT_SCHEMA_VERSION = 13
+export const CURRENT_SCHEMA_VERSION = 14
 
 export interface SongMeta {
   name: string
@@ -109,6 +109,9 @@ export function migrate(raw: unknown): SongFile {
 
   // v12→v13: sample / wave / conv refer to samples by id, not by name-sorted index.
   if (version < 13) raw = upgradeV12toV13(raw)
+
+  // v13→v14: instruments may carry `library` (category, tags, library id). No data
+  // conversion — the bump makes older app versions reject files instead of dropping it.
 
   // v1→v1 migration: when the stereo output was added (commit b3917fc), the
   // output module's inlet changed from 'in' to 'inL'. Old modular instruments

@@ -123,4 +123,21 @@ describe('insertInstrumentBundle', () => {
     const root = target.instruments[insertInstrumentBundle(target, bundle)] as DrumKitInstrument
     expect(root.slots.find((s) => s.note === 36)!.sampleId).toBeNull()
   })
+
+describe('library attributes in bundles', () => {
+  it('leaves them out of collected bundles and puts them on the inserted root', () => {
+    const { doc, kit, synth } = kitSong()
+    kit.library = { id: 'kit', category: 'Drums', tags: ['808'] }
+    synth.library = { category: 'Pads', tags: [] }
+    const bundle = collectInstrumentBundle(doc.entities, kit.id)
+    expect(Object.values(bundle.instruments).some((i) => 'library' in i)).toBe(false)
+    expect(kit.library).toBeDefined()
+
+    const target: Entities = JSON.parse(JSON.stringify(createDefaultDoc().entities))
+    const rootId = insertInstrumentBundle(target, bundle, { id: 'kit', category: 'Drums', tags: ['808'] })
+    expect(target.instruments[rootId].library).toEqual({ id: 'kit', category: 'Drums', tags: ['808'] })
+    const plainId = insertInstrumentBundle(target, bundle)
+    expect(target.instruments[plainId].library).toBeUndefined()
+  })
+})
 })

@@ -136,4 +136,39 @@ describe('instrumentActions', () => {
     expect(item).toMatchObject({ name: 'Tine', category: 'Keys', tags: ['soft'] })
     expect([...new Uint8Array((await readLibrarySample(item.id, 'beef01'))!)]).toEqual([1, 2])
   })
+
+  describe('library attributes', () => {
+    const meta = { category: 'Keys', tags: ['soft'], createdAt: 'c', modifiedAt: 'm' }
+    const songInst = (id: string) => useDocStore.getState().doc.entities.instruments[id]
+
+    it('are exported from the song instrument and picked up again on import', async () => {
+      const bundle = toneBundle('Tine')
+      useDocStore.getState().mutate((d) => {
+        Object.assign(d.entities.instruments, bundle.instruments)
+        d.entities.instruments[bundle.rootId].library = { id: 'tine', category: 'Keys', tags: ['soft'] }
+      })
+      const { blob } = await exportInstrumentFile(bundle.rootId)
+      const { imported } = await importInstrumentFiles([new File([blob], 'tine.synthinst')])
+      expect(songInst(imported[0].instrumentId).library).toEqual({ category: 'Keys', tags: ['soft'] })
+    })
+
+    it('link the song copy when an import is also added to the library', async () => {
+      const file = new File([await packInstrumentFile(toneBundle('Tine'), toneBytes, meta) as BlobPart], 'tine.synthinst')
+      const { imported } = await importInstrumentFiles([file])
+      await addImportedToLibrary(imported)
+      const [item] = await listLibraryInstruments()
+      expect(songInst(imported[0].instrumentId).library).toEqual({ id: item.id, category: 'Keys', tags: ['soft'] })
+    })
+
+    it('come along from the library, and saving back links to the saved item', async () => {
+      const libId = await saveToLibrary(toneBundle('Pad'), toneBytes, { category: 'Pads', tags: ['warm'] })
+      const [songId] = await addLibraryInstrumentsToSong([libId])
+      expect(songInst(songId).library).toEqual({ id: libId, category: 'Pads', tags: ['warm'] })
+
+      const saved = await saveSongInstrumentToLibrary(songId, 'Pad', { category: 'Pads', tags: ['warm', 'wide'], replaceId: libId })
+      expect(saved).toBe(libId)
+      expect((await readLibraryInstrument(libId))!.item).toMatchObject({ category: 'Pads', tags: ['warm', 'wide'] })
+      expect(songInst(songId).library).toEqual({ id: libId, category: 'Pads', tags: ['warm', 'wide'] })
+    })
+  })
 })

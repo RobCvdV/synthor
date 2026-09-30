@@ -46,4 +46,15 @@ describe('InstrumentSettings', () => {
     fireEvent.click(getAllByText('Save to Library')[0])
     expect(saved).toBe(1)
   })
+
+  it('edits the category and tags the instrument keeps in the song', () => {
+    const synth = firstOfKind('modular')
+    const { getByLabelText, getByText } = renderFor(synth)
+    fireEvent.change(getByLabelText('Category'), { target: { value: 'Leads' } })
+    fireEvent.blur(getByLabelText('Category'))
+    fireEvent.change(getByLabelText('Add tag'), { target: { value: 'bright' } })
+    fireEvent.keyDown(getByLabelText('Add tag'), { key: 'Enter' })
+    expect(useDocStore.getState().doc.entities.instruments[synth.id].library).toEqual({ category: 'Leads', tags: ['bright'] })
+    expect(getByText(/^Synth/).textContent).toBe('Synth')
+  })
 })

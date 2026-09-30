@@ -6,6 +6,7 @@ import type {
   DrumKitInstrument,
   DrumKitSlot,
   Instrument,
+  InstrumentLibraryInfo,
   MixChannel,
   Module,
   ModularInstrument,
@@ -168,7 +169,7 @@ export function cloneInstrument(inst: Instrument, name: string): Instrument {
       volume: s.volume,
       pan: s.pan,
     }))
-    return { id: makeId('inst'), kind: 'drumkit', name, slots, keyLo: inst.keyLo ?? 36, keyHi: inst.keyHi ?? 60, params: { ...inst.params }, channelId: inst.channelId ?? MASTER_CHANNEL_ID, pan: inst.pan ?? 0 }
+    return { id: makeId('inst'), kind: 'drumkit', name, slots, keyLo: inst.keyLo ?? 36, keyHi: inst.keyHi ?? 60, params: { ...inst.params }, channelId: inst.channelId ?? MASTER_CHANNEL_ID, pan: inst.pan ?? 0, ...copyLibraryInfo(inst) }
   }
 
   const idMap = new Map<string, string>()
@@ -196,7 +197,13 @@ export function cloneInstrument(inst: Instrument, name: string): Instrument {
     channelId: inst.channelId ?? MASTER_CHANNEL_ID,
     pan: inst.pan ?? 0,
     ...(inst.voices !== undefined ? { voices: inst.voices } : {}),
+    ...copyLibraryInfo(inst),
   }
+}
+
+/** A copy keeps category and tags but isn't the library item itself. */
+function copyLibraryInfo(inst: Instrument): { library?: InstrumentLibraryInfo } {
+  return inst.library ? { library: { category: inst.library.category, tags: [...inst.library.tags] } } : {}
 }
 
 /**

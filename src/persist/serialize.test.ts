@@ -220,6 +220,21 @@ describe('migration v12→v13 — sample references by id', () => {
   })
 })
 
+describe('migration v13→v14 — instrument library attributes', () => {
+  it('loads a v13 song unchanged and stamps v14; library attributes round-trip', () => {
+    const doc = createDefaultDoc()
+    const v13 = JSON.parse(JSON.stringify({ schemaVersion: 13, meta: META, doc }))
+    const result = migrate(v13)
+    expect(result.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
+    expect(result.doc.entities.instruments).toEqual(doc.entities.instruments)
+
+    const inst = Object.values(doc.entities.instruments)[0]
+    inst.library = { id: 'warm-pad', category: 'Pads', tags: ['warm'] }
+    const back = migrate(JSON.parse(JSON.stringify(makeSongFile(doc, META))))
+    expect(back.doc.entities.instruments[inst.id].library).toEqual({ id: 'warm-pad', category: 'Pads', tags: ['warm'] })
+  })
+})
+
 describe('migration v5→v6', () => {
   it('strips effect/effectValue from cells', () => {
     const v5 = {

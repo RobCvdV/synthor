@@ -1,4 +1,5 @@
-import { MAX_LIVE_VOICES, type Id, type Instrument } from '../domain/types'
+import { MAX_LIVE_VOICES, type Id, type Instrument, type InstrumentLibraryInfo } from '../domain/types'
+import { normalizeTags } from '../domain/library'
 import { cloneInstrument, newDrumKitInstrument, newEmptyModularInstrument, newModularInstrument } from '../domain/factory'
 import type { DocState } from './docStore'
 
@@ -8,6 +9,8 @@ export interface InstrumentOps {
   addEmptyInstrument: (kind: Instrument['kind'], name: string) => Id
   removeInstrument: (instrumentId: Id) => void
   renameInstrument: (instrumentId: Id, name: string) => void
+  /** Updates the library attributes the instrument keeps in the song (category, tags, library link). */
+  setInstrumentLibraryInfo: (instrumentId: Id, patch: Partial<InstrumentLibraryInfo>) => void
   /** Set an effect range max value on an instrument. */
   setEffectSetting: (instrumentId: Id, key: string, value: number) => void
   /** Live (free play) polyphony of a modular instrument, 1..MAX_LIVE_VOICES. */
@@ -43,6 +46,21 @@ export function instrumentOps(get: () => DocState): InstrumentOps {
         // Remove from mixer order too.
         const idx = draft.entities.mixerInstrumentOrder.indexOf(instrumentId)
         if (idx >= 0) draft.entities.mixerInstrumentOrder.splice(idx, 1)
+      }),
+
+    setInstrumentLibraryInfo: (instrumentId, patch) =>
+      get().mutate((draft) => {
+        const inst = draft.entities.instruments[instrumentId]
+        if (!inst) return
+        const current = inst.library ?? { category: '', tags: [] }
+        const next: InstrumentLibraryInfo = {
+          ...current,
+          ...patch,
+          category: (patch.category ?? current.category).trim(),
+          tags: normalizeTags(patch.tags ?? current.tags),
+        }
+        if (next.id === undefined) delete next.id
+        inst.library = next
       }),
 
     renameInstrument: (instrumentId, name) =>

@@ -279,4 +279,16 @@ describe('buildDxAlgorithm', () => {
     expect(() => buildDxAlgorithm(0, 'out', 'gate', { x: 0, y: 0 })).toThrow(/algorithm/i)
     expect(() => buildDxAlgorithm(9, 'out', 'gate', { x: 0, y: 0 })).toThrow(/algorithm/i)
   })
+
+describe('cloneInstrument library attributes', () => {
+  it('keeps category and tags but not the library link', () => {
+    const orig = newModularInstrument('Orig')
+    orig.library = { id: 'orig', category: 'Leads', tags: ['bright'] }
+    expect(cloneInstrument(orig, 'Copy').library).toEqual({ category: 'Leads', tags: ['bright'] })
+    const kit = newDrumKitInstrument('Kit')
+    kit.library = { id: 'kit', category: 'Drums', tags: [] }
+    expect(cloneInstrument(kit, 'Kit 2').library).toEqual({ category: 'Drums', tags: [] })
+    expect(cloneInstrument(newModularInstrument('Plain'), 'P').library).toBeUndefined()
+  })
+})
 })

@@ -148,6 +148,9 @@ export function InstrumentsView({ host, keyboardPlayer }: { host: AudioHost; key
       )}
       {savingId && doc.entities.instruments[savingId] && (
         <SaveToLibraryDialog source={instrumentLibrary} defaultName={doc.entities.instruments[savingId].name}
+          initialCategory={doc.entities.instruments[savingId].library?.category}
+          initialTags={doc.entities.instruments[savingId].library?.tags}
+          linkedId={doc.entities.instruments[savingId].library?.id}
           onSave={(values) => void saveToLibrary(values)} onCancel={() => setSavingId(null)} />
       )}
     </div>

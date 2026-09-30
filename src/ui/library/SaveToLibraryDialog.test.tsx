@@ -45,4 +45,16 @@ describe('SaveToLibraryDialog', () => {
     fireEvent.change(await screen.findByLabelText('Name'), { target: { value: '  ' } })
     expect(screen.getByText('Save')).toBeDisabled()
   })
+
+  it('starts from the instrument’s category and tags, and offers to replace the item it came from', async () => {
+    const id = await seed('Warm Pad', 'Pads')
+    const onSave = vi.fn()
+    render(<SaveToLibraryDialog source={instrumentLibrary} defaultName="Warm Pad (edited)" initialCategory="Pads" initialTags={['warm']}
+      linkedId={id} onSave={onSave} onCancel={() => {}} />)
+    expect(await screen.findByText('This came from “Warm Pad” in the library.')).toBeTruthy()
+    expect((screen.getByLabelText('Category') as HTMLInputElement).value).toBe('Pads')
+    expect(screen.getByText('warm')).toBeTruthy()
+    fireEvent.click(screen.getByText('Replace'))
+    expect(onSave).toHaveBeenCalledWith({ name: 'Warm Pad (edited)', category: 'Pads', tags: ['warm'], replaceId: id })
+  })
 })

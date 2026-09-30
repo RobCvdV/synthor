@@ -15,23 +15,31 @@ export interface SaveToLibraryValues {
   replaceId?: string
 }
 
-/** Name, category and tags for saving to a library; a name clash offers replace or keep both. */
-export function SaveToLibraryDialog({ source, defaultName, onSave, onCancel }: {
+/**
+ * Name, category and tags for saving to a library. Saving over the item the thing came from
+ * (`linkedId`), or over one with the same name, offers replace or keep both.
+ */
+export function SaveToLibraryDialog({ source, defaultName, initialCategory = '', initialTags = [], linkedId, onSave, onCancel }: {
   source: Pick<LibrarySource, 'list'>
   defaultName: string
+  initialCategory?: string
+  initialTags?: string[]
+  /** The library item this came from, if any. */
+  linkedId?: string
   onSave: (values: SaveToLibraryValues) => void
   onCancel: () => void
 }) {
   const { items } = useLibraryItems(source.list)
   const [name, setName] = useState(defaultName)
-  const [category, setCategory] = useState('')
-  const [tags, setTags] = useState<string[]>([])
+  const [category, setCategory] = useState(initialCategory)
+  const [tags, setTags] = useState<string[]>(initialTags)
   const nameRef = useRef<HTMLInputElement>(null)
   const categoryList = useId()
 
   const categories = useMemo(() => libraryCategories(items ?? []), [items])
   const tagSuggestions = useMemo(() => libraryTags(items ?? []), [items])
-  const clash: LibraryItem | undefined = items?.find((i) => i.name.toLowerCase() === name.trim().toLowerCase())
+  const linked: LibraryItem | undefined = linkedId ? items?.find((i) => i.id === linkedId) : undefined
+  const clash = linked ?? items?.find((i) => i.name.toLowerCase() === name.trim().toLowerCase())
   const values = { name: name.trim(), category, tags }
   const valid = values.name !== '' && items !== null
 
@@ -50,7 +58,8 @@ export function SaveToLibraryDialog({ source, defaultName, onSave, onCancel }: {
 
   return (
     <Dialog title="Save to Library" onClose={onCancel} className={s.narrowDialog} initialFocusRef={nameRef} actions={actions}
-      err={clash ? `“${clash.name}” is already in the library.` : null}>
+      err={linked ? `This came from “${linked.name}” in the library.`
+        : clash ? `“${clash.name}” is already in the library.` : null}>
       <div className={s.fields}>
         <label className={s.field}>
           <span>Name</span>
