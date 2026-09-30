@@ -24,6 +24,7 @@
   padding: 4px 6px; font: inherit; font-size: 11px;
 }
 .search:focus { border-color: var(--accent); outline: none; }
+.searchBlock { width: 100%; box-sizing: border-box; margin-bottom: 8px; }
 
 .body {
   display: grid;

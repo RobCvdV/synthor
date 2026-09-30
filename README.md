@@ -72,7 +72,7 @@ npm run typecheck  # tsc --noEmit
 
 ## Views
 
-Toggle via the toolbar (⌘T / ⌘I / ⌘S / ⌘M):
+Toggle via the toolbar (⌘T / ⌘I / ⌘E / ⌘M):
 
 | View | What it is |
 |------|-----------|

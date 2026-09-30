@@ -80,6 +80,8 @@ Chains are ordered; each hop is verified. Skipping the tail is how features half
 - Electron app settings (incl. the appStore key-value store) live in `userData/settings.json` (`electron/appSettings.ts`), loaded synchronously by the preload so the store hydrates before first render.
 - The preload is CommonJS (`electron/preload.cts` → `preload.cjs`) — Electron ignores `"type": "module"` for preloads. Its surface is typed in `src/persist/electronBridge.ts`; change both together.
 - On first launch per renderer origin, browser-stored (OPFS) songs are copied into the library (`persist/importBrowserStorage.ts`); dev (`localhost:5193`) and packaged (`file://`) are separate origins.
+- The File menu (`electron/appMenu.ts`) only sends a command (`menu:command`); `ui/appCommands.ts` runs it, and on the web ⌘S / ⇧⌘S / ⌘O reach the same function through `useAppKeys`. The `AppCommand` list lives in both `appMenu.ts` and `persist/electronBridge.ts`; change both together.
+- Songs opened from the OS (double-click, "Open With", command line, a second launch) are queued in main (`electron/openFiles.ts`) until `SongCommandHost` takes them after the startup song loads; a single-instance lock routes second launches to the running app.
 - `SYNTHOR_USER_DATA=<dir>` runs Electron on an isolated profile (put a `settings.json` there with `libraryPath` to redirect the library too).
 - Deploys: push a `deploy-vx.y.z` tag → web deploy (FTP) + Electron release (GitHub Releases) workflows.
 

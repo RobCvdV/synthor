@@ -64,6 +64,14 @@
       "dist/**/*",
       "electron-dist/**/*"
     ],
+    "fileAssociations": [
+      {
+        "ext": "synthor",
+        "name": "Synthor Song",
+        "description": "Synthor song with its samples",
+        "role": "Editor"
+      }
+    ],
     "mac": {
       "category": "public.app-category.music",
       "target": "dmg",

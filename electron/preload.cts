@@ -32,4 +32,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setSetting: (key: string, value: string | null) => ipcRenderer.send('settings:setItem', key, value),
   markBrowserStorageImported: (origin: string) => ipcRenderer.invoke('settings:markBrowserStorageImported', origin),
   revealLibrary: () => ipcRenderer.invoke('library:reveal'),
+
+  onMenuCommand: (listener: (command: string) => void) => subscribe('menu:command', listener),
+  takeOpenedFiles: () => ipcRenderer.invoke('files:take'),
+  onFileOpened: (listener: (file: { name: string; bytes: Uint8Array }) => void) => subscribe('files:open', listener),
 })
+
+/** Forwards a main-process channel to `listener`; returns the unsubscribe. */
+function subscribe<T>(channel: string, listener: (payload: T) => void): () => void {
+  const handler = (_e: unknown, payload: T) => listener(payload)
+  ipcRenderer.on(channel, handler)
+  return () => { ipcRenderer.removeListener(channel, handler) }
+}

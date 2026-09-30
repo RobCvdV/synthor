@@ -8,7 +8,8 @@ import { useAppStore } from '../state/appStore'
 import type { SongFile } from '../persist/serialize'
 import { createMemoryBackend } from '../persist/memoryBackend'
 import { setStorage } from '../persist/storage'
-import { createNewSong, importSongFile, loadStartupSong, renameCurrentSong } from './songActions'
+import { createNewSong, importSongFile, loadStartupSong, renameCurrentSong, saveCurrentSongAs } from './songActions'
+import { storage } from '../persist/storage'
 
 const saved = vi.hoisted(() => ({ slugs: [] as string[], recent: null as string | null, files: {} as Record<string, SongFile> }))
 const saveCurrentSong = vi.hoisted(() => vi.fn(async () => {}))
@@ -108,5 +109,35 @@ describe('songActions', () => {
   it('names the default song Untitled without a previous session', async () => {
     await loadStartupSong()
     expect(useProjectStore.getState().name).toBe('Untitled')
+  })
+
+  it('saves as a new name, copying the samples and leaving the original', async () => {
+    saved.slugs = ['current']
+    const s = storage()!
+    await s.write('songs/current/samples/abc.bin', new Uint8Array([1]).buffer)
+    await s.write('songs/current/song.json', '{}')
+    const doc = useDocStore.getState().doc
+    const done = saveCurrentSongAs()
+
+    const prompt = await nextDialog()
+    expect(prompt.defaultValue).toBe('Current copy')
+    expect(prompt.validate?.('current')).toMatch(/already/)
+    answer('Current v2')
+    await done
+
+    expect(useProjectStore.getState()).toMatchObject({ name: 'Current v2', slug: 'current-v2', savedSlug: 'current-v2' })
+    expect(await s.exists('songs/current-v2/samples/abc.bin')).toBe(true)
+    expect(await s.exists('songs/current/samples/abc.bin')).toBe(true)
+    expect(useDocStore.getState().doc).toBe(doc)
+    expect(saveCurrentSong).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the current song when Save As is cancelled', async () => {
+    const done = saveCurrentSongAs()
+    await nextDialog()
+    answer(null)
+    await done
+    expect(useProjectStore.getState().name).toBe('Current')
+    expect(saveCurrentSong).not.toHaveBeenCalled()
   })
 })

@@ -122,7 +122,7 @@ export const Toolbar = memo(function Toolbar({
         Instruments
       </Button>
       <Button active={view === 'samples'} onClick={() => onSetView('samples')}
-        title="Samples (⌘S)"
+        title="Samples (⌘E)"
       >
         Samples
       </Button>

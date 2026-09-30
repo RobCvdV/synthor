@@ -1,6 +1,15 @@
 /** The `window.electronAPI` surface exposed by `electron/preload.cts`. */
 import type { StorageEntry } from './storage'
 
+/** Menu commands sent by `electron/appMenu.ts`; keep the two lists in sync. */
+export type AppCommand = 'newSong' | 'openSong' | 'save' | 'saveAs' | 'importSong' | 'exportSong' | 'revealLibrary'
+
+/** A song file opened from the OS (double-click, Open With). */
+export interface OpenedFile {
+  name: string
+  bytes: Uint8Array
+}
+
 export interface ElectronApi {
   platform: 'electron'
   /** Absolute path of the library folder on disk. */
@@ -20,6 +29,11 @@ export interface ElectronApi {
   setSetting(key: string, value: string | null): void
   markBrowserStorageImported(origin: string): Promise<void>
   revealLibrary(): Promise<string>
+  /** Returns the unsubscribe. */
+  onMenuCommand(listener: (command: AppCommand) => void): () => void
+  /** Files opened before the renderer was ready; later ones arrive through `onFileOpened`. */
+  takeOpenedFiles(): Promise<OpenedFile[]>
+  onFileOpened(listener: (file: OpenedFile) => void): () => void
 }
 
 /** The Electron bridge, or null in the browser. */

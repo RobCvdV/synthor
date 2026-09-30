@@ -7,6 +7,8 @@ import { useDocStore } from '../state/docStore'
 import { usePreviewStore } from '../state/previewStore'
 import { useTransportStore } from '../state/transportStore'
 import { codeToSemitone, isEditableTarget } from './keymap'
+import { electronApi } from '../persist/electronBridge'
+import { fileShortcut, runAppCommand } from './appCommands'
 
 /**
  * The app's one keydown/keyup listener pair: transport, undo, panic, mute/solo, view and
@@ -34,6 +36,14 @@ export function useAppKeys(host: AudioHost, keyboardPlayer: KeyboardPlayer, onTr
         e.preventDefault()
         if (e.shiftKey) redo()
         else undo()
+        return
+      }
+
+      // --- File shortcuts (web only; Electron's menu owns them), also while typing ---
+      const fileCommand = electronApi() ? null : fileShortcut(e)
+      if (fileCommand) {
+        e.preventDefault()
+        void runAppCommand(fileCommand)
         return
       }
 
@@ -66,7 +76,7 @@ export function useAppKeys(host: AudioHost, keyboardPlayer: KeyboardPlayer, onTr
       }
 
       if ((e.metaKey || e.ctrlKey) && !e.altKey) {
-        const view = ({ KeyT: 'tracker', KeyI: 'instruments', KeyS: 'samples', KeyM: 'mixer' } as const)[e.code as 'KeyT']
+        const view = ({ KeyT: 'tracker', KeyI: 'instruments', KeyE: 'samples', KeyM: 'mixer' } as const)[e.code as 'KeyT']
         if (view) { e.preventDefault(); app.setView(view); return }
       }
 
