@@ -37,12 +37,12 @@ describe('instrumentOps', () => {
     expect(doc().entities.mixerInstrumentOrder.slice(-2)).toEqual([synthId, kitId])
   })
 
-  it('setInstrumentLibraryInfo updates category and tags, keeping the library link', () => {
+  it('setLibraryInfo updates category and tags, keeping the library link', () => {
     const store = useDocStore.getState()
     const id = store.addEmptyInstrument('modular', 'Pad')
-    store.setInstrumentLibraryInfo(id, { tags: ['Warm', 'warm', ' soft'] })
+    store.setLibraryInfo(id, { tags: ['Warm', 'warm', ' soft'] })
     expect(doc().entities.instruments[id].library).toEqual({ category: '', tags: ['warm', 'soft'] })
-    store.setInstrumentLibraryInfo(id, { id: 'pad', category: ' Pads ' })
+    store.setLibraryInfo(id, { id: 'pad', category: ' Pads ' })
     expect(doc().entities.instruments[id].library).toEqual({ id: 'pad', category: 'Pads', tags: ['warm', 'soft'] })
     store.undo()
     expect(doc().entities.instruments[id].library?.id).toBeUndefined()

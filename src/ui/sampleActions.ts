@@ -1,6 +1,6 @@
 import { loadAudioFile } from '../audio/sampleLoader'
 import { newSampleEntity } from '../domain/factory'
-import type { Id, SampleEntity } from '../domain/types'
+import type { Id, LibraryInfo, SampleEntity } from '../domain/types'
 import { readLibrarySampleAudio, saveSampleToLibrary, type SaveSampleOptions } from '../persist/sampleLibrary'
 import { readSampleAsset, writeSampleData } from '../persist/sampleStorage'
 import { hasStorage } from '../persist/storage'
@@ -43,37 +43,56 @@ export async function importSampleFiles(files: File[]): Promise<{ imported: Impo
   return { imported, failed }
 }
 
-export async function addImportedSamplesToLibrary(items: ImportedSample[]): Promise<void> {
-  for (const { sample, bytes } of items) await saveSampleToLibrary(sample, bytes)
+/** Links song samples to library items and records their category/tags, as one undoable edit. */
+function linkToLibrary(links: { sampleId: Id; library: LibraryInfo }[]) {
+  if (!links.length) return
+  useDocStore.getState().mutate((draft) => {
+    for (const { sampleId, library } of links) {
+      const sample = draft.entities.samples[sampleId]
+      if (sample) sample.library = { ...library, tags: [...library.tags] }
+    }
+  })
 }
 
-/** Saves a song sample's audio file to the library. */
+/** Stores imported files in the library and links the song's samples to them. */
+export async function addImportedSamplesToLibrary(items: ImportedSample[]): Promise<void> {
+  const links: { sampleId: Id; library: LibraryInfo }[] = []
+  for (const { sample, bytes } of items) {
+    const id = await saveSampleToLibrary(sample, bytes)
+    links.push({ sampleId: sample.id, library: { id, category: '', tags: [] } })
+  }
+  linkToLibrary(links)
+}
+
+/** Saves a song sample's audio file to the library and links the sample to that item. */
 export async function saveSongSampleToLibrary(sampleId: Id, options: SaveSampleOptions): Promise<string> {
   const sample = useDocStore.getState().doc.entities.samples[sampleId]
   if (!sample) throw new Error('Sample not found')
   const bytes = await readSampleAsset(currentSlug(), sample.hash)
   if (!bytes) throw new Error(`The audio of "${sample.name}" is missing`)
-  return saveSampleToLibrary(sample, bytes, options)
+  const id = await saveSampleToLibrary(sample, bytes, options)
+  linkToLibrary([{ sampleId, library: { id, category: (options.category ?? '').trim(), tags: options.tags ?? [] } }])
+  return id
 }
 
 /** Adds library samples to the song as one undoable edit; a sample the song already has (same audio) is reused. */
 export async function addLibrarySamplesToSong(libraryIds: string[]): Promise<Id[]> {
-  const found: { name: string; bytes: ArrayBuffer; meta: Omit<SampleEntity, 'id' | 'name'> }[] = []
+  const found: { name: string; meta: Omit<SampleEntity, 'id' | 'name' | 'library'>; library: LibraryInfo }[] = []
   for (const id of libraryIds) {
     const audio = await readLibrarySampleAudio(id)
     if (!audio) continue
     await storeInSong(audio.item.sample.hash, audio.bytes)
-    found.push({ name: audio.item.name, bytes: audio.bytes, meta: audio.item.sample })
+    found.push({ name: audio.item.name, meta: audio.item.sample, library: { id, category: audio.item.category, tags: audio.item.tags } })
   }
   const ids: Id[] = []
   useDocStore.getState().mutate((draft) => {
-    for (const { name, meta } of found) {
+    for (const { name, meta, library } of found) {
       const existing = Object.values(draft.entities.samples).find((smp) => smp.hash === meta.hash)
       if (existing) {
         ids.push(existing.id)
         continue
       }
-      const sample = newSampleEntity(name, meta.hash, meta.originalName, meta.sampleRate, meta.channels, meta.frames)
+      const sample: SampleEntity = { ...newSampleEntity(name, meta.hash, meta.originalName, meta.sampleRate, meta.channels, meta.frames), library }
       draft.entities.samples[sample.id] = sample
       ids.push(sample.id)
     }

@@ -67,4 +67,11 @@ describe('sampleOps', () => {
     expect(fresh.channels).toBe(2)
     expect(fresh.frames).toBe(200)
   })
+
+  it('setSampleLibraryInfo records category and tags on the song sample', () => {
+    const smp = newSampleEntity('Kick', 'h', 'kick.wav', 48000, 1, 10)
+    useDocStore.getState().addSampleEntity(smp)
+    useDocStore.getState().setSampleLibraryInfo(smp.id, { category: ' Drums ', tags: ['Punchy'] })
+    expect(useDocStore.getState().doc.entities.samples[smp.id].library).toEqual({ category: 'Drums', tags: ['punchy'] })
+  })
 })

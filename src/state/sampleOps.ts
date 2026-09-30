@@ -1,4 +1,5 @@
-import type { Id, SampleEntity } from '../domain/types'
+import type { Id, LibraryInfo, SampleEntity } from '../domain/types'
+import { patchLibraryInfo } from '../domain/library'
 import type { DocState } from './docStore'
 
 export interface SampleOps {
@@ -6,6 +7,8 @@ export interface SampleOps {
   removeSampleEntity: (id: Id) => void
   replaceSampleAsset: (id: Id, hash: string, originalName: string, sampleRate: number, channels: number, frames: number) => void
   renameSample: (id: Id, name: string) => void
+  /** Updates the library attributes the sample keeps in the song (category, tags, library link). */
+  setSampleLibraryInfo: (id: Id, patch: Partial<LibraryInfo>) => void
 }
 
 export function sampleOps(get: () => DocState): SampleOps {
@@ -28,6 +31,12 @@ export function sampleOps(get: () => DocState): SampleOps {
           }
         }
         delete draft.entities.samples[id]
+      }),
+
+    setSampleLibraryInfo: (id, patch) =>
+      get().mutate((draft) => {
+        const sample = draft.entities.samples[id]
+        if (sample) sample.library = patchLibraryInfo(sample.library, patch)
       }),
 
     renameSample: (id, name) =>

@@ -140,4 +140,14 @@ describe('library attributes in bundles', () => {
     expect(target.instruments[plainId].library).toBeUndefined()
   })
 })
+
+describe('sample library attributes in bundles', () => {
+  it('leaves song-side sample attributes out of collected bundles', () => {
+    const { doc, kit, kick } = kitSong()
+    kick.library = { id: 'kick', category: 'Drums', tags: [] }
+    const bundle = collectInstrumentBundle(doc.entities, kit.id)
+    expect(bundle.samples[kick.id]).not.toHaveProperty('library')
+    expect(kick.library).toBeDefined()
+  })
+})
 })

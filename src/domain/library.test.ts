@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  filterLibrary, LIBRARY_SORTS, libraryCategories, libraryTags, normalizeTags, parseTags, sortLibrary, uniqueLibraryId,
+  filterLibrary, LIBRARY_SORTS, patchLibraryInfo, libraryCategories, libraryTags, normalizeTags, parseTags, sortLibrary, uniqueLibraryId,
   type InstrumentLibraryItem,
 } from './library'
 
@@ -63,4 +63,13 @@ describe('library facets and ids', () => {
     expect(uniqueLibraryId('pad', [])).toBe('pad')
     expect(uniqueLibraryId('pad', ['pad', 'pad-2'])).toBe('pad-3')
   })
+
+describe('patchLibraryInfo', () => {
+  it('trims the category, normalizes tags and keeps the link unless replaced', () => {
+    expect(patchLibraryInfo(undefined, { tags: ['A', 'a'] })).toEqual({ category: '', tags: ['a'] })
+    const linked = patchLibraryInfo({ id: 'x', category: 'Old', tags: [] }, { category: ' New ' })
+    expect(linked).toEqual({ id: 'x', category: 'New', tags: [] })
+    expect(patchLibraryInfo(linked, { id: 'y' }).id).toBe('y')
+  })
+})
 })

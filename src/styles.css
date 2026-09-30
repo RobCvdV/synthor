@@ -1124,6 +1124,17 @@ body {
   border-radius: 2px;
 }
 
+.slv-category-input { font-size: 12px; }
+/* Name, Category, Tags, Original, Ch, Info, Size, actions */
+.slv-table th:nth-child(1) { width: 15%; }
+.slv-table th:nth-child(2) { width: 11%; }
+.slv-table th:nth-child(3) { width: 22%; }
+.slv-table th:nth-child(4) { width: 13%; }
+.slv-table th:nth-child(5) { width: 64px; }
+.slv-table th:nth-child(6) { width: 13%; }
+.slv-table th:nth-child(7) { width: 72px; }
+.slv-table th:nth-child(8) { width: 170px; }
+
 .slv-name-input:hover {
   border-color: #333;
 }

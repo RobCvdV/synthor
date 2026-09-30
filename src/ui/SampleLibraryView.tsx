@@ -13,6 +13,7 @@ import { SampleToolbar } from './SampleToolbar'
 import { saveSongSampleToLibrary } from './sampleActions'
 import { SaveToLibraryDialog, type SaveToLibraryValues } from './library/SaveToLibraryDialog'
 import { sampleLibrary } from './library/librarySource'
+import { TagEditor } from './library/TagEditor'
 import { SampleEditor } from './sampleEditor/SampleEditor'
 import { CreateSampleDialog } from './CreateSampleDialog'
 import { sampleDialogOpenRef } from './sampleDialogRef'
@@ -39,6 +40,7 @@ export function SampleLibraryView({ host }: Props) {
   const removeSampleEntity = useDocStore((s) => s.removeSampleEntity)
   const replaceSampleAsset = useDocStore((s) => s.replaceSampleAsset)
   const renameSample = useDocStore((s) => s.renameSample)
+  const setSampleLibraryInfo = useDocStore((s) => s.setSampleLibraryInfo)
   const vfsLoadedHashes = useDocStore((s) => s.vfsLoadedHashes)
   const slug = useProjectStore((s) => s.slug)
   const selectedSampleId = useAppStore((s) => s.selectedSampleId)
@@ -189,6 +191,8 @@ export function SampleLibraryView({ host }: Props) {
             <thead>
               <tr>
                 <th>Name</th>
+                <th>Category</th>
+                <th>Tags</th>
                 <th>Original</th>
                 <th>Ch</th>
                 <th>Info</th>
@@ -213,6 +217,12 @@ export function SampleLibraryView({ host }: Props) {
                         onChange={(e) => renameSample(s.id, e.target.value)}
                         title="Rename sample — this is how it appears in drumkit and module pickers"
                       />
+                    </td>
+                    <td>
+                      <SampleCategoryInput key={`${s.id}:${s.library?.category ?? ''}`} sampleId={s.id} category={s.library?.category ?? ''} />
+                    </td>
+                    <td className="slv-tags">
+                      <TagEditor tags={s.library?.tags ?? []} onChange={(tags) => setSampleLibraryInfo(s.id, { tags })} />
                     </td>
                     <td className={'slv-original' + (missing ? ' slv-missing-file' : '')}>
                       <span
@@ -302,6 +312,8 @@ export function SampleLibraryView({ host }: Props) {
 
       {savingId && sampleMap[savingId] && (
         <SaveToLibraryDialog source={sampleLibrarySource} defaultName={sampleMap[savingId].name}
+          initialCategory={sampleMap[savingId].library?.category} initialTags={sampleMap[savingId].library?.tags}
+          linkedId={sampleMap[savingId].library?.id}
           onSave={(values) => void saveToLibrary(values)} onCancel={() => setSavingId(null)} />
       )}
 
@@ -312,5 +324,17 @@ export function SampleLibraryView({ host }: Props) {
         />
       )}
     </div>
+  )
+}
+
+/** The category a sample keeps in the song; committed on blur or Enter. */
+function SampleCategoryInput({ sampleId, category }: { sampleId: string; category: string }) {
+  const setInfo = useDocStore((st) => st.setSampleLibraryInfo)
+  const [value, setValue] = useState(category)
+  const commit = () => { if (value.trim() !== category) setInfo(sampleId, { category: value }) }
+  return (
+    <input className="slv-name-input slv-category-input" value={value} placeholder="—" aria-label="Category"
+      onChange={(e) => setValue(e.target.value)} onBlur={commit}
+      onKeyDown={(e) => { if (e.key === 'Enter') commit() }} />
   )
 }

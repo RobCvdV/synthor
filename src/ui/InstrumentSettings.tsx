@@ -108,7 +108,7 @@ export function InstrumentSettings({ inst, usage, onDuplicate, onExport, onSaveT
 
 /** Category and tags the instrument keeps in the song and takes along to the library and exports. */
 function InstrumentLibraryFields({ inst }: { inst: Instrument }) {
-  const setInfo = useDocStore((st) => st.setInstrumentLibraryInfo)
+  const setInfo = useDocStore((st) => st.setLibraryInfo)
   const [category, setCategory] = useState(inst.library?.category ?? '')
   const commitCategory = () => {
     if (category.trim() !== (inst.library?.category ?? '')) setInfo(inst.id, { category })

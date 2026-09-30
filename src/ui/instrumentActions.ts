@@ -1,5 +1,5 @@
 import { collectInstrumentBundle, insertInstrumentBundle, type InstrumentBundle } from '../domain/instrumentBundle'
-import type { Id, InstrumentLibraryInfo } from '../domain/types'
+import type { Id, LibraryInfo } from '../domain/types'
 import type { LibraryMeta } from '../domain/library'
 import {
   exportLibraryInstrument, readLibraryInstrument, readLibrarySample, saveToLibrary, type SaveToLibraryOptions,
@@ -21,7 +21,7 @@ function zipBlob(zip: Uint8Array, name: string) {
   return { blob: new Blob([zip as BlobPart], { type: 'application/zip' }), filename: `${name || 'instrument'}${INSTRUMENT_FILE_EXT}` }
 }
 
-type SongInsert = { bundle: InstrumentBundle; library?: InstrumentLibraryInfo }
+type SongInsert = { bundle: InstrumentBundle; library?: LibraryInfo }
 
 /** Copies sample bytes into the open song, then adds all bundles as one undoable edit. */
 async function addBundlesToSong(items: SongInsert[], readSample: (itemIndex: number, hash: string) => Promise<ArrayBuffer | null>): Promise<Id[]> {
@@ -43,11 +43,11 @@ async function addBundlesToSong(items: SongInsert[], readSample: (itemIndex: num
 const bytesToBuffer = (bytes: Uint8Array | undefined) => (bytes ? bytes.slice().buffer as ArrayBuffer : null)
 
 /** Category and tags from a file or library item, without the library link. */
-const infoFromMeta = (meta: LibraryMeta | null): InstrumentLibraryInfo | undefined =>
+const infoFromMeta = (meta: LibraryMeta | null): LibraryInfo | undefined =>
   meta ? { category: meta.category, tags: meta.tags } : undefined
 
 /** Links song instruments to library items and records their category/tags, as one undoable edit. */
-function linkToLibrary(links: { instrumentId: Id; library: InstrumentLibraryInfo }[]) {
+function linkToLibrary(links: { instrumentId: Id; library: LibraryInfo }[]) {
   if (!links.length) return
   useDocStore.getState().mutate((draft) => {
     for (const { instrumentId, library } of links) {
@@ -108,7 +108,7 @@ export async function importInstrumentFiles(files: File[]): Promise<{ imported: 
 
 /** Stores imported files in the library (with the category and tags they carried) and links the song's copies to them. */
 export async function addImportedToLibrary(items: ImportedInstrument[]): Promise<void> {
-  const links: { instrumentId: Id; library: InstrumentLibraryInfo }[] = []
+  const links: { instrumentId: Id; library: LibraryInfo }[] = []
   for (const { contents, instrumentId } of items) {
     const category = contents.meta?.category ?? ''
     const tags = contents.meta?.tags ?? []
@@ -130,7 +130,7 @@ export async function saveSongInstrumentToLibrary(instrumentId: Id, name: string
 
 /** Adds copies of library instruments to the open song as one undoable edit; returns their new ids. */
 export async function addLibraryInstrumentsToSong(libraryIds: string[]): Promise<Id[]> {
-  const docs: { id: string; bundle: InstrumentBundle; library: InstrumentLibraryInfo }[] = []
+  const docs: { id: string; bundle: InstrumentBundle; library: LibraryInfo }[] = []
   for (const id of libraryIds) {
     const doc = await readLibraryInstrument(id)
     if (doc) docs.push({ id, bundle: doc.bundle, library: { id, category: doc.item.category, tags: doc.item.tags } })

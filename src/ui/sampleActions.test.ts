@@ -91,4 +91,27 @@ describe('sampleActions', () => {
     expect(audio.item).toMatchObject({ name: 'clap', fileName: 'clap.wav', sample: { hash: 'h5' } })
     expect([...new Uint8Array(audio.bytes)]).toEqual([5, 5])
   })
+
+  describe('library attributes', () => {
+    const songSample = (id: string) => useDocStore.getState().doc.entities.samples[id]
+
+    it('come along from the library, and saving back replaces the linked item', async () => {
+      const libId = await saveSampleToLibrary(newSampleEntity('Kick', 'hk', 'kick.wav', 48000, 1, 10), new Uint8Array([1]).buffer,
+        { category: 'Drums', tags: ['punchy'] })
+      const [songId] = await addLibrarySamplesToSong([libId])
+      expect(songSample(songId).library).toEqual({ id: libId, category: 'Drums', tags: ['punchy'] })
+
+      const saved = await saveSongSampleToLibrary(songId, { name: 'Kick', category: 'Drums', tags: ['punchy', 'short'], replaceId: libId })
+      expect(saved).toBe(libId)
+      expect((await listLibrarySamples()).map((i) => [i.id, i.tags])).toEqual([[libId, ['punchy', 'short']]])
+      expect(songSample(songId).library).toEqual({ id: libId, category: 'Drums', tags: ['punchy', 'short'] })
+    })
+
+    it('link imported samples that are also added to the library', async () => {
+      const { imported } = await importSampleFiles([new File([new Uint8Array([6])], 'rim.wav')])
+      await addImportedSamplesToLibrary(imported)
+      const [item] = await listLibrarySamples()
+      expect(songSample(imported[0].sample.id).library).toEqual({ id: item.id, category: '', tags: [] })
+    })
+  })
 })

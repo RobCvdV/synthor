@@ -1,5 +1,5 @@
 /** Library item metadata, filtering and sorting — pure, shared by the instrument and sample libraries. */
-import type { Id, Instrument, SampleEntity } from './types'
+import type { Id, Instrument, LibraryInfo, SampleEntity } from './types'
 
 /** What the library knows about an item besides the item itself. */
 export interface LibraryMeta {
@@ -20,7 +20,7 @@ export interface InstrumentLibraryItem extends LibraryItem {
 }
 
 export interface SampleLibraryItem extends LibraryItem {
-  sample: Omit<SampleEntity, 'id' | 'name'>
+  sample: Omit<SampleEntity, 'id' | 'name' | 'library'>
   /** The audio file's name inside the item folder. */
   fileName: string
 }
@@ -42,6 +42,19 @@ export const LIBRARY_SORTS: { key: LibrarySortKey; label: string; compare: (a: L
 /** Trimmed, lowercased, unique, non-empty tags. */
 export function normalizeTags(tags: string[]): string[] {
   return [...new Set(tags.map((t) => t.trim().toLowerCase()).filter(Boolean))]
+}
+
+/** Applies a patch to song-side library attributes: trimmed category, normalized tags, id kept unless replaced. */
+export function patchLibraryInfo(current: LibraryInfo | undefined, patch: Partial<LibraryInfo>): LibraryInfo {
+  const base = current ?? { category: '', tags: [] }
+  const next: LibraryInfo = {
+    ...base,
+    ...patch,
+    category: (patch.category ?? base.category).trim(),
+    tags: normalizeTags(patch.tags ?? base.tags),
+  }
+  if (next.id === undefined) delete next.id
+  return next
 }
 
 /** Splits free text ("bass, warm  pad") into tags. */

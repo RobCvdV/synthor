@@ -4,7 +4,7 @@
  * instrument export/import and of the instrument library.
  */
 import { cloneInstrument, makeId } from './factory'
-import { MASTER_CHANNEL_ID, type Entities, type Id, type Instrument, type InstrumentLibraryInfo, type SampleEntity } from './types'
+import { MASTER_CHANNEL_ID, type Entities, type Id, type Instrument, type LibraryInfo, type SampleEntity } from './types'
 
 export interface InstrumentBundle {
   rootId: Id
@@ -29,7 +29,10 @@ export function collectInstrumentBundle(entities: Pick<Entities, 'instruments' |
     const { library: _, ...rest } = inst
     instruments[id] = rest as Instrument
     for (const sid of referencedSampleIds(inst)) {
-      if (entities.samples[sid]) samples[sid] = entities.samples[sid]
+      const smp = entities.samples[sid]
+      if (!smp) continue
+      const { library: _lib, ...plain } = smp
+      samples[sid] = plain
     }
     if (inst.kind === 'drumkit') for (const slot of inst.slots) if (slot.instrumentId) visit(slot.instrumentId)
   }
@@ -44,7 +47,7 @@ export function collectInstrumentBundle(entities: Pick<Entities, 'instruments' |
  * the root joins the mixer, and routing to a channel this song lacks falls back to master.
  * `library` becomes the root's library attributes.
  */
-export function insertInstrumentBundle(entities: Entities, bundle: InstrumentBundle, library?: InstrumentLibraryInfo): Id {
+export function insertInstrumentBundle(entities: Entities, bundle: InstrumentBundle, library?: LibraryInfo): Id {
   const sampleIds = new Map<Id, Id>()
   const byHash = new Map(Object.values(entities.samples).map((s) => [s.hash, s.id]))
   for (const smp of Object.values(bundle.samples)) {

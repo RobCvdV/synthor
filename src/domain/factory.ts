@@ -6,7 +6,7 @@ import type {
   DrumKitInstrument,
   DrumKitSlot,
   Instrument,
-  InstrumentLibraryInfo,
+  LibraryInfo,
   MixChannel,
   Module,
   ModularInstrument,
@@ -202,7 +202,7 @@ export function cloneInstrument(inst: Instrument, name: string): Instrument {
 }
 
 /** A copy keeps category and tags but isn't the library item itself. */
-function copyLibraryInfo(inst: Instrument): { library?: InstrumentLibraryInfo } {
+function copyLibraryInfo(inst: Instrument): { library?: LibraryInfo } {
   return inst.library ? { library: { category: inst.library.category, tags: [...inst.library.tags] } } : {}
 }
 

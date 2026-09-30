@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildDxAlgorithm, createDefaultDoc, newModularInstrument, newTrack } from '../domain/factory'
+import { buildDxAlgorithm, createDefaultDoc, newModularInstrument, newSampleEntity, newTrack } from '../domain/factory'
 import {
   CURRENT_SCHEMA_VERSION,
   deserializeSong,
@@ -232,6 +232,12 @@ describe('migration v13→v14 — instrument library attributes', () => {
     inst.library = { id: 'warm-pad', category: 'Pads', tags: ['warm'] }
     const back = migrate(JSON.parse(JSON.stringify(makeSongFile(doc, META))))
     expect(back.doc.entities.instruments[inst.id].library).toEqual({ id: 'warm-pad', category: 'Pads', tags: ['warm'] })
+
+    const smp = newSampleEntity('Kick', 'h', 'kick.wav', 48000, 1, 10)
+    smp.library = { id: 'kick', category: 'Drums', tags: [] }
+    doc.entities.samples[smp.id] = smp
+    const withSample = migrate(JSON.parse(JSON.stringify(makeSongFile(doc, META))))
+    expect(withSample.doc.entities.samples[smp.id].library).toEqual({ id: 'kick', category: 'Drums', tags: [] })
   })
 })
 

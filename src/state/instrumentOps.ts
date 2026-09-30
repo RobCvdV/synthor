@@ -1,5 +1,5 @@
-import { MAX_LIVE_VOICES, type Id, type Instrument, type InstrumentLibraryInfo } from '../domain/types'
-import { normalizeTags } from '../domain/library'
+import { MAX_LIVE_VOICES, type Id, type Instrument, type LibraryInfo } from '../domain/types'
+import { patchLibraryInfo } from '../domain/library'
 import { cloneInstrument, newDrumKitInstrument, newEmptyModularInstrument, newModularInstrument } from '../domain/factory'
 import type { DocState } from './docStore'
 
@@ -10,7 +10,7 @@ export interface InstrumentOps {
   removeInstrument: (instrumentId: Id) => void
   renameInstrument: (instrumentId: Id, name: string) => void
   /** Updates the library attributes the instrument keeps in the song (category, tags, library link). */
-  setInstrumentLibraryInfo: (instrumentId: Id, patch: Partial<InstrumentLibraryInfo>) => void
+  setLibraryInfo: (instrumentId: Id, patch: Partial<LibraryInfo>) => void
   /** Set an effect range max value on an instrument. */
   setEffectSetting: (instrumentId: Id, key: string, value: number) => void
   /** Live (free play) polyphony of a modular instrument, 1..MAX_LIVE_VOICES. */
@@ -48,19 +48,10 @@ export function instrumentOps(get: () => DocState): InstrumentOps {
         if (idx >= 0) draft.entities.mixerInstrumentOrder.splice(idx, 1)
       }),
 
-    setInstrumentLibraryInfo: (instrumentId, patch) =>
+    setLibraryInfo: (instrumentId, patch) =>
       get().mutate((draft) => {
         const inst = draft.entities.instruments[instrumentId]
-        if (!inst) return
-        const current = inst.library ?? { category: '', tags: [] }
-        const next: InstrumentLibraryInfo = {
-          ...current,
-          ...patch,
-          category: (patch.category ?? current.category).trim(),
-          tags: normalizeTags(patch.tags ?? current.tags),
-        }
-        if (next.id === undefined) delete next.id
-        inst.library = next
+        if (inst) inst.library = patchLibraryInfo(inst.library, patch)
       }),
 
     renameInstrument: (instrumentId, name) =>

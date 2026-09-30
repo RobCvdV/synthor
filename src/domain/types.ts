@@ -116,8 +116,8 @@ export interface Connection {
   gain: number
 }
 
-/** Library attributes an instrument keeps inside a song, so saving it back to the library keeps them. */
-export interface InstrumentLibraryInfo {
+/** Library attributes an instrument or sample keeps inside a song, so saving it back to the library keeps them. */
+export interface LibraryInfo {
   /** The library item this instrument came from or was saved as. */
   id?: string
   category: string
@@ -142,7 +142,7 @@ export interface ModularInstrument {
   midiChannel?: number
   /** Live (free play) polyphony. Missing = DEFAULT_LIVE_VOICES. */
   voices?: number
-  library?: InstrumentLibraryInfo
+  library?: LibraryInfo
 }
 
 /** A managed sample asset — metadata only. Binary PCM data lives in storage. */
@@ -160,6 +160,7 @@ export interface SampleEntity {
   channels: number
   /** Total frames per channel. */
   frames: number
+  library?: LibraryInfo
 }
 
 /** A drum kit slot: an assignment at a specific MIDI note.
@@ -204,7 +205,7 @@ export interface DrumKitInstrument {
   pan: number
   /** MIDI channel (1-16) for external MIDI routing.  Defaults to 10 (drum channel). */
   midiChannel?: number
-  library?: InstrumentLibraryInfo
+  library?: LibraryInfo
 }
 
 export const DEFAULT_LIVE_VOICES = 4
