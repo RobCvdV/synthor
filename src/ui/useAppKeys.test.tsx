@@ -34,19 +34,11 @@ describe('useAppKeys', () => {
     expect(onTrackerKey).toHaveBeenCalledTimes(1)
   })
 
-  it('switches views with Cmd+letter', () => {
+  it('has no view shortcuts; Cmd+S saves', () => {
     renderHook(() => useAppKeys(stubHost(), player, () => {}))
-    press('KeyM', { metaKey: true })
-    expect(useAppStore.getState().view).toBe('mixer')
-  })
-
-  it('opens Samples with Cmd+E, leaving Cmd+S to Save', () => {
-    renderHook(() => useAppKeys(stubHost(), player, () => {}))
-    press('KeyE', { metaKey: true })
-    expect(useAppStore.getState().view).toBe('samples')
-    useAppStore.setState({ view: 'tracker' })
-    press('KeyS', { metaKey: true })
+    for (const code of ['KeyT', 'KeyI', 'KeyE', 'KeyM']) press(code, { metaKey: true })
     expect(useAppStore.getState().view).toBe('tracker')
+    press('KeyS', { metaKey: true })
     expect(runAppCommand).toHaveBeenLastCalledWith('save')
   })
 

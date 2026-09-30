@@ -112,22 +112,22 @@ export const Toolbar = memo(function Toolbar({
 
       {/* Page switch buttons */}
       <Button active={view === 'tracker'} onClick={() => onSetView('tracker')}
-        title="Tracker (⌘T)"
+        title="Tracker"
       >
         Tracker
       </Button>
       <Button active={view === 'instruments'} onClick={() => onSetView('instruments')}
-        title="Instruments (⌘I)"
+        title="Instruments"
       >
         Instruments
       </Button>
       <Button active={view === 'samples'} onClick={() => onSetView('samples')}
-        title="Samples (⌘E)"
+        title="Samples"
       >
         Samples
       </Button>
       <Button active={view === 'mixer'} onClick={() => onSetView('mixer')}
-        title="Mixer (⌘M)"
+        title="Mixer"
       >
         Mixer
       </Button>

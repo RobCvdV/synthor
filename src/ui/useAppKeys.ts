@@ -75,11 +75,6 @@ export function useAppKeys(host: AudioHost, keyboardPlayer: KeyboardPlayer, onTr
         return
       }
 
-      if ((e.metaKey || e.ctrlKey) && !e.altKey) {
-        const view = ({ KeyT: 'tracker', KeyI: 'instruments', KeyE: 'samples', KeyM: 'mixer' } as const)[e.code as 'KeyT']
-        if (view) { e.preventDefault(); app.setView(view); return }
-      }
-
       const noMods = !e.metaKey && !e.ctrlKey && !e.altKey
       if (noMods && (e.code === 'Minus' || e.code === 'Equal')) {
         e.preventDefault()
