@@ -11,6 +11,8 @@ import { LibraryDialog } from './LibraryDialog'
 import { instrumentLibrary } from './librarySource'
 
 const downloadBlob = vi.hoisted(() => vi.fn())
+const pickFiles = vi.hoisted(() => vi.fn(async (): Promise<File[]> => []))
+vi.mock('../pickFiles', () => ({ pickFiles }))
 vi.mock('../download', () => ({ downloadBlob }))
 
 async function seed(inst: Instrument, category: string, tags: string[]) {
@@ -106,5 +108,25 @@ describe('LibraryDialog', () => {
     setStorage(createMemoryBackend())
     render(<LibraryDialog source={instrumentLibrary} mode="manage" onClose={() => {}} />)
     expect(await screen.findByText(/The library is empty/)).toBeTruthy()
+  })
+
+  it('imports files into the library and pre-checks them in pick mode', async () => {
+    const importFiles = vi.fn(async () => {
+      await seed(newModularInstrument('Fresh'), '', [])
+      return { ids: ['fresh'], failed: [] }
+    })
+    pickFiles.mockResolvedValueOnce([new File(['x'], 'fresh.synthinst')])
+    const onAdd = vi.fn()
+    render(<LibraryDialog source={{ ...instrumentLibrary, importFiles }} mode="pick" onAdd={onAdd} onClose={() => {}} />)
+    fireEvent.change(await screen.findByLabelText('Search library'), { target: { value: 'zzz' } })
+
+    fireEvent.click(screen.getByText('Import…'))
+
+    expect(await screen.findByText('Fresh')).toBeTruthy()
+    expect(pickFiles).toHaveBeenCalledWith({ accept: instrumentLibrary.importAccept, multiple: true })
+    expect((screen.getByLabelText('Select Fresh') as HTMLInputElement).checked).toBe(true)
+    expect((screen.getByLabelText('Search library') as HTMLInputElement).value).toBe('')
+    fireEvent.click(screen.getByText('Add 1 to song'))
+    expect(onAdd).toHaveBeenCalledWith(['fresh'])
   })
 })

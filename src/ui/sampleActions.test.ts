@@ -7,7 +7,8 @@ import { setStorage } from '../persist/storage'
 import { useDocStore } from '../state/docStore'
 import { useProjectStore } from '../state/projectStore'
 import {
-  addImportedSamplesToLibrary, addLibrarySamplesToSong, exportLibrarySampleFile, importSampleFiles, saveSongSampleToLibrary,
+  addImportedSamplesToLibrary, addLibrarySamplesToSong, exportLibrarySampleFile, importSampleFiles, importSampleFilesToLibrary,
+  saveSongSampleToLibrary,
 } from './sampleActions'
 
 // Decoding needs an AudioContext; fake it from the file's first byte.
@@ -76,5 +77,18 @@ describe('sampleActions', () => {
     expect(filename).toBe('a.wav')
     expect([...new Uint8Array(await blob.arrayBuffer())]).toEqual([4])
     await expect(exportLibrarySampleFile('nope')).rejects.toThrow(/missing/)
+  })
+
+  it('imports audio into the library only', async () => {
+    const before = useDocStore.getState().doc
+    const { ids, failed } = await importSampleFilesToLibrary([
+      new File([new Uint8Array([5, 5])], 'clap.wav'),
+      new File([new Uint8Array([0])], 'broken.wav'),
+    ])
+    expect(failed.map((f) => f.fileName)).toEqual(['broken.wav'])
+    expect(useDocStore.getState().doc).toBe(before)
+    const audio = (await readLibrarySampleAudio(ids[0]))!
+    expect(audio.item).toMatchObject({ name: 'clap', fileName: 'clap.wav', sample: { hash: 'h5' } })
+    expect([...new Uint8Array(audio.bytes)]).toEqual([5, 5])
   })
 })

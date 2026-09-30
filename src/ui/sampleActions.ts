@@ -6,6 +6,7 @@ import { readSampleAsset, writeSampleData } from '../persist/sampleStorage'
 import { hasStorage } from '../persist/storage'
 import { useDocStore } from '../state/docStore'
 import { useProjectStore } from '../state/projectStore'
+import type { LibraryImportResult } from './library/libraryImport'
 
 const currentSlug = () => useProjectStore.getState().slug
 
@@ -85,4 +86,20 @@ export async function exportLibrarySampleFile(libraryId: string): Promise<{ blob
   const audio = await readLibrarySampleAudio(libraryId)
   if (!audio) throw new Error('The sample or its audio file is missing')
   return { blob: new Blob([audio.bytes]), filename: audio.item.fileName }
+}
+
+/** Adds audio files to the library only; returns the new library ids. */
+export async function importSampleFilesToLibrary(files: File[]): Promise<LibraryImportResult> {
+  const ids: string[] = []
+  const failed: { fileName: string; error: string }[] = []
+  for (const file of files) {
+    try {
+      const loaded = await loadAudioFile(file)
+      const sample = newSampleEntity(file.name.replace(/\.[^.]+$/, ''), loaded.hash, file.name, loaded.sampleRate, loaded.channels, loaded.frames)
+      ids.push(await saveSampleToLibrary(sample, await file.arrayBuffer()))
+    } catch (err) {
+      failed.push({ fileName: file.name, error: (err as Error).message || 'Could not decode audio' })
+    }
+  }
+  return { ids, failed }
 }

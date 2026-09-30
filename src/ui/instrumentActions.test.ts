@@ -11,7 +11,7 @@ import { listLibraryInstruments, readLibraryInstrument, readLibrarySample, saveT
 import { packInstrumentFile } from '../persist/instrumentFile'
 import {
   addImportedToLibrary, addLibraryInstrumentsToSong, exportInstrumentFile, importInstrumentFile, importInstrumentFiles,
-  saveSongInstrumentToLibrary,
+  importInstrumentFilesToLibrary, saveSongInstrumentToLibrary,
 } from './instrumentActions'
 
 describe('instrumentActions', () => {
@@ -119,5 +119,21 @@ describe('instrumentActions', () => {
     expect([...new Uint8Array((await readSampleAsset(useProjectStore.getState().slug, 'beef01'))!)]).toEqual([1, 2])
     useDocStore.getState().undo()
     expect(useDocStore.getState().doc).toEqual(before)
+  })
+
+  it('imports files into the library only, keeping their category and tags', async () => {
+    const meta = { category: 'Keys', tags: ['soft'], createdAt: 'c', modifiedAt: 'm' }
+    const good = new File([await packInstrumentFile(toneBundle('Tine'), toneBytes, meta) as BlobPart], 'tine.synthinst')
+    const bad = new File(['nope'], 'bad.synthinst')
+    const before = useDocStore.getState().doc
+
+    const { ids, failed } = await importInstrumentFilesToLibrary([good, bad])
+
+    expect(failed.map((f) => f.fileName)).toEqual(['bad.synthinst'])
+    expect(useDocStore.getState().doc).toBe(before)
+    const [item] = await listLibraryInstruments()
+    expect(ids).toEqual([item.id])
+    expect(item).toMatchObject({ name: 'Tine', category: 'Keys', tags: ['soft'] })
+    expect([...new Uint8Array((await readLibrarySample(item.id, 'beef01'))!)]).toEqual([1, 2])
   })
 })

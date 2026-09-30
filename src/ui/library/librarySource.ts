@@ -4,8 +4,9 @@ import {
 } from '../../persist/instrumentLibrary'
 import { deleteLibrarySample, listLibrarySamples, readLibrarySampleAudio, updateLibrarySample } from '../../persist/sampleLibrary'
 import { formatDuration } from '../format'
-import { exportLibraryInstrumentFile } from '../instrumentActions'
-import { exportLibrarySampleFile } from '../sampleActions'
+import { exportLibraryInstrumentFile, importInstrumentFilesToLibrary } from '../instrumentActions'
+import { exportLibrarySampleFile, importSampleFilesToLibrary } from '../sampleActions'
+import type { LibraryImportResult } from './libraryImport'
 
 export interface LibraryPatch {
   name?: string
@@ -23,6 +24,10 @@ export interface LibrarySource<T extends LibraryItem = LibraryItem> {
   update(id: string, patch: LibraryPatch): Promise<T>
   remove(id: string): Promise<void>
   exportFile(id: string): Promise<{ blob: Blob; filename: string }>
+  /** File types for the Import… picker. */
+  importAccept: string
+  /** Adds files to the library only, not to the song. */
+  importFiles(files: File[]): Promise<LibraryImportResult>
   /** Row icon and a one-line description for the details pane. */
   describe(item: T): { icon: string; label: string }
   /** Plays the item, when it can be auditioned. */
@@ -37,6 +42,8 @@ export const instrumentLibrary: LibrarySource<InstrumentLibraryItem> = {
   update: updateLibraryItem,
   remove: deleteLibraryInstrument,
   exportFile: exportLibraryInstrumentFile,
+  importAccept: '.synthinst,.json,application/json,application/zip',
+  importFiles: importInstrumentFilesToLibrary,
   describe: (item) => (item.kind === 'drumkit' ? { icon: '◆', label: 'Drum Kit' } : { icon: '▦', label: 'Synth' }),
 }
 
@@ -50,6 +57,8 @@ export function sampleLibrary(play?: (hash: string, bytes: ArrayBuffer) => void)
     update: updateLibrarySample,
     remove: deleteLibrarySample,
     exportFile: exportLibrarySampleFile,
+    importAccept: 'audio/*',
+    importFiles: importSampleFilesToLibrary,
     describe: ({ sample }) => ({
       icon: '∿',
       label: `${sample.channels === 2 ? 'Stereo' : 'Mono'} · ${sample.sampleRate} Hz · ${formatDuration(sample.sampleRate, sample.frames, 1)}`,

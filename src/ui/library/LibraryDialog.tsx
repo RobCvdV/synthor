@@ -7,6 +7,7 @@ import { Button } from '../components/Button'
 import { Select } from '../components/Select'
 import { Dialog } from '../Dialog'
 import { downloadBlob } from '../download'
+import { pickFiles } from '../pickFiles'
 import type { LibraryPatch, LibrarySource } from './librarySource'
 import { TagEditor } from './TagEditor'
 import { useLibraryItems } from './useLibraryItems'
@@ -20,7 +21,7 @@ export type LibraryDialogProps<T extends LibraryItem> = { source: LibrarySource<
 /** Browse, filter, sort and edit a library; `pick` mode adds the checked items to the song. */
 export function LibraryDialog<T extends LibraryItem>(props: LibraryDialogProps<T>) {
   const { mode, onClose, source } = props
-  const { items, error, replaceItem, removeItem } = useLibraryItems(source.list)
+  const { items, error, reload, replaceItem, removeItem } = useLibraryItems(source.list)
   const [text, setText] = useState('')
   const [category, setCategory] = useState<string | null>(null)
   const [sortKey, setSortKey] = useState<LibrarySortKey>('name')
@@ -60,6 +61,26 @@ export function LibraryDialog<T extends LibraryItem>(props: LibraryDialogProps<T
     setPicked((p) => p.filter((x) => x !== item.id))
     setActiveId(null)
   }
+  /** Imports into the library only; in pick mode the new items come pre-checked. */
+  const importFiles = async () => {
+    const files = await pickFiles({ accept: source.importAccept, multiple: true })
+    if (!files.length) return
+    setBusy('import')
+    try {
+      const { ids, failed } = await source.importFiles(files)
+      if (failed.length) alert(`Could not import:\n${failed.map((f) => `${f.fileName}: ${f.error}`).join('\n')}`)
+      await reload()
+      if (ids.length) {
+        setText('')
+        setCategory(null)
+        setActiveId(ids[ids.length - 1])
+        if (mode === 'pick') setPicked((p) => [...new Set([...p, ...ids])])
+      }
+    } finally {
+      setBusy(null)
+    }
+  }
+
   const exportItem = async (item: T) => {
     setBusy(item.id)
     try {
@@ -96,6 +117,8 @@ export function LibraryDialog<T extends LibraryItem>(props: LibraryDialogProps<T
         </Select>
         <Button size="sm" title={descending ? 'Descending' : 'Ascending'} aria-label="Toggle sort direction"
           onClick={() => setDescending((d) => !d)}>{descending ? '↓' : '↑'}</Button>
+        <Button size="sm" disabled={busy === 'import'} title={`Add ${source.noun} files to the library (not to the song)`}
+          onClick={() => void importFiles()}>{busy === 'import' ? 'Importing…' : 'Import…'}</Button>
       </div>
 
       <div className={s.body}>
@@ -108,7 +131,7 @@ export function LibraryDialog<T extends LibraryItem>(props: LibraryDialogProps<T
           )}
           {items === null && <p className="muted">Loading…</p>}
           {items?.length === 0 && (
-            <p className={s.empty}>The library is empty. Use “Save to Library” on a {source.noun}, or import {source.noun} files.</p>
+            <p className={s.empty}>The library is empty. Use “Save to Library” on a {source.noun}, or Import… {source.noun} files here.</p>
           )}
           {items && items.length > 0 && visible.length === 0 && <p className={s.empty}>No {source.noun}s match.</p>}
           <ul className={s.list}>

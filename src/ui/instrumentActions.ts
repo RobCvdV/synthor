@@ -8,6 +8,7 @@ import { readSampleAsset, writeSampleData } from '../persist/sampleStorage'
 import { hasStorage } from '../persist/storage'
 import { useDocStore } from '../state/docStore'
 import { useProjectStore } from '../state/projectStore'
+import type { LibraryImportResult } from './library/libraryImport'
 
 const currentSlug = () => useProjectStore.getState().slug
 
@@ -111,4 +112,19 @@ export async function addLibraryInstrumentsToSong(libraryIds: string[]): Promise
 export async function exportLibraryInstrumentFile(libraryId: string): Promise<{ blob: Blob; filename: string }> {
   const { zip, name } = await exportLibraryInstrument(libraryId)
   return zipBlob(zip, name)
+}
+
+/** Adds instrument files to the library only, keeping the category and tags they carry; returns the new library ids. */
+export async function importInstrumentFilesToLibrary(files: File[]): Promise<LibraryImportResult> {
+  const ids: string[] = []
+  const failed: { fileName: string; error: string }[] = []
+  for (const file of files) {
+    try {
+      const { bundle, meta, sampleData } = unpackInstrumentFile(await file.arrayBuffer())
+      ids.push(await saveToLibrary(bundle, async (hash) => bytesToBuffer(sampleData[hash]), { category: meta?.category, tags: meta?.tags }))
+    } catch (err) {
+      failed.push({ fileName: file.name, error: (err as Error).message })
+    }
+  }
+  return { ids, failed }
 }

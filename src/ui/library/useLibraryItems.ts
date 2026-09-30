@@ -7,17 +7,17 @@ export function useLibraryItems<T extends LibraryItem>(list: () => Promise<T[]>)
   const [items, setItems] = useState<T[] | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const reload = useCallback(() => {
+  const reload = useCallback(async () => {
     if (!hasStorage()) {
       setItems([])
       return
     }
-    list().then(setItems, (err: Error) => {
+    await list().then(setItems, (err: Error) => {
       setItems([])
       setError(err.message)
     })
   }, [list])
-  useEffect(reload, [reload])
+  useEffect(() => { void reload() }, [reload])
 
   const replaceItem = useCallback((item: T) => {
     setItems((prev) => prev && prev.map((i) => (i.id === item.id ? item : i)))
