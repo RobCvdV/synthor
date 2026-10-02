@@ -99,7 +99,10 @@
 .field .tagInput, .tagInput {
   flex: 1; min-width: 60px;
   background: none; border: 0; padding: 1px 2px;
+  color: var(--fg); font: inherit; font-size: 11px;
 }
+.tagInput:focus { outline: none; }
+.tagInput::placeholder { color: var(--muted); }
 
 .checklist {
   list-style: none; margin: 0 0 16px; padding: 0;
