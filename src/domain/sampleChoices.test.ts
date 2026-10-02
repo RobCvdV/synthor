@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { newSampleEntity } from './factory'
-import { defaultSampleId, fitsWaveform, sampleChoices, sortSamples } from './sampleChoices'
+import { defaultSampleId, fitsWaveform, sampleChoices, samplePreviewPlan, sortSamples } from './sampleChoices'
 import { WAVEFORM_MAX_LENGTH_SECONDS } from './moduleDefs'
 
 const rate = 48000
@@ -33,5 +33,18 @@ describe('sortSamples / defaultSampleId', () => {
     expect(defaultSampleId('sample', byId)).toBe('x')
     expect(defaultSampleId('wave', { [loop.id]: loop })).toBeUndefined()
     expect(defaultSampleId('conv', {})).toBeUndefined()
+  })
+})
+
+describe('samplePreviewPlan', () => {
+  it('loops a single cycle at the note frequency', () => {
+    // 2048 frames at 48 kHz played at A-4: 440 cycles per second.
+    const plan = samplePreviewPlan({ frames: 2048, sampleRate: 48000 }, 69)
+    expect(plan.loop).toBe(true)
+    expect(plan.rate * 48000 / 2048).toBeCloseTo(440)
+  })
+  it('plays longer samples once, C-4 at the natural rate', () => {
+    expect(samplePreviewPlan({ frames: 48000, sampleRate: 48000 }, 60)).toEqual({ rate: 1, loop: false })
+    expect(samplePreviewPlan({ frames: 48000, sampleRate: 48000 }, 72).rate).toBeCloseTo(2)
   })
 })

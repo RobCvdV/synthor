@@ -67,6 +67,22 @@ export function amplitudeY(lane: Lane, v: number): number {
   return lane.top + ((1 - v) * lane.height) / 2
 }
 
+/** Index of the lane at `y` (the nearest one in a gap). */
+export function laneAt(lanes: Lane[], y: number): number {
+  let best = 0
+  lanes.forEach((l, i) => {
+    const d = Math.max(l.top - y, y - (l.top + l.height), 0)
+    const bd = Math.max(lanes[best].top - y, y - (lanes[best].top + lanes[best].height), 0)
+    if (d < bd) best = i
+  })
+  return best
+}
+
+/** Sample value at `y` in a lane, the inverse of `amplitudeY`, clamped to -1..1. */
+export function valueAtY(lane: Lane, y: number): number {
+  return Math.max(-1, Math.min(1, 1 - (2 * (y - lane.top)) / lane.height))
+}
+
 export interface Thumb { width: number; left: number; maxScroll: number }
 
 /** Scrollbar thumb size and position for a track `trackWidth` pixels wide. */

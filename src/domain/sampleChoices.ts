@@ -1,4 +1,5 @@
 import { WAVEFORM_MAX_LENGTH_SECONDS } from './moduleDefs'
+import { midiToFreq, samplePlaybackRate } from './notes'
 import type { Id, ModuleType, SampleEntity } from './types'
 
 /** Whether a sample is short enough to serve as one waveform cycle. */
@@ -19,4 +20,14 @@ export function sampleChoices(moduleType: ModuleType, sortedSamples: SampleEntit
 /** The sample a newly added module starts with: the first choice, if any. */
 export function defaultSampleId(moduleType: ModuleType, samples: Record<Id, SampleEntity>): Id | undefined {
   return sampleChoices(moduleType, sortSamples(samples))[0]?.id
+}
+
+/**
+ * How a key previews a sample: a single cycle loops at the note's frequency (while the key is
+ * held), anything longer plays once, pitched relative to C-4.
+ */
+export function samplePreviewPlan(sample: { frames: number; sampleRate: number }, midi: number): { rate: number; loop: boolean } {
+  return fitsWaveform(sample)
+    ? { rate: midiToFreq(midi) * sample.frames / sample.sampleRate, loop: true }
+    : { rate: samplePlaybackRate(midi), loop: false }
 }

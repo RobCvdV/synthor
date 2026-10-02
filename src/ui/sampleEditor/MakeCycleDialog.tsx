@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { detectPeriodIn, extractCycle, loopCycle } from '../../audio/cycle'
+import { CYCLE_LENGTHS, DEFAULT_CYCLE_LENGTH } from '../../audio/waveGen'
 import type { PcmData } from '../../audio/sampleEdit'
 import { freqToNote, midiToName } from '../../domain/notes'
 import { Dialog } from '../Dialog'
@@ -8,7 +9,6 @@ import { Select } from '../components/Select'
 import type { Sel } from './selectionGestures'
 import s from './SampleEditor.module.css'
 
-export const CYCLE_LENGTHS = [256, 512, 1024, 2048, 4096] as const
 const PREVIEW_SECONDS = 1
 
 /** Turns the selection (or the whole sample) into a single-cycle waveform sample. */
@@ -25,7 +25,7 @@ export function MakeCycleDialog({ pcm, range, sampleRate, defaultName, busy, onP
   const estimate = useMemo(() => detectPeriodIn(pcm, range.start, range.end, sampleRate), [pcm, range, sampleRate])
   const [useDetected, setUseDetected] = useState(estimate !== null)
   const [average, setAverage] = useState(true)
-  const [length, setLength] = useState(2048)
+  const [length, setLength] = useState<number>(DEFAULT_CYCLE_LENGTH)
   const [name, setName] = useState(defaultName)
 
   const period = useDetected && estimate ? estimate.period : range.end - range.start

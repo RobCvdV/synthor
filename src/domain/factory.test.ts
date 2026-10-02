@@ -121,8 +121,8 @@ describe('defaultParams', () => {
     expect(defaultParams('noise')).toEqual({ mode: 0, level: 1 })
   })
 
-  it('wave defaults to no finetune (its sample is Module.sampleId)', () => {
-    expect(defaultParams('wave')).toEqual({ finetune: 0, gain: 1 })
+  it('wave defaults to untransposed, unmodulated (its sample is Module.sampleId)', () => {
+    expect(defaultParams('wave')).toEqual({ octave: 0, semi: 0, finetune: 0, fmDepth: 1, pmDepth: 1, phase: 0, gain: 1 })
   })
 
   it('comp defaults to soft knee, −20 dB, 4:1', () => {

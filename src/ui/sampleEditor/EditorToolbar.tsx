@@ -26,6 +26,7 @@ export interface EditorActions {
   snap: () => void
   process: (kind: ProcessKind) => void
   makeCycle: () => void
+  toggleDraw: () => void
   openDialog: (kind: EditDialogKind) => void
   saveAs: () => void
   exportFile: () => void
@@ -35,9 +36,11 @@ export interface EditorActions {
   close: () => void
 }
 
-export function EditorToolbar({ ready, hasSel, hasClip, actions: a }: {
+export function EditorToolbar({ ready, hasSel, hasClip, drawing = false, actions: a }: {
   /** The sample is loaded and no save is running. */
   ready: boolean
+  /** Dragging on the waveform draws instead of selecting. */
+  drawing?: boolean
   hasSel: boolean
   hasClip: boolean
   actions: EditorActions
@@ -45,6 +48,7 @@ export function EditorToolbar({ ready, hasSel, hasClip, actions: a }: {
   return (
     <div className={s.toolbar}>
       <Button disabled={!ready} onClick={a.play} title="Play from cursor/selection (Space)">▶ Play</Button>
+      <Button disabled={!ready} active={drawing} onClick={a.toggleDraw} title="Draw on the waveform with the mouse">✎ Draw</Button>
       <span className={s.spacer} />
       <Button disabled={!hasSel} onClick={a.copy} title="Copy selection to paste buffer (⌘C)">Copy</Button>
       <Button disabled={!hasSel} onClick={a.cut} title="Cut selection to paste buffer (⌘X)">Cut</Button>

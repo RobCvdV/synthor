@@ -61,3 +61,4 @@
 }
 .cycleAxis { stroke: #2a3644; stroke-width: 1; vector-effect: non-scaling-stroke; }
 .cycleLine { fill: none; stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.drawing { cursor: cell; }

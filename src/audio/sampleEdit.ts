@@ -268,3 +268,16 @@ export function repitchRange(data: PcmData, start: number, end: number, semitone
   const part = resampleTo(copyRange(data, a, b), (b - a) / Math.pow(2, semitones / 12))
   return replaceRange(data, a, b, part)
 }
+
+/** Draws a straight line from (f0, v0) to (f1, v1) into `ch`, in place, clamped to [-1, 1]. */
+export function drawLine(ch: Float32Array, f0: number, v0: number, f1: number, v1: number): void {
+  const last = ch.length - 1
+  if (last < 0) return
+  const [a, va, b, vb] = f0 <= f1 ? [f0, v0, f1, v1] : [f1, v1, f0, v0]
+  const from = Math.max(0, Math.round(a))
+  const to = Math.min(last, Math.round(b))
+  for (let i = from; i <= to; i++) {
+    const t = b === a ? 1 : (i - a) / (b - a)
+    ch[i] = Math.max(-1, Math.min(1, va + (vb - va) * Math.max(0, Math.min(1, t))))
+  }
+}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  adaptChannels, copyRange, cutRange, fadeRange, framesOf,
+  adaptChannels, copyRange, drawLine, cutRange, fadeRange, framesOf,
   gainRange, insertAt, nearestZeroCrossing, normalizeRange, pasteAt, removeDcRange, repitchRange, replaceRange,
   resampleTo, reverseRange, silenceRange, trimToRange,
 } from './sampleEdit'
@@ -210,5 +210,22 @@ describe('resampling', () => {
     expect(framesOf(out)).toBe(80)
     expect(out[0][0]).toBe(0.25)
     expect(out[0][79]).toBe(0.25)
+  })
+})
+
+describe('drawLine', () => {
+  it('interpolates between the points in either direction and clamps', () => {
+    const ch = new Float32Array(6)
+    drawLine(ch, 1, 0, 4, 0.75)
+    expect(Array.from(ch)).toEqual([0, 0, 0.25, 0.5, 0.75, 0])
+    drawLine(ch, 5, 2, 5, 2)
+    expect(ch[5]).toBe(1)
+    drawLine(ch, 3, -1, 0, -0.25)
+    expect(Array.from(ch).slice(0, 4)).toEqual([-0.25, -0.5, -0.75, -1])
+  })
+  it('ignores the part outside the sample', () => {
+    const ch = new Float32Array(3)
+    drawLine(ch, -2, 0.5, 10, 0.5)
+    expect(Array.from(ch)).toEqual([0.5, 0.5, 0.5])
   })
 })

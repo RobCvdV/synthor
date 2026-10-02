@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  MAX_PX, MIN_PX, amplitudeY, clampScroll, laneLayout, columnPeak, fitZoom, frameAtX, scrollAtThumb, scrollThumb, zoomAround,
+  MAX_PX, MIN_PX, amplitudeY, clampScroll, laneLayout, columnPeak, fitZoom, frameAtX, laneAt, scrollAtThumb, scrollThumb, valueAtY, zoomAround,
 } from './waveView'
 
 describe('waveView', () => {
@@ -66,5 +66,22 @@ describe('waveView', () => {
   it('turns a thumb drag back into a scroll', () => {
     const thumb = scrollThumb(200, 1000, 500, 0)
     expect(scrollAtThumb(150, 50, 200, thumb)).toBe(500)
+  })
+})
+
+describe('drawing positions', () => {
+  const lanes = [{ top: 10, height: 100 }, { top: 130, height: 100 }]
+  it('picks the lane under the pointer, or the nearest one', () => {
+    expect(laneAt(lanes, 50)).toBe(0)
+    expect(laneAt(lanes, 118)).toBe(0)
+    expect(laneAt(lanes, 124)).toBe(1)
+    expect(laneAt(lanes, 400)).toBe(1)
+  })
+  it('turns y back into a sample value', () => {
+    expect(valueAtY(lanes[0], 10)).toBe(1)
+    expect(valueAtY(lanes[0], 60)).toBe(0)
+    expect(valueAtY(lanes[0], 85)).toBe(-0.5)
+    expect(valueAtY(lanes[0], 500)).toBe(-1)
+    expect(valueAtY(lanes[0], amplitudeY(lanes[0], 0.3))).toBeCloseTo(0.3)
   })
 })

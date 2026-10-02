@@ -60,6 +60,7 @@ export class AudioHost {
 
   /** Active preview sources, so a panic/unmount can cut them short. */
   private previewSources = new Set<AudioBufferSourceNode>()
+  private heldPreviews = new Map<string, { src: AudioBufferSourceNode; amp: GainNode }>()
 
   /** Fixed voice pools per instrument (lazily created). */
   readonly voicePools = new Map<string, VoicePool>()
@@ -117,7 +118,7 @@ export class AudioHost {
    * Decodes on first use and caches the AudioBuffer per hash. `playbackRate`
    * 1 = natural rate; pitch with samplePlaybackRate(note).
    */
-  async playSamplePreview(hash: string, bytes: ArrayBuffer, playbackRate = 1): Promise<void> {
+  async playSamplePreview(hash: string, bytes: ArrayBuffer, playbackRate = 1, loopKey?: string): Promise<void> {
     await this.start()
     if (!this.ctx) return
     let buffer = this.samplePreviewBuffers.get(hash)
@@ -133,13 +134,34 @@ export class AudioHost {
     const src = this.ctx.createBufferSource()
     src.buffer = buffer
     src.playbackRate.value = playbackRate
-    src.connect(this.ctx.destination)
+    if (loopKey === undefined) {
+      src.connect(this.ctx.destination)
+    } else {
+      // Held loop: a gain stage so release fades instead of clicking.
+      this.stopSamplePreview(loopKey)
+      src.loop = true
+      const amp = this.ctx.createGain()
+      amp.gain.setValueAtTime(0, this.ctx.currentTime)
+      amp.gain.setTargetAtTime(1, this.ctx.currentTime, 0.003)
+      src.connect(amp).connect(this.ctx.destination)
+      this.heldPreviews.set(loopKey, { src, amp })
+    }
     src.onended = () => {
       this.previewSources.delete(src)
       src.disconnect()
     }
     this.previewSources.add(src)
     src.start()
+  }
+
+  /** Releases the looping preview started with `loopKey`. */
+  stopSamplePreview(loopKey: string): void {
+    const held = this.heldPreviews.get(loopKey)
+    if (!held || !this.ctx) return
+    this.heldPreviews.delete(loopKey)
+    const now = this.ctx.currentTime
+    held.amp.gain.setTargetAtTime(0, now, 0.01)
+    try { held.src.stop(now + 0.08) } catch { /* already stopped */ }
   }
 
   /** Cut all in-flight sample previews. */
@@ -150,6 +172,7 @@ export class AudioHost {
       src.disconnect()
     }
     this.previewSources.clear()
+    this.heldPreviews.clear()
   }
 
   /**
