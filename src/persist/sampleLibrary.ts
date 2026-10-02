@@ -49,7 +49,10 @@ function parse(id: string, text: string): SampleLibraryItem {
     id,
     name: str(raw.name) || id,
     fileName: raw.fileName,
-    sample: { hash: s.hash, originalName: str(s.originalName), sampleRate: s.sampleRate, channels: s.channels, frames: s.frames },
+    sample: {
+      hash: s.hash, originalName: str(s.originalName), sampleRate: s.sampleRate, channels: s.channels, frames: s.frames,
+      ...(typeof s.cycleLength === 'number' && s.cycleLength > 0 ? { cycleLength: s.cycleLength } : {}),
+    },
     category: str(meta.category),
     tags: normalizeTags(Array.isArray(meta.tags) ? meta.tags.filter((t): t is string => typeof t === 'string') : []),
     createdAt: str(meta.createdAt),
@@ -107,12 +110,12 @@ export async function saveSampleToLibrary(
     id = uniqueLibraryId(slugify(name), (await s.list(LIBRARY_DIR)).map((e) => e.name))
   }
   const fileName = safeAudioFileName(sample.originalName || `${name}.wav`)
-  const { hash, originalName, sampleRate, channels, frames } = sample
+  const { hash, originalName, sampleRate, channels, frames, cycleLength } = sample
   await s.write(joinPath(itemDir(id), fileName), bytes)
   await s.write(itemFile(id), serialize({
     name: name.trim() || sample.name,
     fileName,
-    sample: { hash, originalName, sampleRate, channels, frames },
+    sample: { hash, originalName, sampleRate, channels, frames, ...(cycleLength ? { cycleLength } : {}) },
     category: category.trim(),
     tags: normalizeTags(tags),
     createdAt,

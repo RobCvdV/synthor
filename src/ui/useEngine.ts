@@ -8,6 +8,7 @@ import { syncSamplesToVfs } from '../audio/vfsLoader'
 import { computeSlotLayouts } from '../engine/voiceSlotLayout'
 import { liveGraphOptions } from '../player/liveSlot'
 import { liveVoiceCount } from '../domain/types'
+import { structuralParamsKey } from '../domain/moduleDefs'
 import { useDocStore } from '../state/docStore'
 import { useMidiStore } from '../state/midiStore'
 import { useProjectStore } from '../state/projectStore'
@@ -105,6 +106,8 @@ export function useEngine(): AudioHost {
             let key = `${mid}:${mod.type}`
             // Sample changes are structural (different hash → different table key).
             if (mod.sampleId) key += `:s${mod.sampleId}`
+            const params = structuralParamsKey(mod.type, mod.params)
+            if (params) key += `:p[${params}]`
             return key
           }).join(',')
           const conns = Object.values(inst.connections)
@@ -135,7 +138,7 @@ export function useEngine(): AudioHost {
 
       // Samples.
       for (const s of Object.values(doc.entities.samples)) {
-        parts.push(`samp:${s.hash}`)
+        parts.push(`samp:${s.hash}:${s.cycleLength ?? ''}`)
       }
 
       // Sections.

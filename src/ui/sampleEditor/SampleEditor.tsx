@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AudioHost } from '../../audio/host'
 import { drawLine, framesOf, type PcmData } from '../../audio/sampleEdit'
-import { fitsWaveform } from '../../domain/sampleChoices'
-import { WAVEFORM_MAX_LENGTH_SECONDS } from '../../domain/moduleDefs'
+import { fitsWavetable, waveUse } from '../../domain/sampleChoices'
 import type { Id } from '../../domain/types'
 import { useAppStore } from '../../state/appStore'
 import { useDocStore } from '../../state/docStore'
@@ -172,8 +171,8 @@ export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: 
     void host.playPcmPreview(data, m.sampleRate)
   }
 
-  const saveAs = async (name: string, data?: PcmData) => {
-    const created = await sample.saveAs(name, data)
+  const saveAs = async (name: string, data?: PcmData, cycleLength?: number) => {
+    const created = await sample.saveAs(name, data, cycleLength)
     if (!created) return
     setCycleRange(null)
     useAppStore.getState().setSelectedSampleId(created.id)
@@ -270,7 +269,7 @@ export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: 
           <span>
             {entity.name} · {meta.sampleRate.toLocaleString()} Hz · {meta.channels === 2 ? 'stereo' : 'mono'} · {formatDuration(meta.sampleRate, meta.frames)}
           </span>
-          {!fitsWaveform(meta) && <span className={s.warn}>&gt; {WAVEFORM_MAX_LENGTH_SECONDS}s — hidden from wave module pickers</span>}
+          <span className={fitsWavetable(meta) ? undefined : s.warn}>{waveUse(meta)}</span>
         </div>
       )}
 
@@ -298,8 +297,8 @@ export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: 
       )}
 
       {cycleRange && pcm && meta && entity && (
-        <MakeCycleDialog pcm={pcm} range={cycleRange} sampleRate={meta.sampleRate} defaultName={`${entity.name} cycle`}
-          busy={busy} onPreview={previewPcm} onSave={(name, cycle) => void saveAs(name, cycle)}
+        <MakeCycleDialog pcm={pcm} range={cycleRange} sampleRate={meta.sampleRate} defaultName={entity.name}
+          busy={busy} onPreview={previewPcm} onSave={(name, cycle, length) => void saveAs(name, cycle, length)}
           onClose={() => setCycleRange(null)} />
       )}
 

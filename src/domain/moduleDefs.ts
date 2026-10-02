@@ -21,6 +21,8 @@ export interface ParamDef {
    *  slider value. The scale value is stored in a companion param with the
    *  suffix `Scale` (e.g. `modDepthScale` augments `modDepth`). */
   showScale?: boolean
+  /** Read when the graph is compiled, so changing it must recompile (no live ref). */
+  structural?: boolean
 }
 
 /** Palette category shown in the editor's Add palette. Singleton types
@@ -56,6 +58,16 @@ export const FILTER_MODES = ['lowpass', 'highpass', 'bandpass'] as const
 export const MIX_MODES = ['add', 'multiply'] as const
 /** Max sample length usable as a single-cycle waveform. One full sample = one cycle. */
 export const WAVEFORM_MAX_LENGTH_SECONDS = 0.25
+/** Wave module cycle sizes: auto (whole sample when it is a single cycle, else 2048-frame wavetable frames), the whole sample, or frames of a fixed size. */
+export const CYCLE_SIZE_CHOICES = ['auto', 'whole', '256', '512', '1024', '2048', '4096'] as const
+/** Longest wavetable: 256 frames of 4096. Wavetables are whole multiples of 256 frames. */
+export const WAVETABLE_MAX_FRAMES = 256 * 4096
+export const WAVETABLE_GRAIN = 256
+
+/** The params whose values the graph is compiled from, as a stable key (empty when none). */
+export function structuralParamsKey(type: ModuleType, params: Record<string, number>): string {
+  return MODULE_DEFS[type].params.filter((p) => p.structural).map((p) => `${p.key}=${params[p.key] ?? p.default}`).join(',')
+}
 
 export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
   note: {
@@ -89,7 +101,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     inlets: [],
     outlets: ['val'],
     params: [
-      { key: 'cc', label: 'CC', min: 0, max: 127, default: 0, step: 1 },
+      { key: 'cc', label: 'CC', min: 0, max: 127, default: 0, step: 1, structural: true },
       // Value when no effect lane (or MIDI CC) drives this inlet.
       { key: 'default', label: 'Default', min: 0, max: 1, default: 0, step: 0.01 },
     ],
@@ -100,7 +112,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     label: 'MIDI CC',
     inlets: [],
     outlets: ['val'],
-    params: [{ key: 'cc', label: 'CC', min: 0, max: 127, default: 1, step: 1 }],
+    params: [{ key: 'cc', label: 'CC', min: 0, max: 127, default: 1, step: 1, structural: true }],
   },
   osc: {
     type: 'osc',
@@ -151,7 +163,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     inlets: ['in', 'cutoffMod'],
     outlets: ['out'],
     params: [
-      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'] },
+      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'], structural: true },
       { key: 'mode', label: 'Mode', min: 0, max: 2, default: 0, step: 1, enumLabels: [...FILTER_MODES] },
       { key: 'cutoff', label: 'Cutoff (Hz)', min: 20, max: 18000, default: 1200, step: 1 },
       { key: 'q', label: 'Resonance', min: 0.1, max: 12, default: 0.7, step: 0.1 },
@@ -179,7 +191,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     inlets: ['in', 'mod'],
     outlets: ['out'],
     params: [
-      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'] },
+      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'], structural: true },
       { key: 'level', label: 'Level', min: 0, max: 2, default: 0.8, step: 0.01 },
     ],
   },
@@ -190,7 +202,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     inlets: ['in'],
     outlets: ['out'],
     params: [
-      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'] },
+      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'], structural: true },
       { key: 'mode', label: 'Mode', min: 0, max: 1, default: 1, step: 1, enumLabels: ['hard', 'soft'] },
       { key: 'threshold', label: 'Thresh (dB)', min: -60, max: 0, default: -20, step: 1 },
       { key: 'ratio', label: 'Ratio', min: 1, max: 20, default: 4, step: 1 },
@@ -207,7 +219,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     inlets: ['a', 'b', 'c', 'd'],
     outlets: ['out'],
     params: [
-      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'] },
+      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'], structural: true },
       { key: 'mode', label: 'Mode', min: 0, max: 1, default: 0, step: 1, enumLabels: [...MIX_MODES] },
     ],
   },
@@ -233,7 +245,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     inlets: ['in', 'drive'],
     outlets: ['out'],
     params: [
-      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'] },
+      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'], structural: true },
       { key: 'drive', label: 'Drive', min: 0.5, max: 40, default: 4, step: 0.5 },
       { key: 'level', label: 'Level', min: 0, max: 2, default: 1, step: 0.01 },
     ],
@@ -245,7 +257,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     inlets: ['in', 'drive'],
     outlets: ['out'],
     params: [
-      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'] },
+      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'], structural: true },
       { key: 'drive', label: 'Drive', min: 0.5, max: 40, default: 4, step: 0.5 },
       { key: 'threshold', label: 'Thresh', min: 0.05, max: 1, default: 0.7, step: 0.01 },
       { key: 'level', label: 'Level', min: 0, max: 2, default: 0.7, step: 0.01 },
@@ -258,7 +270,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     inlets: ['in', 'drive'],
     outlets: ['out'],
     params: [
-      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'] },
+      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'], structural: true },
       { key: 'drive', label: 'Drive', min: 0.5, max: 30, default: 3, step: 0.5 },
       { key: 'threshold', label: 'Thresh', min: 0.05, max: 1, default: 0.35, step: 0.01 },
       { key: 'level', label: 'Level', min: 0, max: 2, default: 0.7, step: 0.01 },
@@ -271,7 +283,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     inlets: ['in', 'bits'],
     outlets: ['out'],
     params: [
-      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'] },
+      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'], structural: true },
       { key: 'bits', label: 'Bits', min: 1, max: 16, default: 4, step: 1 },
       { key: 'level', label: 'Level', min: 0, max: 2, default: 1, step: 0.01 },
     ],
@@ -283,7 +295,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     inlets: ['in'],
     outlets: ['out'],
     params: [
-      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'] },
+      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'], structural: true },
       // Tempo-synced: ticks (rows), live with BPM changes.
       { key: 'time', label: 'Time (ticks)', min: 0.25, max: 16, default: 1.25, step: 0.25 },
       { key: 'mix', label: 'Mix', min: 0, max: 1, default: 0.5, step: 0.01 },
@@ -296,7 +308,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     inlets: ['in'],
     outlets: ['out'],
     params: [
-      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'] },
+      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'], structural: true },
       // Tempo-synced: ticks (rows), live with BPM changes.
       { key: 'time', label: 'Time (ticks)', min: 0.25, max: 16, default: 1.25, step: 0.25 },
       { key: 'feedback', label: 'Feedback', min: 0, max: 0.95, default: 0.25, step: 0.01 },
@@ -310,7 +322,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     inlets: ['in', 'inR'],
     outlets: ['outL', 'outR'],
     params: [
-      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'] },
+      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'], structural: true },
       { key: 'roomSize', label: 'Room', min: 0.1, max: 1, default: 0.5, step: 0.01 },
       { key: 'feedback', label: 'Feedback', min: 0, max: 0.95, default: 0.45, step: 0.01 },
       { key: 'damping', label: 'Damping', min: 0, max: 1, default: 0.5, step: 0.01 },
@@ -326,7 +338,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     inlets: ['in', 'inR'],
     outlets: ['out', 'outL', 'outR'],
     params: [
-      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'] },
+      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'], structural: true },
       // Half-dry by default: L1 normalization makes full wet very quiet for
       // most samples, and the dry keeps the channel audible.
       { key: 'mix', label: 'Mix', min: 0, max: 1, default: 0.5, step: 0.01 },
@@ -343,7 +355,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     inlets: ['in', 'inR'],
     outlets: ['outL', 'outR'],
     params: [
-      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'] },
+      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'], structural: true },
       // Tempo-synced: ticks (rows), live with BPM changes.
       { key: 'time', label: 'Time (ticks)', min: 0.25, max: 16, default: 1.25, step: 0.25 },
       { key: 'mix', label: 'Mix', min: 0, max: 1, default: 0.5, step: 0.01 },
@@ -358,7 +370,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     inlets: ['in', 'inR'],
     outlets: ['outL', 'outR'],
     params: [
-      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'] },
+      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'], structural: true },
       // Tempo-synced: ticks (rows), live with BPM changes.
       { key: 'time', label: 'Time (ticks)', min: 0.25, max: 16, default: 1.25, step: 0.25 },
       { key: 'feedback', label: 'Feedback', min: 0, max: 0.95, default: 0.25, step: 0.01 },
@@ -374,7 +386,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     inlets: ['in', 'inR'],
     outlets: ['outL', 'outR'],
     params: [
-      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'] },
+      { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'], structural: true },
       // >1 adds Haas pseudo-stereo, so even mono sources spread out.
       { key: 'width', label: 'Width', min: 0, max: 2, default: 1, step: 0.01 },
     ],
@@ -388,9 +400,9 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     outlets: ['out', 'outR'],
     params: [
       { key: 'startOffset', label: 'Start (smp)', min: 0, max: 1_000_000, default: 0, step: 1 },
-      { key: 'loop', label: 'Loop', min: 0, max: 1, default: 0, step: 1, enumLabels: ['off', 'on'] },
+      { key: 'loop', label: 'Loop', min: 0, max: 1, default: 0, step: 1, enumLabels: ['off', 'on'], structural: true },
       { key: 'loopStart', label: 'Loop start', min: 0, max: 1_000_000, default: 0, step: 1 },
-      { key: 'pitchTrack', label: 'Pitch track', min: 0, max: 1, default: 1, step: 1, enumLabels: ['off', 'on'] },
+      { key: 'pitchTrack', label: 'Pitch track', min: 0, max: 1, default: 1, step: 1, enumLabels: ['off', 'on'], structural: true },
       { key: 'playRate', label: 'Play rate', min: -48, max: 48, default: 0, step: 1 },
       { key: 'finetune', label: 'Finetune', min: -1, max: 1, default: 0, step: 0.01 },
       { key: 'gain', label: 'Level', min: 0, max: 2, default: 1, step: 0.01 },
@@ -401,9 +413,11 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     group: 'generators',
     label: 'Sample Waveform',
     samplePicker: 'Sample',
-    inlets: ['freq', 'fm', 'pm', 'sync'],
+    inlets: ['freq', 'fm', 'pm', 'sync', 'pos'],
     outlets: ['out', 'outR'],
     params: [
+      { key: 'cycle', label: 'Cycle', min: 0, max: CYCLE_SIZE_CHOICES.length - 1, default: 0, step: 1, enumLabels: [...CYCLE_SIZE_CHOICES], structural: true },
+      { key: 'position', label: 'Position', min: 0, max: 1, default: 0, step: 0.001 },
       { key: 'octave', label: 'Octave', min: -4, max: 4, default: 0, step: 1 },
       { key: 'semi', label: 'Coarse (st)', min: -24, max: 24, default: 0, step: 1 },
       { key: 'finetune', label: 'Fine (ct)', min: -100, max: 100, default: 0, step: 1 },

@@ -32,7 +32,7 @@ Chains are ordered; each hop is verified. Skipping the tail is how features half
 | Feature request sounds like… | Touch, in order |
 |---|---|
 | New module type (osc / filter / fx node in the modular editor) | `domain/types.ts` `ModuleType` → `domain/moduleDefs.ts` `MODULE_DEFS` entry (`group` is what puts it in the Add palette) → `engine/modular.ts` `render` case → `persist/serialize.ts` version bump. `ModularEditor` renders from `MODULE_DEFS` — only touch it for a control that isn't a slider |
-| New param on an existing module | `domain/moduleDefs.ts` `params` (the slider is automatic) → read it in that module's `engine/modular.ts` case; via `paramRefs` if it must apply without recompiling |
+| New param on an existing module | `domain/moduleDefs.ts` `params` (the slider is automatic) → read it in that module's `engine/modular.ts` case via `kconst` (live ref). A param the graph is compiled from (a `Math.round(p.x)` branch, a node count) must be `structural: true`, or changing it does nothing until the next unrelated recompile |
 | New effect lane (tracker column) | `domain/effects.ts` (`BUILTIN_LANE_TYPES` + `LANE_DEFS`) → `engine/voiceSlotLayout.ts` channel counts → `player/playbackData.ts` (fill the channel + its neutral default) → `src/native/TxSeq.h`, only if it needs sub-row behaviour → `engine/compile.ts` (txSeq outlet read + apply) → `ui/tracker/TrackerGrid.tsx` column |
 | New persisted UI preference | `state/appStore.ts`: state + action + **`partialize`** — a key missing from `partialize` silently doesn't persist |
 | Transport / BPM / note timing | `state/transportStore.ts` + `player/` — must not cause a recompile |

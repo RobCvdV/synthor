@@ -241,6 +241,22 @@ describe('migration v13→v14 — instrument library attributes', () => {
   })
 })
 
+describe('migration v14→v15 — sample cycle length', () => {
+  it('loads a v14 song unchanged; a sample\'s cycle length round-trips', () => {
+    const doc = createDefaultDoc()
+    const smp = newSampleEntity('Table', 'h', 'table.wav', 48000, 1, 8192)
+    doc.entities.samples[smp.id] = smp
+    const v14 = JSON.parse(JSON.stringify({ schemaVersion: 14, meta: META, doc }))
+    const result = migrate(v14)
+    expect(result.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
+    expect(result.doc.entities.samples[smp.id]).toEqual(smp)
+
+    smp.cycleLength = 2048
+    const back = migrate(JSON.parse(JSON.stringify(makeSongFile(doc, META))))
+    expect(back.doc.entities.samples[smp.id].cycleLength).toBe(2048)
+  })
+})
+
 describe('migration v5→v6', () => {
   it('strips effect/effectValue from cells', () => {
     const v5 = {

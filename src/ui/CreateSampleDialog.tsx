@@ -45,11 +45,11 @@ export function CreateSampleDialog({
     try {
       const sr = 48000
       const data = generateWaveform(shape, frames)
-      const bytes = encodeWav([data], sr)
+      const bytes = encodeWav([data], sr, frames)
       const hash = await computeHash(bytes)
       const slug = useProjectStore.getState().slug
       if (slug) await writeSampleData(slug, hash, bytes)
-      const sample = newSampleEntity(n, hash, `${n}.wav`, sr, 1, frames)
+      const sample = { ...newSampleEntity(n, hash, `${n}.wav`, sr, 1, frames), cycleLength: frames }
       useDocStore.getState().addSampleEntity(sample)
       useAppStore.getState().setSelectedSampleId(sample.id)
       onCreated?.(sample.id)

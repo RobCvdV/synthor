@@ -9,7 +9,7 @@ const tone = (hz: number) => [Float32Array.from({ length: 6000 }, (_, i) => 0.5 
 function setup(pcm = tone(240)) {
   const props = { onPreview: vi.fn(), onSave: vi.fn(), onClose: vi.fn() }
   const view = render(<MakeCycleDialog pcm={pcm} range={{ start: 0, end: 6000 }} sampleRate={SR}
-    defaultName="Voice cycle" busy={false} {...props} />)
+    defaultName="Voice" busy={false} {...props} />)
   return { ...props, ...view }
 }
 
@@ -20,8 +20,9 @@ describe('MakeCycleDialog', () => {
     expect(container.innerHTML).toMatchSnapshot()
     fireEvent.change(screen.getByDisplayValue('2048 frames'), { target: { value: '512' } })
     fireEvent.click(screen.getByText('Save as Sample'))
-    const [name, cycle] = onSave.mock.calls[0]
+    const [name, cycle, length] = onSave.mock.calls[0]
     expect(name).toBe('Voice cycle')
+    expect(length).toBe(512)
     expect(cycle[0]).toHaveLength(512)
   })
 
@@ -35,5 +36,20 @@ describe('MakeCycleDialog', () => {
     setup([new Float32Array(6000)])
     expect(screen.getByText('No clear pitch in the selection.')).toBeInTheDocument()
     expect(screen.getByDisplayValue('The whole selection')).toBeDisabled()
+  })
+})
+
+describe('MakeCycleDialog wavetables', () => {
+  it('saves a table of frames with its cycle length and a wavetable name', () => {
+    const { onSave } = setup()
+    fireEvent.change(screen.getByDisplayValue('1 (single cycle)'), { target: { value: '8' } })
+    fireEvent.change(screen.getByDisplayValue('2048 frames each'), { target: { value: '256' } })
+    expect(screen.getByText('Make Wavetable')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('Voice wavetable')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('Save as Sample'))
+    const [name, table, length] = onSave.mock.calls[0]
+    expect(name).toBe('Voice wavetable')
+    expect(table[0]).toHaveLength(8 * 256)
+    expect(length).toBe(256)
   })
 })

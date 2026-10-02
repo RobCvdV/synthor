@@ -18,6 +18,8 @@ export interface SampleMeta {
   sampleRate: number
   /** Total frames per channel. */
   frames: number
+  /** Frames per wavetable cycle, when known. */
+  cycleLength?: number
   /** Sum of |channel 0| — used to L1-normalize conv IRs (see mixer.ts). */
   l1?: number
 }

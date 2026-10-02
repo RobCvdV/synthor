@@ -21,6 +21,9 @@ export interface ImportedSample {
 }
 
 /** Decodes audio files and adds them to the song as one undoable edit; unreadable files are reported, not thrown. */
+const withCycle = (sample: SampleEntity, cycleLength?: number): SampleEntity =>
+  cycleLength ? { ...sample, cycleLength } : sample
+
 export async function importSampleFiles(files: File[]): Promise<{ imported: ImportedSample[]; failed: { fileName: string; error: string }[] }> {
   const imported: ImportedSample[] = []
   const failed: { fileName: string; error: string }[] = []
@@ -30,7 +33,7 @@ export async function importSampleFiles(files: File[]): Promise<{ imported: Impo
       const bytes = await file.arrayBuffer()
       await storeInSong(loaded.hash, bytes)
       const name = file.name.replace(/\.[^.]+$/, '')
-      imported.push({ fileName: file.name, bytes, sample: newSampleEntity(name, loaded.hash, file.name, loaded.sampleRate, loaded.channels, loaded.frames) })
+      imported.push({ fileName: file.name, bytes, sample: withCycle(newSampleEntity(name, loaded.hash, file.name, loaded.sampleRate, loaded.channels, loaded.frames), loaded.cycleLength) })
     } catch (err) {
       failed.push({ fileName: file.name, error: (err as Error).message || 'Could not decode audio' })
     }
@@ -92,7 +95,11 @@ export async function addLibrarySamplesToSong(libraryIds: string[]): Promise<Id[
         ids.push(existing.id)
         continue
       }
-      const sample: SampleEntity = { ...newSampleEntity(name, meta.hash, meta.originalName, meta.sampleRate, meta.channels, meta.frames), library }
+      const sample: SampleEntity = {
+        ...newSampleEntity(name, meta.hash, meta.originalName, meta.sampleRate, meta.channels, meta.frames),
+        ...(meta.cycleLength ? { cycleLength: meta.cycleLength } : {}),
+        library,
+      }
       draft.entities.samples[sample.id] = sample
       ids.push(sample.id)
     }
@@ -114,7 +121,7 @@ export async function importSampleFilesToLibrary(files: File[]): Promise<Library
   for (const file of files) {
     try {
       const loaded = await loadAudioFile(file)
-      const sample = newSampleEntity(file.name.replace(/\.[^.]+$/, ''), loaded.hash, file.name, loaded.sampleRate, loaded.channels, loaded.frames)
+      const sample = withCycle(newSampleEntity(file.name.replace(/\.[^.]+$/, ''), loaded.hash, file.name, loaded.sampleRate, loaded.channels, loaded.frames), loaded.cycleLength)
       ids.push(await saveSampleToLibrary(sample, await file.arrayBuffer()))
     } catch (err) {
       failed.push({ fileName: file.name, error: (err as Error).message || 'Could not decode audio' })

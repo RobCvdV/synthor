@@ -1,10 +1,31 @@
-import { WAVEFORM_MAX_LENGTH_SECONDS } from './moduleDefs'
+import { CYCLE_SIZE_CHOICES, WAVEFORM_MAX_LENGTH_SECONDS, WAVETABLE_GRAIN, WAVETABLE_MAX_FRAMES } from './moduleDefs'
 import { midiToFreq, samplePlaybackRate } from './notes'
 import type { Id, ModuleType, SampleEntity } from './types'
 
 /** Whether a sample is short enough to serve as one waveform cycle. */
 export function fitsWaveform(sample: { frames: number; sampleRate: number }): boolean {
   return sample.frames / sample.sampleRate <= WAVEFORM_MAX_LENGTH_SECONDS
+}
+
+type CycleSample = { frames: number; sampleRate: number; cycleLength?: number }
+
+/** Whether the wave module can play a sample: a single cycle, or a wavetable of whole frames. */
+export function fitsWavetable(sample: CycleSample): boolean {
+  return fitsWaveform(sample) || (sample.frames <= WAVETABLE_MAX_FRAMES && (!!sample.cycleLength || sample.frames % WAVETABLE_GRAIN === 0))
+}
+
+/** Frames per cycle for the wave module's `cycle` choice (index into CYCLE_SIZE_CHOICES). */
+export function cycleLength(sample: CycleSample, choice: number): number {
+  const c = CYCLE_SIZE_CHOICES[Math.round(choice)] ?? 'auto'
+  if (c === 'whole') return sample.frames
+  if (c === 'auto') return Math.min(sample.cycleLength ?? (fitsWaveform(sample) ? sample.frames : 2048), sample.frames)
+  return Math.min(Number(c), sample.frames)
+}
+
+/** How many whole cycles (wavetable frames) a sample holds at `size` frames each. */
+export function wavetableFrameCount(frames: number, size: number): number {
+  // Tolerates the rounding a resampled table picks up.
+  return Math.max(1, Math.floor(frames / size + 1e-3))
 }
 
 /** Samples sorted by name, as the pickers list them. */
@@ -14,7 +35,7 @@ export function sortSamples(samples: Record<Id, SampleEntity>): SampleEntity[] {
 
 /** The samples a module of this type can pick from, in picker order. */
 export function sampleChoices(moduleType: ModuleType, sortedSamples: SampleEntity[]): SampleEntity[] {
-  return moduleType === 'wave' ? sortedSamples.filter(fitsWaveform) : sortedSamples
+  return moduleType === 'wave' ? sortedSamples.filter(fitsWavetable) : sortedSamples
 }
 
 /** The sample a newly added module starts with: the first choice, if any. */
@@ -30,4 +51,12 @@ export function samplePreviewPlan(sample: { frames: number; sampleRate: number }
   return fitsWaveform(sample)
     ? { rate: midiToFreq(midi) * sample.frames / sample.sampleRate, loop: true }
     : { rate: samplePlaybackRate(midi), loop: false }
+}
+
+/** How the wave module can use a sample, for the sample editor's info line. */
+export function waveUse(sample: CycleSample): string {
+  if (fitsWaveform(sample)) return 'single cycle'
+  if (!fitsWavetable(sample)) return `not usable as a waveform (wavetables are whole multiples of ${WAVETABLE_GRAIN} frames)`
+  const size = cycleLength(sample, 0)
+  return `wavetable: ${wavetableFrameCount(sample.frames, size)} frames of ${+size.toFixed(1)}`
 }

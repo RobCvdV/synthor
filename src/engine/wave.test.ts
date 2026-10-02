@@ -251,3 +251,43 @@ describe('wave module as an oscillator', () => {
     expect(kinds).toContain('sphasor')
   })
 })
+
+describe('wave module wavetables', () => {
+  /** Two 256-frame frames: +0.5 then −0.5, so the output level shows the position. */
+  const table = Float32Array.from({ length: 512 }, (_, i) => (i < 256 ? 0.5 : -0.5))
+  const META_TABLE: SampleMeta = { hash: 'tablehash', channels: 1, sampleRate: 44100, frames: 512, cycleLength: 256 }
+
+  async function level(params: Record<string, number>): Promise<number> {
+    const { left, right } = compile(makeWavePatch(params), 441, [META_TABLE])
+    const r = new OfflineRenderer()
+    await r.initialize({ numInputChannels: 0, numOutputChannels: 2, blockSize: 512, sampleRate: 44100, virtualFileSystem: { tablehash: table } })
+    await r.render(left, right)
+    const L = new Float32Array(512)
+    const R = new Float32Array(512)
+    let sum = 0
+    for (let b = 0; b < 10; b++) {
+      r.process([], [L, R])
+      // Skip the first blocks while the param consts settle.
+      if (b >= 2) sum += L.reduce((acc, v) => acc + v, 0)
+    }
+    return sum / (8 * 512)
+  }
+
+  it('crossfades between frames by position', async () => {
+    expect(await level({ position: 0 })).toBeCloseTo(0.5, 2)
+    expect(await level({ position: 1 })).toBeCloseTo(-0.5, 2)
+    expect(await level({ position: 0.5 })).toBeCloseTo(0, 2)
+  })
+
+  it('reads the whole sample as one cycle when the cycle choice says so', async () => {
+    // One cycle across both halves averages to ~0.
+    expect(Math.abs(await level({ cycle: 1 }))).toBeLessThan(0.03)
+  })
+
+  it('adds a crossfading second read only for tables', () => {
+    const tables = (meta: SampleMeta) => collect(compile(makeWavePatch({}), 440, [meta]).left)
+      .filter((n) => ['table', 'mc.table'].includes(n.kind)).reduce((keys, n) => keys.add(n.props.key), new Set()).size
+    expect(tables(META_TABLE)).toBe(2)
+    expect(tables(META_SHORT)).toBe(1)
+  })
+})

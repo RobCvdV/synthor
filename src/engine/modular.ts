@@ -2,7 +2,7 @@ import { el, type NodeRepr_t } from '@elemaudio/core'
 import { makeSampleLoop, makeSampleOneShot } from './samplePlay'
 import type { Connection, Id, Module, ModularInstrument } from '../domain/types'
 import { midiToFreq } from '../domain/notes'
-import { fitsWaveform } from '../domain/sampleChoices'
+import { cycleLength, fitsWavetable, wavetableFrameCount } from '../domain/sampleChoices'
 import { makeFdnReverb } from './reverbFdn'
 import type { SampleMeta } from './instruments'
 
@@ -726,11 +726,11 @@ export function compileModular(
 
       case 'wave': {
         const freqIn = inlet(m.id, 'freq')
-        // The whole sample is one cycle, so the phasor runs directly at the
-        // requested frequency — the sample's native rate/length is irrelevant.
+        // One cycle of the table per period, so the phasor runs directly at the
+        // requested frequency — the sample's native rate is irrelevant.
         const meta = m.sampleId ? sampleMeta[m.sampleId] : undefined
         // Same eligibility as the UI's sampleChoices; also covers a sample that no longer qualifies.
-        if (!meta?.hash || !fitsWaveform(meta)) return SILENCE
+        if (!meta?.hash || !fitsWavetable(meta)) return SILENCE
 
         const gain = kconst(key('gain'), p.gain ?? 1)
         const octaves = el.add(
@@ -743,17 +743,39 @@ export function compileModular(
         const rate = withFm(el.mul(freqIn ?? 440, ratio), m)
         const sync = inlet(m.id, 'sync')
         const pm = inlet(m.id, 'pm')
-        // The table index is normalized 0..1, so the raw phasor sweeps the
-        // whole buffer once per cycle — one full sample = one waveform cycle.
         const ramp = sync === null ? el.phasor(rate) : el.syncphasor(rate, sync)
         const offset = kconst(key('phase'), p.phase ?? 0)
         const shifted = pm === null ? el.add(ramp, offset) : el.add(ramp, offset, el.mul(pm, kconst(key('pmDepth'), p.pmDepth ?? 1)))
         const phase = el.sub(shifted, el.floor(shifted))
-        const ch = el.mc.table({
-          key: `${keyPrefix}:${m.id}:tbl:${meta.hash}`,
+
+        const size = cycleLength(meta, p.cycle ?? 0)
+        const count = wavetableFrameCount(meta.frames, size)
+        // The table index is normalized over the whole buffer: frame k spans
+        // [k·size, k·size + size − 1] of its frames − 1 steps.
+        const span = Math.max(1, meta.frames - 1)
+        const read = (frame: NodeRepr_t | number, tag: string) => el.mc.table({
+          key: `${keyPrefix}:${m.id}:${tag}:${meta.hash}`,
           path: meta.hash,
           channels: meta.channels,
-        }, phase) as unknown as NodeRepr_t[]
+        }, el.div(el.add(el.mul(frame, size), el.mul(phase, size - 1)), span)) as unknown as NodeRepr_t[]
+
+        let ch: NodeRepr_t[]
+        if (count === 1) {
+          ch = read(0, 'tbl')
+        } else {
+          // Position (plus the pos inlet) picks a point between frames; the two
+          // neighbouring frames are crossfaded so sweeps morph smoothly.
+          const posIn = inlet(m.id, 'pos')
+          const posRef = kconst(key('position'), p.position ?? 0)
+          const pos = el.min(1, el.max(0, posIn === null ? posRef : el.add(posRef, posIn)))
+          const at = el.mul(pos, count - 1)
+          const lo = el.floor(at)
+          const hi = el.min(count - 1, el.add(lo, 1))
+          const frac = el.sub(at, lo)
+          const a = read(lo, 'tblA')
+          const b = read(hi, 'tblB')
+          ch = a.map((x, i) => el.add(x, el.mul(el.sub(b[i], x), frac)))
+        }
         const outL = el.mul(ch[0], gain)
         if (meta.channels === 2) memo.set(`${m.id}:outR`, el.mul(ch[1], gain))
         else memo.set(`${m.id}:outR`, outL)

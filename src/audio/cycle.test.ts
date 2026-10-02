@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { detectPeriod, detectPeriodIn, extractCycle, loopCycle } from './cycle'
+import { detectPeriod, detectPeriodIn, extractCycle, extractWavetable, loopCycle, sweepWavetable } from './cycle'
 import { framesOf } from './sampleEdit'
 import { CYCLE_PEAK } from './waveGen'
 
@@ -75,5 +75,38 @@ describe('loopCycle', () => {
     const out = loopCycle(cycle, 100, 1000)[0]
     expect(out.length).toBe(1000)
     for (const i of [25, 125, 525, 925]) expect(out[i]).toBeCloseTo(1, 2)
+  })
+})
+
+describe('wavetables', () => {
+  /** 0.5 s that glides from a pure 220 Hz sine to one with a strong second harmonic. */
+  const morph = [Float32Array.from({ length: SR / 2 }, (_, i) => {
+    const t = i / (SR / 2)
+    const ph = 2 * Math.PI * 220 * i / SR
+    return 0.5 * Math.sin(ph) + 0.5 * t * Math.sin(2 * ph)
+  })]
+
+  it('takes one cycle per evenly spaced window, so the frames follow the sound', () => {
+    const table = extractWavetable(morph, 0, SR / 2, SR, { length: 256, frames: 8, average: true })[0]
+    expect(table.length).toBe(8 * 256)
+    const frame = (k: number) => table.subarray(k * 256, (k + 1) * 256)
+    // The second harmonic grows: correlation with the first frame drops along the table.
+    const corr = (a: Float32Array, b: Float32Array) => a.reduce((s, v, i) => s + v * b[i], 0)
+    expect(corr(frame(0), frame(1))).toBeGreaterThan(corr(frame(0), frame(7)))
+    for (let k = 0; k < 8; k++) expect(Math.max(...frame(k).map(Math.abs))).toBeCloseTo(CYCLE_PEAK, 3)
+  })
+
+  it('takes each window whole when detection is off', () => {
+    const ramp = [Float32Array.from({ length: 400 }, (_, i) => Math.sin(2 * Math.PI * i / 100))]
+    const table = extractWavetable(ramp, 0, 400, SR, { length: 64, frames: 4, detect: false })[0]
+    expect(table.length).toBe(256)
+  })
+
+  it('sweeps through the frames in order', () => {
+    const table = [new Float32Array([...new Array(4).fill(0.5), ...new Array(4).fill(-0.5)])]
+    const out = sweepWavetable(table, 4, 8, 100)[0]
+    expect(out.length).toBe(100)
+    expect(out[10]).toBeCloseTo(0.5, 1)
+    expect(out[90]).toBeCloseTo(-0.5, 1)
   })
 })

@@ -125,3 +125,44 @@ export function loopCycle(cycle: PcmData, period: number, frames: number): PcmDa
   const step = n / period
   return cycle.map((ch) => readInterpolated(ch, frames, (i) => (i * step) % n, step, true))
 }
+
+/**
+ * A wavetable: `frames` cycles taken from evenly spaced windows across `[start, end)`, each
+ * found and shaped like `extractCycle`, so a sweep through the table follows the sound.
+ * A window without a clear pitch uses `fallbackPeriod`, or itself as one cycle; `detect: false`
+ * takes every window as one cycle.
+ */
+export function extractWavetable(
+  data: PcmData, start: number, end: number, sampleRate: number,
+  opts: { length: number; frames: number; average?: boolean; fallbackPeriod?: number; detect?: boolean },
+): PcmData {
+  const a = Math.max(0, Math.min(start, end))
+  const b = Math.min(framesOf(data), Math.max(start, end))
+  const n = Math.max(1, Math.round(opts.frames))
+  const window = (b - a) / n
+  const cycles = Array.from({ length: n }, (_, k) => {
+    const from = Math.round(a + k * window)
+    const to = Math.round(a + (k + 1) * window)
+    const period = opts.detect === false ? undefined : detectPeriodIn(data, from, to, sampleRate)?.period ?? opts.fallbackPeriod
+    return extractCycle(data, from, to, { length: opts.length, period, average: opts.average })
+  })
+  return data.map((_, c) => {
+    const out = new Float32Array(n * opts.length)
+    cycles.forEach((cycle, k) => out.set(cycle[c], k * opts.length))
+    return out
+  })
+}
+
+/** Plays each wavetable frame in turn, looped at `period` frames per cycle, `frames` frames in all. */
+export function sweepWavetable(table: PcmData, cycleLength: number, period: number, frames: number): PcmData {
+  const count = Math.max(1, Math.floor(framesOf(table) / cycleLength))
+  const per = Math.max(1, Math.floor(frames / count))
+  return table.map((ch) => {
+    const out = new Float32Array(per * count)
+    for (let k = 0; k < count; k++) {
+      const frame = [ch.subarray(k * cycleLength, (k + 1) * cycleLength)] as PcmData
+      out.set(loopCycle(frame, period, per)[0], k * per)
+    }
+    return out
+  })
+}
