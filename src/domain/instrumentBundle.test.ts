@@ -123,6 +123,7 @@ describe('insertInstrumentBundle', () => {
     const root = target.instruments[insertInstrumentBundle(target, bundle)] as DrumKitInstrument
     expect(root.slots.find((s) => s.note === 36)!.sampleId).toBeNull()
   })
+})
 
 describe('library attributes in bundles', () => {
   it('leaves them out of collected bundles and puts them on the inserted root', () => {
@@ -149,5 +150,4 @@ describe('sample library attributes in bundles', () => {
     expect(bundle.samples[kick.id]).not.toHaveProperty('library')
     expect(kick.library).toBeDefined()
   })
-})
 })
