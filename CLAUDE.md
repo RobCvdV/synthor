@@ -40,7 +40,7 @@ Chains are ordered; each hop is verified. Skipping the tail is how features half
 | Save / load / project format | `persist/serialize.ts`: bump `CURRENT_SCHEMA_VERSION` **and** add the `migrate` case |
 | Instrument files / instrument library | `domain/instrumentBundle.ts` (collect + insert with fresh ids) → `persist/instrumentFile.ts` (`.synthinst`, migrated like songs) → `persist/instrumentLibrary.ts` (`instruments/<id>/`) → `ui/instrumentActions.ts` → `ui/library/` dialogs. Song instruments keep `library` (category, tags, the library id they came from); bundles strip it and files/library items carry it as metadata, so set it again when inserting |
 | Sample library | `persist/sampleLibrary.ts` (`samples/<id>/sample.json` + the original audio file) → `ui/sampleActions.ts` → `ui/SampleToolbar.tsx`. Song samples keep `library` like instruments do (shared `LibraryInfo`, `patchLibraryInfo`); instrument bundles strip it from their samples. Both libraries share `domain/library.ts` and the `ui/library/` dialogs through a `LibrarySource` |
-| Sample import / edit / storage | `audio/sampleLoader.ts`, `audio/sampleEdit.ts`, `persist/sampleStorage.ts` (OPFS) |
+| Sample import / edit / storage | `audio/sampleLoader.ts`, `audio/sampleEdit.ts` (pure edits + resampling), `audio/cycle.ts` (pitch detection, single cycles), `persist/sampleStorage.ts` (OPFS) |
 | Something should change audibly without a recompile | a `paramRefs` ref, not `compileGraph` |
 
 ## Why things exist
