@@ -10,7 +10,9 @@ export type WaveShape = 'sine' | 'square' | 'saw' | 'triangle' | 'noise'
 
 export const WAVE_SHAPES: WaveShape[] = ['sine', 'square', 'saw', 'triangle', 'noise']
 
-const AMP = 0.8
+/** Peak level of generated and extracted cycles. */
+export const CYCLE_PEAK = 0.8
+const AMP = CYCLE_PEAK
 
 export function generateWaveform(shape: WaveShape, frames: number): Float32Array {
   const out = new Float32Array(frames)

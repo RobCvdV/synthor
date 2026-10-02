@@ -1,5 +1,6 @@
 import {
-  copyRange, cutRange, fadeRange, framesOf, gainRange, insertAt, pasteAt, replaceRange, reverseRange,
+  copyRange, cutRange, fadeRange, framesOf, gainRange, insertAt, nearestZeroCrossing, normalizeRange, pasteAt,
+  removeDcRange, repitchRange, replaceRange, reverseRange, silenceRange, trimToRange,
   type PcmData,
 } from '../../audio/sampleEdit'
 import type { Sel } from './selectionGestures'
@@ -49,4 +50,47 @@ export function gainSelection(s: EditState, percent: number): EditResult | null 
 /** Ramps the selection's level from `fromPercent` to `toPercent`. */
 export function fadeSelection(s: EditState, fromPercent: number, toPercent: number): EditResult | null {
   return s.sel ? { ...s, pcm: fadeRange(s.pcm, s.sel.start, s.sel.end, fromPercent / 100, toPercent / 100) } : null
+}
+
+/** The selection, or the whole sample without one. */
+export function targetRange({ pcm, sel }: EditState): Sel {
+  return sel ?? { start: 0, end: framesOf(pcm) }
+}
+
+/** Keeps only the selection, which then covers the whole sample. */
+export function trimSelection({ pcm, sel }: EditState): EditResult | null {
+  if (!sel) return null
+  const out = trimToRange(pcm, sel.start, sel.end)
+  return { pcm: out, cursor: 0, sel: null }
+}
+
+export function silenceSelection(s: EditState): EditResult | null {
+  return s.sel ? { ...s, pcm: silenceRange(s.pcm, s.sel.start, s.sel.end) } : null
+}
+
+/** Normalizes the selection (or the whole sample) to full scale. */
+export function normalizeSelection(s: EditState): EditResult {
+  const r = targetRange(s)
+  return { ...s, pcm: normalizeRange(s.pcm, r.start, r.end) }
+}
+
+export function removeDcSelection(s: EditState): EditResult {
+  const r = targetRange(s)
+  return { ...s, pcm: removeDcRange(s.pcm, r.start, r.end) }
+}
+
+/** Repitches the selection (or the whole sample) by resampling; the result stays selected. */
+export function repitchSelection(s: EditState, semitones: number): EditResult {
+  const r = targetRange(s)
+  const out = repitchRange(s.pcm, r.start, r.end, semitones)
+  const end = r.end + framesOf(out) - framesOf(s.pcm)
+  return { pcm: out, cursor: s.cursor === null ? null : Math.min(s.cursor, framesOf(out)), sel: s.sel && { start: r.start, end } }
+}
+
+/** Moves both selection edges to their nearest rising zero crossings. */
+export function snapSelection({ pcm, sel }: EditState): Sel | null {
+  if (!sel) return null
+  const start = nearestZeroCrossing(pcm, sel.start)
+  const end = nearestZeroCrossing(pcm, sel.end)
+  return end > start ? { start, end } : sel
 }

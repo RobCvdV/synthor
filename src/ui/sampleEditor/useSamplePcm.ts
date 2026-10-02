@@ -94,16 +94,17 @@ export function useSamplePcm(slug: string, entity: SampleEntity | undefined) {
     }
   }, [slug])
 
-  /** Stores the current audio as a new sample; resolves with it, or null on failure. */
-  const saveAs = useCallback(async (name: string): Promise<SampleEntity | null> => {
+  /** Stores the current audio, or `data`, as a new sample; resolves with it, or null on failure. */
+  const saveAs = useCallback(async (name: string, data?: PcmData): Promise<SampleEntity | null> => {
     const m = live.current.meta
-    if (!m || !pcm) return null
+    const audio = data ?? pcm
+    if (!m || !audio) return null
     setBusy(true)
     try {
-      const bytes = encodeWav(pcm, m.sampleRate)
+      const bytes = encodeWav(audio, m.sampleRate)
       const hash = await computeHash(bytes)
       await writeSampleData(slug, hash, bytes)
-      const sample = newSampleEntity(name, hash, `${name}.wav`, m.sampleRate, pcm.length, framesOf(pcm))
+      const sample = newSampleEntity(name, hash, `${name}.wav`, m.sampleRate, audio.length, framesOf(audio))
       useDocStore.getState().addSampleEntity(sample)
       return sample
     } catch (err) {

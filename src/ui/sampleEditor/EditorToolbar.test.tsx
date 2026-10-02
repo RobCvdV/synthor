@@ -4,7 +4,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { EditorToolbar, type EditorActions } from './EditorToolbar'
 
 function actions(): EditorActions {
-  const names = ['play', 'copy', 'cut', 'paste', 'insert', 'replace', 'reverse', 'openDialog', 'saveAs',
+  const names = ['play', 'copy', 'cut', 'paste', 'insert', 'replace', 'reverse', 'snap', 'process', 'makeCycle', 'openDialog', 'saveAs',
     'exportFile', 'zoomOut', 'zoomIn', 'zoomFit', 'close'] as const
   return Object.fromEntries(names.map((n) => [n, vi.fn()])) as unknown as EditorActions
 }
@@ -29,5 +29,18 @@ describe('EditorToolbar', () => {
     render(<EditorToolbar ready hasSel hasClip actions={a} />)
     fireEvent.click(screen.getByText('Fade Out…'))
     expect(a.openDialog).toHaveBeenCalledWith('fadeOut')
+  })
+})
+
+describe('EditorToolbar processing', () => {
+  it('offers only whole-sample processing without a selection', () => {
+    const a = actions()
+    render(<EditorToolbar ready hasSel={false} hasClip={false} actions={a} />)
+    const options = screen.getAllByRole('option').filter((o) => !(o as HTMLOptionElement).disabled).map((o) => o.textContent)
+    expect(options).toEqual(['Process…', 'Normalize', 'Remove DC offset', 'Pitch…'])
+    fireEvent.change(screen.getByLabelText('Process'), { target: { value: 'normalize' } })
+    expect(a.process).toHaveBeenCalledWith('normalize')
+    fireEvent.click(screen.getByText('Make Cycle…'))
+    expect(a.makeCycle).toHaveBeenCalled()
   })
 })

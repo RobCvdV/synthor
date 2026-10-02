@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AudioHost } from '../../audio/host'
-import { framesOf } from '../../audio/sampleEdit'
+import { framesOf, type PcmData } from '../../audio/sampleEdit'
 import { fitsWaveform } from '../../domain/sampleChoices'
 import { WAVEFORM_MAX_LENGTH_SECONDS } from '../../domain/moduleDefs'
 import type { Id } from '../../domain/types'
@@ -11,11 +11,13 @@ import { formatDuration } from '../format'
 import { isEditableTarget } from '../keymap'
 import { sampleDialogOpenRef } from '../sampleDialogRef'
 import {
-  copySelection, cutSelection, fadeSelection, gainSelection, pasteClip, replaceSelection, reverseSelection,
+  copySelection, cutSelection, fadeSelection, gainSelection, normalizeSelection, pasteClip, removeDcSelection,
+  repitchSelection, replaceSelection, reverseSelection, silenceSelection, snapSelection, targetRange, trimSelection,
   type EditResult,
 } from './editCommands'
-import { EditorToolbar, type EditDialogKind, type EditorActions } from './EditorToolbar'
+import { EditorToolbar, type EditDialogKind, type EditorActions, type ProcessKind } from './EditorToolbar'
 import { EditDialog } from './SampleEditDialog'
+import { MakeCycleDialog } from './MakeCycleDialog'
 import { SaveAsDialog } from './SampleSaveAsDialog'
 import { fitToLength, pointerDown, pointerMove, pointerUp, type Drag, type Sel } from './selectionGestures'
 import { useSamplePcm } from './useSamplePcm'
@@ -49,6 +51,7 @@ export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: 
   const [sel, setSel] = useState<Sel | null>(null)
   const [dialog, setDialog] = useState<EditDialogKind | null>(null)
   const [saveAsOpen, setSaveAsOpen] = useState(false)
+  const [cycleRange, setCycleRange] = useState<Sel | null>(null)
   const clip = useSampleClipboard((st) => st.pb)
 
   const waveRef = useRef<HTMLDivElement>(null)
@@ -61,11 +64,11 @@ export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: 
   useWaveformCanvas(canvasRef, { pcm, width, height, lanes, px: view.px, scroll: view.scroll, sel, cursor })
 
   // Handlers read the latest values without re-subscribing.
-  const live = useRef({ pcm, meta, sel, cursor, busy, dialog, view })
-  live.current = { pcm, meta, sel, cursor, busy, dialog, view }
+  const live = useRef({ pcm, meta, sel, cursor, busy, dialog, view, cycleRange })
+  live.current = { pcm, meta, sel, cursor, busy, dialog, view, cycleRange }
   const drag = useRef<Drag | null>(null)
 
-  useEffect(() => { sampleDialogOpenRef.current = dialog !== null }, [dialog])
+  useEffect(() => { sampleDialogOpenRef.current = dialog !== null || cycleRange !== null }, [dialog, cycleRange])
   useEffect(() => () => host.stopSamplePreviews(), [host])
 
   // A shorter sample (edit, undo, relink) must not leave the cursor or selection past its end.
@@ -140,6 +143,14 @@ export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: 
       if (st && pb) apply(replaceSelection(st, pb.data))
     },
     reverse: () => { const st = editState(); if (st) apply(reverseSelection(st)) },
+    snap: () => { const st = editState(); const next = st && snapSelection(st); if (next) setSel(next) },
+    process: (kind: ProcessKind) => {
+      const st = editState()
+      if (!st) return
+      if (kind === 'pitch') setDialog('pitch')
+      else apply({ trim: trimSelection, silence: silenceSelection, normalize: normalizeSelection, removeDc: removeDcSelection }[kind](st))
+    },
+    makeCycle: () => { const st = editState(); if (st) setCycleRange(targetRange(st)) },
     openDialog: setDialog,
     saveAs: () => setSaveAsOpen(true),
     exportFile: () => void sample.exportFile(),
@@ -149,9 +160,17 @@ export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: 
     close: onClose,
   }
 
-  const saveAs = async (name: string) => {
-    const created = await sample.saveAs(name)
+  const previewPcm = (data: PcmData) => {
+    const m = live.current.meta
+    if (!m) return
+    host.stopSamplePreviews()
+    void host.playPcmPreview(data, m.sampleRate)
+  }
+
+  const saveAs = async (name: string, data?: PcmData) => {
+    const created = await sample.saveAs(name, data)
     if (!created) return
+    setCycleRange(null)
     useAppStore.getState().setSelectedSampleId(created.id)
     onSwitchSample(created.id)
   }
@@ -159,7 +178,7 @@ export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: 
   // Capture phase, so Space and Cmd+C/X/V win over the app-wide handlers.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (live.current.dialog || isEditableTarget(e.target)) return
+      if (live.current.dialog || live.current.cycleRange || isEditableTarget(e.target)) return
       const mod = e.metaKey || e.ctrlKey
       const handler =
         e.code === 'Space' && !mod && !e.altKey ? play
@@ -237,10 +256,17 @@ export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: 
       <WaveScrollbar width={width} frames={frames} visible={visibleFrames(width, view.px)}
         scroll={view.scroll} onScroll={view.setScroll} />
 
-      {dialog && sel && (
+      {dialog && (sel || dialog === 'pitch') && (
         <EditDialog kind={dialog} onClose={() => setDialog(null)}
           onApplyVolume={(pct) => { const st = editState(); if (st) apply(gainSelection(st, pct)) }}
-          onApplyFade={(from, to) => { const st = editState(); if (st) apply(fadeSelection(st, from, to)) }} />
+          onApplyFade={(from, to) => { const st = editState(); if (st) apply(fadeSelection(st, from, to)) }}
+          onApplyPitch={(semis) => { const st = editState(); if (st) apply(repitchSelection(st, semis)) }} />
+      )}
+
+      {cycleRange && pcm && meta && entity && (
+        <MakeCycleDialog pcm={pcm} range={cycleRange} sampleRate={meta.sampleRate} defaultName={`${entity.name} cycle`}
+          busy={busy} onPreview={previewPcm} onSave={(name, cycle) => void saveAs(name, cycle)}
+          onClose={() => setCycleRange(null)} />
       )}
 
       {saveAsOpen && entity && (

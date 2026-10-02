@@ -23,3 +23,10 @@ export function midiToName(midi: number): string {
   // Pad to 3 chars ("C-4", "C#4") for fixed-width grid rendering.
   return name.length === 1 ? `${name}-${octave}` : `${name}${octave}`
 }
+
+/** Nearest MIDI note and the remaining offset in cents (−50..50) for a frequency. */
+export function freqToNote(freq: number): { midi: number; cents: number } {
+  const exact = 69 + 12 * Math.log2(freq / 440)
+  const midi = Math.round(exact)
+  return { midi, cents: Math.round((exact - midi) * 100) }
+}
