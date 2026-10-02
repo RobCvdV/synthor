@@ -3,6 +3,7 @@ import { DEFAULT_EFFECT_SETTINGS, MAX_LIVE_VOICES, liveVoiceCount } from '../dom
 import { useDocStore } from '../state/docStore'
 import { useState } from 'react'
 import { TagEditor } from './library/TagEditor'
+import { NameInput } from './components/NameInput'
 import lib from './library/Library.module.css'
 
 /** Discrete preset options per setting. */
@@ -36,11 +37,7 @@ export function InstrumentSettings({ inst, usage, onDuplicate, onExport, onSaveT
   return (
     <aside className="inst-settings">
       <div className="inst-settings-head">
-        <input
-          className="inst-name-input"
-          value={inst.name}
-          onChange={(e) => renameInstrument(inst.id, e.target.value)}
-        />
+        <NameInput className="inst-name-input" value={inst.name} onCommit={(name) => renameInstrument(inst.id, name)} />
         <span className="muted">{inst.kind === 'drumkit' ? 'Drum Kit' : 'Synth'}{inst.library?.id ? ' · from the library' : ''}</span>
         <InstrumentLibraryFields key={`${inst.id}:${inst.library?.category ?? ""}`} inst={inst} />
         <div className="inst-settings-actions">

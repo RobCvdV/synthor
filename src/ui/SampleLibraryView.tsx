@@ -14,6 +14,7 @@ import { saveSongSampleToLibrary } from './sampleActions'
 import { SaveToLibraryDialog, type SaveToLibraryValues } from './library/SaveToLibraryDialog'
 import { sampleLibrary } from './library/librarySource'
 import { TagEditor } from './library/TagEditor'
+import { NameInput } from './components/NameInput'
 import { SampleEditor } from './sampleEditor/SampleEditor'
 import { CreateSampleDialog } from './CreateSampleDialog'
 import { sampleDialogOpenRef } from './sampleDialogRef'
@@ -229,10 +230,10 @@ export function SampleLibraryView({ host }: Props) {
                     onClick={() => setSelectedSampleId(s.id)}
                   >
                     <td>
-                      <input
+                      <NameInput
                         className="slv-name-input"
                         value={s.name}
-                        onChange={(e) => renameSample(s.id, e.target.value)}
+                        onCommit={(name) => renameSample(s.id, name)}
                         title="Rename sample — this is how it appears in drumkit and module pickers"
                       />
                     </td>
