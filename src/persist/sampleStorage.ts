@@ -1,107 +1,42 @@
-/**
- * Read / write sample binary assets in OPFS under `songs/<slug>/samples/<hash>.bin`.
- * No dependency on the audio layer — pure OPFS file I/O.
- */
+/** Sample binary assets, stored per song as `songs/<slug>/samples/<hash>.bin`. */
+import { songDir } from './songStore'
+import { joinPath, requireStorage } from './storage'
 
-/** Get the OPFS root directory handle (browser only). */
-async function rootDir(): Promise<FileSystemDirectoryHandle> {
-  return navigator.storage.getDirectory()
+function samplesDir(slug: string): string {
+  return joinPath(songDir(slug), 'samples')
 }
 
-/** Resolve `songs/<slug>/samples/`, creating directories as needed. */
-async function samplesDir(
-  slug: string,
-): Promise<{ dir: FileSystemDirectoryHandle; exists: boolean }> {
-  const root = await rootDir()
-  let songs: FileSystemDirectoryHandle
-  try {
-    songs = await root.getDirectoryHandle('songs')
-  } catch {
-    songs = await root.getDirectoryHandle('songs', { create: true })
-  }
-  let songDir: FileSystemDirectoryHandle
-  try {
-    songDir = await songs.getDirectoryHandle(slug)
-  } catch {
-    songDir = await songs.getDirectoryHandle(slug, { create: true })
-  }
-  let dir: FileSystemDirectoryHandle
-  let exists = true
-  try {
-    dir = await songDir.getDirectoryHandle('samples')
-  } catch {
-    dir = await songDir.getDirectoryHandle('samples', { create: true })
-    exists = false
-  }
-  return { dir, exists }
+function samplePath(slug: string, hash: string): string {
+  return joinPath(samplesDir(slug), `${hash}.bin`)
 }
 
 /** Store the raw audio file bytes under its content hash. */
-export async function writeSampleAsset(
-  slug: string,
-  hash: string,
-  file: File,
-): Promise<void> {
-  const { dir } = await samplesDir(slug)
-  const fh = await dir.getFileHandle(`${hash}.bin`, { create: true })
-  const writable = await fh.createWritable()
-  await writable.write(await file.arrayBuffer())
-  await writable.close()
+export async function writeSampleAsset(slug: string, hash: string, file: File): Promise<void> {
+  await requireStorage().write(samplePath(slug, hash), await file.arrayBuffer())
 }
 
 /** Read stored sample bytes by hash. Returns null if not found. */
-export async function readSampleAsset(
-  slug: string,
-  hash: string,
-): Promise<ArrayBuffer | null> {
-  const { dir } = await samplesDir(slug)
-  let fh: FileSystemFileHandle
-  try {
-    fh = await dir.getFileHandle(`${hash}.bin`)
-  } catch {
-    return null
-  }
-  const file = await fh.getFile()
-  return file.arrayBuffer()
+export async function readSampleAsset(slug: string, hash: string): Promise<ArrayBuffer | null> {
+  return requireStorage().readBytes(samplePath(slug, hash))
 }
 
-/** Write raw sample bytes (from an ArrayBuffer, e.g. from a zip import). */
-export async function writeSampleData(
-  slug: string,
-  hash: string,
-  data: ArrayBuffer,
-): Promise<void> {
-  const { dir } = await samplesDir(slug)
-  // Skip if already present — content-addressed, same hash = same data.
-  try {
-    await dir.getFileHandle(`${hash}.bin`)
-    return
-  } catch {
-    // Not found — proceed with write.
-  }
-  const fh = await dir.getFileHandle(`${hash}.bin`, { create: true })
-  const writable = await fh.createWritable()
-  await writable.write(data)
-  await writable.close()
+/** Write raw sample bytes (e.g. from a zip import); skipped when the hash is already stored. */
+export async function writeSampleData(slug: string, hash: string, data: ArrayBuffer): Promise<void> {
+  const s = requireStorage()
+  const path = samplePath(slug, hash)
+  if (await s.exists(path)) return
+  await s.write(path, data)
 }
 
 /** Delete a stored sample by hash. No-op if not found. */
 export async function deleteSampleAsset(slug: string, hash: string): Promise<void> {
-  const { dir } = await samplesDir(slug)
-  try {
-    await dir.removeEntry(`${hash}.bin`)
-  } catch {
-    // Not found — no-op.
-  }
+  await requireStorage().remove(samplePath(slug, hash))
 }
 
 /** List all sample hashes stored for a song. */
 export async function listSampleAssets(slug: string): Promise<string[]> {
-  const { dir, exists } = await samplesDir(slug)
-  if (!exists) return []
-  const hashes: string[] = []
-  for await (const [name] of dir.entries()) {
-    if (name.endsWith('.bin')) hashes.push(name.replace(/\.bin$/, ''))
-  }
-  return hashes
+  const entries = await requireStorage().list(samplesDir(slug))
+  return entries
+    .filter((e) => e.kind === 'file' && e.name.endsWith('.bin'))
+    .map((e) => e.name.replace(/\.bin$/, ''))
 }

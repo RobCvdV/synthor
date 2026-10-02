@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
 import { useDocStore } from './docStore'
-import { createDefaultDoc, newModularInstrument } from '../domain/factory'
+import { createDefaultDoc, newModularInstrument, newSampleEntity } from '../domain/factory'
 import { setActiveParamRefs, type ParamRefRegistry } from '../audio/paramRefs'
 import type { ModularInstrument } from '../domain/types'
 
@@ -175,5 +175,36 @@ describe('modularOps', () => {
 
   afterEach(() => {
     setActiveParamRefs(null)
+  })
+
+  it('addModule points sample modules at the first eligible sample', () => {
+    const inst = setupModular()
+    const store = useDocStore.getState()
+    store.addSampleEntity(newSampleEntity('Zap', 'h-zap', 'zap.wav', 48000, 1, 48000 * 2))
+    store.addSampleEntity(newSampleEntity('Blip', 'h-blip', 'blip.wav', 48000, 1, 256))
+    const ids = Object.fromEntries(Object.values(doc().entities.samples).map((smp) => [smp.name, smp.id]))
+
+    store.addModule(inst.id, 'sample', { x: 0, y: 0 })
+    store.addModule(inst.id, 'osc', { x: 0, y: 0 })
+    const mods = Object.values(getInst(inst.id).modules)
+    expect(mods.find((m) => m.type === 'sample')?.sampleId).toBe(ids.Blip)
+    expect(mods.find((m) => m.type === 'osc')?.sampleId).toBeUndefined()
+  })
+
+  it('setModuleSample repoints a module, ignoring unknown samples', () => {
+    const inst = setupModular()
+    const store = useDocStore.getState()
+    store.addSampleEntity(newSampleEntity('Kick', 'h-kick', 'kick.wav', 48000, 1, 480))
+    const kick = Object.values(doc().entities.samples)[0].id
+    store.addModule(inst.id, 'sample', { x: 0, y: 0 })
+    const modId = Object.values(getInst(inst.id).modules).find((m) => m.type === 'sample')!.id
+
+    store.addSampleEntity(newSampleEntity('Snare', 'h-snare', 'snare.wav', 48000, 1, 480))
+    const snare = Object.values(doc().entities.samples).find((smp) => smp.name === 'Snare')!.id
+    expect(getInst(inst.id).modules[modId].sampleId).toBe(kick)
+    store.setModuleSample(inst.id, modId, snare)
+    expect(getInst(inst.id).modules[modId].sampleId).toBe(snare)
+    store.setModuleSample(inst.id, modId, 'nope')
+    expect(getInst(inst.id).modules[modId].sampleId).toBe(snare)
   })
 })

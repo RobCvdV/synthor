@@ -1,4 +1,4 @@
-import { slugify } from './opfsStore'
+import { slugify } from './songStore'
 
 /** Songs are stored by name slug, so two names with the same slug would overwrite each other. */
 export function songNameConflict(name: string, takenSlugs: Iterable<string>, ownSlug?: string): string | null {

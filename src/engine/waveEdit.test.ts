@@ -68,7 +68,7 @@ describe('generated sample → WAV → wave module', () => {
       id: 'i1', kind: 'modular', name: 'Test',
       modules: {
         note: { id: 'note', type: 'note', params: {}, pos: { x: 0, y: 0 } },
-        wv: { id: 'wv', type: 'wave', params: { sampleIndex: 0, finetune: 0, gain: 1 }, pos: { x: 0, y: 0 } },
+        wv: { id: 'wv', type: 'wave', params: { finetune: 0, gain: 1 }, sampleId: 'smp', pos: { x: 0, y: 0 } },
         out: { id: 'out', type: 'output', params: { gain: 1 }, pos: { x: 0, y: 0 } },
       },
       connections: {
@@ -85,7 +85,7 @@ describe('generated sample → WAV → wave module', () => {
       el.const({ value: 440 }),
       el.const({ value: 0 }),
       'voice',
-      [meta],
+      { smp: meta },
       1,
       {},
       undefined,

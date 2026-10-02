@@ -8,12 +8,10 @@ type TabId = 'arrange' | 'store' | 'legend'
 
 interface Props {
   doc: Doc
-  /** Current OPFS slug for save/export. */
-  slug: string
 }
 
 /** Right-side pane for the tracker view with Arrange, Store, and Legend tabs. */
-export function TrackerRightPane({ doc, slug }: Props) {
+export function TrackerRightPane({ doc }: Props) {
   const [tab, setTab] = useState<TabId>('arrange')
 
   return (
@@ -31,7 +29,7 @@ export function TrackerRightPane({ doc, slug }: Props) {
       </div>
       <div className="tracker-pane-body">
         {tab === 'arrange' && <ArrangeTab doc={doc} />}
-        {tab === 'store' && <StoreTab slug={slug} />}
+        {tab === 'store' && <StoreTab />}
         {tab === 'legend' && <Legend />}
       </div>
     </aside>

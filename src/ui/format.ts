@@ -31,3 +31,8 @@ export function saveLabel(status: string, lastSavedAt: string | null): string {
 export function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v
 }
+
+/** Shortens a macOS/Linux home directory prefix to `~`. */
+export function tildePath(path: string): string {
+  return path.replace(/^\/(Users|home)\/[^/]+(?=\/|$)/, '~')
+}

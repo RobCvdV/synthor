@@ -1,6 +1,9 @@
 import type { EffectSettingKey, Instrument } from '../domain/types'
 import { DEFAULT_EFFECT_SETTINGS, MAX_LIVE_VOICES, liveVoiceCount } from '../domain/types'
 import { useDocStore } from '../state/docStore'
+import { useState } from 'react'
+import { TagEditor } from './library/TagEditor'
+import lib from './library/Library.module.css'
 
 /** Discrete preset options per setting. */
 const SETTING_OPTIONS: Record<EffectSettingKey, { label: string; unit: string; values: number[] }> = {
@@ -16,11 +19,13 @@ interface Props {
   usage: number
   onDuplicate: () => void
   onExport: () => void
+  /** Omitted where there is no library (no persistent storage). */
+  onSaveToLibrary?: () => void
   onDelete: () => void
 }
 
 /** Settings pane for an instrument: name, actions, and effect range presets. */
-export function InstrumentSettings({ inst, usage, onDuplicate, onExport, onDelete }: Props) {
+export function InstrumentSettings({ inst, usage, onDuplicate, onExport, onSaveToLibrary, onDelete }: Props) {
   const renameInstrument = useDocStore((s) => s.renameInstrument)
   const setEffectSetting = useDocStore((s) => s.setEffectSetting)
   const setInstrumentVoices = useDocStore((s) => s.setInstrumentVoices)
@@ -36,12 +41,16 @@ export function InstrumentSettings({ inst, usage, onDuplicate, onExport, onDelet
           value={inst.name}
           onChange={(e) => renameInstrument(inst.id, e.target.value)}
         />
-        <span className="muted">{inst.kind === 'drumkit' ? 'Drum Kit' : 'Synth'}</span>
+        <span className="muted">{inst.kind === 'drumkit' ? 'Drum Kit' : 'Synth'}{inst.library?.id ? ' · from the library' : ''}</span>
+        <InstrumentLibraryFields key={`${inst.id}:${inst.library?.category ?? ""}`} inst={inst} />
         <div className="inst-settings-actions">
           <button title="Duplicate this instrument" onClick={onDuplicate}>
             Duplicate
           </button>
-          <button onClick={onExport}>Export</button>
+          <button title="Export as a .synthinst file (includes samples)" onClick={onExport}>Export</button>
+          {onSaveToLibrary && (
+            <button title="Keep a copy in your instrument library" onClick={onSaveToLibrary}>Save to Library</button>
+          )}
           <button
             disabled={usage > 0}
             title={usage > 0 ? 'In use by a track — reassign first' : 'Delete instrument'}
@@ -94,5 +103,27 @@ export function InstrumentSettings({ inst, usage, onDuplicate, onExport, onDelet
         )}
       </div>
     </aside>
+  )
+}
+
+/** Category and tags the instrument keeps in the song and takes along to the library and exports. */
+function InstrumentLibraryFields({ inst }: { inst: Instrument }) {
+  const setInfo = useDocStore((st) => st.setLibraryInfo)
+  const [category, setCategory] = useState(inst.library?.category ?? '')
+  const commitCategory = () => {
+    if (category.trim() !== (inst.library?.category ?? '')) setInfo(inst.id, { category })
+  }
+  return (
+    <div className={lib.fields}>
+      <label className={lib.field}>
+        <span>Category</span>
+        <input value={category} placeholder="e.g. Bass, Pads, Drums" onChange={(e) => setCategory(e.target.value)}
+          onBlur={commitCategory} onKeyDown={(e) => { if (e.key === 'Enter') commitCategory() }} />
+      </label>
+      <div className={lib.field}>
+        <span>Tags</span>
+        <TagEditor tags={inst.library?.tags ?? []} onChange={(tags) => setInfo(inst.id, { tags })} />
+      </div>
+    </div>
   )
 }

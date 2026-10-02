@@ -27,8 +27,8 @@ export function renderInstrument(
   freq: NodeRepr_t | number,
   gate: NodeRepr_t | number,
   voiceKey: string,
-  /** Sample metadata for sampleIndex → VFS key + channel count resolution. */
-  sampleMeta: SampleMeta[] = [],
+  /** Sample metadata by sample id. */
+  sampleMeta: Record<Id, SampleMeta> = {},
   /** Raw MIDI note (0-127) for drumkit slot mapping. */
   note: NodeRepr_t | number = 0,
   /** sampleId → VFS hash lookup for drumkit slot resolution. */
@@ -74,7 +74,7 @@ export function renderDrumKitSlot(
   slotGate: NodeRepr_t | number,
   slotFreq: NodeRepr_t | number,
   voiceKey: string,
-  sampleMeta: SampleMeta[],
+  sampleMeta: Record<Id, SampleMeta>,
   sampleHashById: Record<Id, string>,
   midiCcValues?: Record<number, number>,
   paramRefs?: import('../audio/paramRefs').ParamRefRegistry,
@@ -98,11 +98,11 @@ export function renderDrumKitSlot(
       console.warn(`Drumkit slot "${slot.id}" references unknown sample "${slot.sampleId}" — no hash found`)
     }
     if (hash) {
-      const meta = sampleMeta.find((s) => s.hash === hash)
-      if (!meta) {
-        console.warn(`Sample hash "${hash.slice(0, 8)}…" (slot "${slot.id}") not loaded in VFS — sample may be missing from OPFS`)
+      const meta = sampleMeta[slot.sampleId]
+      if (!meta?.hash) {
+        console.warn(`Sample hash "${hash.slice(0, 8)}…" (slot "${slot.id}") not loaded in VFS — sample may be missing from storage`)
       }
-      if (meta) {
+      if (meta?.hash) {
         const key = `${voiceKey}:slot:${slot.id}:${hash}`
 
         // One-shot via table + edge-reset phase. mc.sample's built-in fade

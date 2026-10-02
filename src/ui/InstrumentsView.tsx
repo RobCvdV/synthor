@@ -1,17 +1,20 @@
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useDocStore } from '../state/docStore'
 import { usePreviewStore } from '../state/previewStore'
 import { useAppStore } from '../state/appStore'
 import { codeToSemitone, isEditableTarget } from './keymap'
 import { downloadBlob } from './download'
-import { pickFiles } from './pickFiles'
 import { ModularEditor } from './ModularEditor'
 import { DrumKitEditor } from './DrumKitEditor'
 import { InstrumentSettings } from './InstrumentSettings'
-import { cloneInstrument } from '../domain/factory'
+import { exportInstrumentFile, saveSongInstrumentToLibrary } from './instrumentActions'
+import { hasStorage } from '../persist/storage'
+import { InstrumentRail } from './InstrumentRail'
+import { SaveToLibraryDialog, type SaveToLibraryValues } from './library/SaveToLibraryDialog'
+import { instrumentLibrary } from './library/librarySource'
 import type { AudioHost } from '../audio/host'
 import type { KeyboardPlayer } from '../audio/keyboardPlayer'
-import type { Id, Instrument } from '../domain/types'
+import type { Id } from '../domain/types'
 
 /** Full-screen instruments view: a list rail on the left, the selected
  *  instrument's editor on the right (node graph for synths, key map for drum
@@ -22,7 +25,6 @@ import type { Id, Instrument } from '../domain/types'
  *  the global header setting; panic lives in the toolbar. */
 export function InstrumentsView({ host, keyboardPlayer }: { host: AudioHost; keyboardPlayer: KeyboardPlayer }) {
   const doc = useDocStore((s) => s.doc)
-  const addInstrument = useDocStore((s) => s.addInstrument)
   const removeInstrument = useDocStore((s) => s.removeInstrument)
   const duplicateInstrument = useDocStore((s) => s.duplicateInstrument)
 
@@ -33,6 +35,7 @@ export function InstrumentsView({ host, keyboardPlayer }: { host: AudioHost; key
   const instruments = Object.values(doc.entities.instruments)
   const selectedId = useAppStore((s) => s.selectedInstrumentId)
   const setSelectedId = useAppStore((s) => s.setSelectedInstrumentId)
+  const [savingId, setSavingId] = useState<Id | null>(null)
 
   // Keep a valid selection as instruments come and go.
   useEffect(() => {
@@ -91,58 +94,30 @@ export function InstrumentsView({ host, keyboardPlayer }: { host: AudioHost; key
   /** How many tracks reference each instrument (delete is blocked while > 0). */
   const usage = (id: Id) => Object.values(doc.entities.tracks).filter((t) => t.instrumentId === id).length
 
-  /** Serialize the selected instrument and trigger a download. */
-  const exportInstrument = () => {
+  /** Download the selected instrument with its sub-instruments and samples. */
+  const exportInstrument = async () => {
     if (!selected) return
-    const json = JSON.stringify({ schemaVersion: 1, instrument: selected }, null, 2)
-    downloadBlob(new Blob([json], { type: 'application/json' }), `${selected.name}.synthor.inst.json`)
+    try {
+      const { blob, filename } = await exportInstrumentFile(selected.id)
+      downloadBlob(blob, filename)
+    } catch (err) {
+      alert(`Could not export instrument: ${(err as Error).message}`)
+    }
   }
 
-  /** Parse an instrument file and add it to the current song with fresh ids. */
-  const importInstrument = async () => {
-    const [f] = await pickFiles({ accept: '.json,application/json' })
-    if (!f) return
+  const saveToLibrary = async (values: SaveToLibraryValues) => {
+    if (!savingId) return
+    setSavingId(null)
     try {
-      const raw = JSON.parse(await f.text())
-      if (!raw || typeof raw !== 'object' || !raw.instrument) throw new Error('Not a valid instrument file')
-      const inst = raw.instrument as Instrument
-      if (inst.kind !== 'modular' && inst.kind !== 'drumkit') throw new Error('Unknown instrument kind')
-      // Deep-clone with fresh ids so it never collides with existing instruments.
-      const cloned = cloneInstrument(inst, inst.name)
-      useDocStore.getState().mutate((draft) => {
-        draft.entities.instruments[cloned.id] = cloned
-      })
-      setSelectedId(cloned.id)
+      await saveSongInstrumentToLibrary(savingId, values.name, values)
     } catch (err) {
-      alert(`Could not import instrument: ${(err as Error).message}`)
+      alert(`Could not save to the library: ${(err as Error).message}`)
     }
   }
 
   return (
     <div className="instruments-view">
-      <aside className="inst-rail">
-        <div className="inst-rail-actions">
-          <button onClick={() => setSelectedId(addInstrument('modular'))}>+ Synth</button>
-          <button onClick={() => setSelectedId(addInstrument('drumkit'))}>+ Drum Kit</button>
-          <button onClick={() => void importInstrument()}>Import</button>
-        </div>
-        <ul className="inst-list">
-          {instruments.map((inst) => {
-            const uses = usage(inst.id)
-            return (
-              <li
-                key={inst.id}
-                className={'inst-item' + (inst.id === selectedId ? ' selected' : '')}
-                onClick={() => setSelectedId(inst.id)}
-              >
-                <span className="inst-kind">{inst.kind === 'modular' ? '▦' : '◆'}</span>
-                <span className="inst-name" title={inst.name}>{inst.name}</span>
-                <span className="inst-uses" title={`${uses} track(s) use this`}>{uses}</span>
-              </li>
-            )
-          })}
-        </ul>
-      </aside>
+      <InstrumentRail instruments={instruments} selectedId={selectedId} usage={usage} onSelect={setSelectedId} />
 
       <section className="inst-editor">
         {!selected && <div className="inst-empty">No instruments. Add one to start patching.</div>}
@@ -166,9 +141,17 @@ export function InstrumentsView({ host, keyboardPlayer }: { host: AudioHost; key
           inst={selected}
           usage={usage(selected.id)}
           onDuplicate={() => setSelectedId(duplicateInstrument(selected.id))}
-          onExport={exportInstrument}
+          onExport={() => void exportInstrument()}
+          onSaveToLibrary={hasStorage() ? () => setSavingId(selected.id) : undefined}
           onDelete={() => removeInstrument(selected.id)}
         />
+      )}
+      {savingId && doc.entities.instruments[savingId] && (
+        <SaveToLibraryDialog source={instrumentLibrary} defaultName={doc.entities.instruments[savingId].name}
+          initialCategory={doc.entities.instruments[savingId].library?.category}
+          initialTags={doc.entities.instruments[savingId].library?.tags}
+          linkedId={doc.entities.instruments[savingId].library?.id}
+          onSave={(values) => void saveToLibrary(values)} onCancel={() => setSavingId(null)} />
       )}
     </div>
   )

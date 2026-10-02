@@ -1,5 +1,6 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { createJSONStorage, persist } from 'zustand/middleware'
+import { settingsStorage } from '../persist/settingsStorage'
 import type { Doc, Id, Pattern } from '../domain/types'
 
 export type PlayMode = 'song' | 'section' | 'pattern'
@@ -125,6 +126,7 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: 'synthor-app-state',
+      storage: createJSONStorage(settingsStorage),
       // Only persist UI preferences, not transient state.
       partialize: partializeAppState,
     },

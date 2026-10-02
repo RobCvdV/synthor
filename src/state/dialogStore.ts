@@ -4,6 +4,7 @@ export interface ConfirmRequest {
   kind: 'confirm'
   message: string
   confirmLabel?: string
+  cancelLabel?: string
   danger?: boolean
 }
 

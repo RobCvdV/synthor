@@ -36,4 +36,25 @@ describe('InstrumentSettings', () => {
     const { queryByText } = renderFor(firstOfKind('drumkit'))
     expect(queryByText('Live Voices')).toBeNull()
   })
+
+  it('offers Save to Library only when a handler is given', () => {
+    const synth = firstOfKind('modular')
+    expect(renderFor(synth).queryByText('Save to Library')).toBeNull()
+    let saved = 0
+    const { getAllByText } = render(<InstrumentSettings inst={synth} usage={0} onDuplicate={noop} onExport={noop}
+      onSaveToLibrary={() => saved++} onDelete={noop} />)
+    fireEvent.click(getAllByText('Save to Library')[0])
+    expect(saved).toBe(1)
+  })
+
+  it('edits the category and tags the instrument keeps in the song', () => {
+    const synth = firstOfKind('modular')
+    const { getByLabelText, getByText } = renderFor(synth)
+    fireEvent.change(getByLabelText('Category'), { target: { value: 'Leads' } })
+    fireEvent.blur(getByLabelText('Category'))
+    fireEvent.change(getByLabelText('Add tag'), { target: { value: 'bright' } })
+    fireEvent.keyDown(getByLabelText('Add tag'), { key: 'Enter' })
+    expect(useDocStore.getState().doc.entities.instruments[synth.id].library).toEqual({ category: 'Leads', tags: ['bright'] })
+    expect(getByText(/^Synth/).textContent).toBe('Synth')
+  })
 })

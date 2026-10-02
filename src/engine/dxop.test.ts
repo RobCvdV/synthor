@@ -38,7 +38,7 @@ function mockParamRefs() {
 const compile = (inst: ModularInstrument, voiceHz = 440, paramRefs?: ReturnType<typeof mockParamRefs>) =>
   compileModular(
     inst, el.const({ value: voiceHz }), el.const({ value: 1 }), 'voice',
-    [], 1, {}, undefined, paramRefs as never,
+    {}, 1, {}, undefined, paramRefs as never,
   )
 
 /** Visit every Elementary node in a repr tree (see delayTime.test.ts). */
@@ -205,7 +205,7 @@ describe('dxop module', () => {
     const withGate = (gate: number) =>
       compileModular(
         inst, el.const({ value: 440 }), el.const({ value: gate }), 'voice',
-        [], 1, {}, undefined, undefined,
+        {}, 1, {}, undefined, undefined,
       )
 
     const silent = await renderBlocks(withGate(0), 4)

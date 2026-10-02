@@ -1,21 +1,26 @@
 import { createDefaultDoc } from '../domain/factory'
-import { isOpfsSupported, listSongs, loadRecent, readSong, saveRecent, slugify } from '../persist/opfsStore'
-import { saveCurrentSong } from '../persist/saveCurrent'
-import { importSongZip } from '../persist/songExport'
+import { copyTree, hasStorage, joinPath, requireStorage } from '../persist/storage'
+import { listSongs, loadRecent, readSong, saveRecent, slugify, songDir } from '../persist/songStore'
+import { currentSongFile, saveCurrentSong } from '../persist/saveCurrent'
+import { importBrowserStorageOnce } from '../persist/importBrowserStorage'
+import { openSavedFolder } from '../persist/webFolder'
+import { exportSongZip, importSongZip } from '../persist/songExport'
 import { songNameConflict, uniqueSongName } from '../persist/songNames'
 import { clampCursor, useAppStore } from '../state/appStore'
 import { askConfirm, askText } from '../state/dialogStore'
 import { useDocStore } from '../state/docStore'
 import { useProjectStore } from '../state/projectStore'
+import { downloadBlob } from './download'
+import { pickFiles } from './pickFiles'
 
 async function savedSlugs(): Promise<string[]> {
-  return isOpfsSupported() ? (await listSongs()).map((s) => s.slug) : []
+  return hasStorage() ? (await listSongs()).map((s) => s.slug) : []
 }
 
 /** Saves pending edits before switching songs; without storage, asks to discard them. */
 export async function settleCurrentSong(): Promise<boolean> {
   if (useProjectStore.getState().status !== 'dirty') return true
-  if (isOpfsSupported()) {
+  if (hasStorage()) {
     await saveCurrentSong()
     return true
   }
@@ -34,7 +39,7 @@ export async function createNewSong(): Promise<void> {
   if (name === null || !await settleCurrentSong()) return
   useDocStore.getState().loadDoc(createDefaultDoc())
   useProjectStore.getState().reset(name, new Date().toISOString())
-  if (isOpfsSupported()) await saveCurrentSong()
+  if (hasStorage()) await saveCurrentSong()
 }
 
 /** Renames the open song; a name another song uses asks for a different one. */
@@ -73,12 +78,68 @@ export async function importSongFile(data: ArrayBuffer): Promise<void> {
   })
   useDocStore.getState().loadDoc(file.doc)
   useProjectStore.getState().reset(name, file.meta.createdAt, slug)
-  if (isOpfsSupported()) await saveCurrentSong()
+  if (hasStorage()) await saveCurrentSong()
+}
+
+/** Saves the open song under a new name and continues in the copy; the original stays as last saved. */
+export async function saveCurrentSongAs(): Promise<void> {
+  if (!hasStorage()) return
+  const taken = await savedSlugs()
+  const { name, slug } = useProjectStore.getState()
+  const next = await askText({
+    message: 'Save the song as',
+    defaultValue: uniqueSongName(`${name} copy`, taken),
+    confirmLabel: 'Save',
+    validate: (v) => songNameConflict(v, taken),
+  })
+  if (next === null) return
+  const s = requireStorage()
+  await copyTree(s, joinPath(songDir(slug), 'samples'), s, joinPath(songDir(slugify(next)), 'samples'))
+  useProjectStore.getState().reset(next, new Date().toISOString())
+  await saveCurrentSong()
+}
+
+/** Saves now (autosave does this too, shortly after edits). */
+export async function saveNow(): Promise<void> {
+  if (hasStorage()) await saveCurrentSong().catch(() => {})
+}
+
+/** Picks a `.synthor` / JSON file and imports it as a new song. */
+export async function importSongFromPicker(): Promise<void> {
+  const [f] = await pickFiles({ accept: '.synthor,.json,application/json,application/zip' })
+  if (f) await importSongData(await f.arrayBuffer())
+}
+
+/** Imports song data as a new song, reporting failures instead of throwing. */
+export async function importSongData(data: ArrayBuffer): Promise<void> {
+  try {
+    await importSongFile(data)
+  } catch (err) {
+    console.error('Import failed:', err)
+    alert(`Could not import song: ${(err as Error).message}`)
+  }
+}
+
+/** Downloads the open song as a `.synthor` file with its samples. */
+export async function exportCurrentSong(): Promise<void> {
+  try {
+    const { name, slug } = useProjectStore.getState()
+    downloadBlob(await exportSongZip(currentSongFile(), slug), `${name || 'song'}.synthor`)
+  } catch (err) {
+    console.error('Export failed:', err)
+    alert(`Export failed: ${(err as Error).message}`)
+  }
 }
 
 /** Opens the song from the last session, or names the default song; then fits the saved UI state to it. */
 export async function loadStartupSong(): Promise<void> {
   try {
+    await openSavedFolder((folder) => askConfirm({
+      message: `Your library is in the folder “${folder}”. The browser needs your permission again to use it.`,
+      confirmLabel: 'Reconnect',
+      cancelLabel: 'Use browser storage',
+    }))
+    await importBrowserStorageOnce()
     const slug = await loadRecent()
     const file = slug ? await readSong(slug) : null
     if (slug && file) {

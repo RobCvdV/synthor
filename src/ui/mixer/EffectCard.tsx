@@ -4,21 +4,20 @@ import { BypassToggle } from '../components/BypassToggle'
 import { Button } from '../components/Button'
 import { cx } from '../components/cx'
 import { ParamControl } from '../components/ParamControl'
-import { useSortedSamples } from '../hooks/useSortedSamples'
-import { sampleChoices } from '../../domain/sampleChoices'
+import { SamplePicker } from '../components/SamplePicker'
 import s from './EffectCard.module.css'
 
 export function EffectCard({
-  effect, onToggleBypass, onRemove, onParamSilent, onParamCommit, onMoveUp, onMoveDown,
+  effect, onToggleBypass, onRemove, onParamSilent, onParamCommit, onSampleChange, onMoveUp, onMoveDown,
 }: {
   effect: ChannelEffect
   onToggleBypass: (bypassed: boolean) => void; onRemove: () => void
   onParamSilent: (key: string, value: number) => void
   onParamCommit: (key: string, value: number) => void
+  onSampleChange: (sampleId: string) => void
   onMoveUp?: () => void; onMoveDown?: () => void
 }) {
   const def = MODULE_DEFS[effect.type]
-  const sampleNames = sampleChoices(effect.type, useSortedSamples()).map((smp) => smp.name)
   if (!def) return null
   const bypassed = (effect.params.bypass ?? 0) === 1
 
@@ -32,10 +31,13 @@ export function EffectCard({
         <Button size="xs" title="Remove effect" onClick={onRemove}>×</Button>
       </div>
       <div className={s.params}>
+        {def.samplePicker && (
+          <SamplePicker className={s.param} moduleType={effect.type} label={def.samplePicker}
+            sampleId={effect.sampleId} onChange={onSampleChange} />
+        )}
         {def.params.filter((p) => p.key !== 'bypass').map((param) => (
           <ParamControl key={param.key} className={s.param} param={param}
             value={effect.params[param.key] ?? param.default}
-            choices={param.key === 'sampleIndex' ? sampleNames : undefined}
             onChange={(v) => onParamSilent(param.key, v)}
             onCommit={(v) => onParamCommit(param.key, v)} />
         ))}

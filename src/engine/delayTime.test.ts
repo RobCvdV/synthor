@@ -43,7 +43,7 @@ async function renderBlocks(pair: { left: NodeRepr_t; right: NodeRepr_t }, block
 const compile = (inst: ModularInstrument, rowHz = 8) =>
   compileModular(
     inst, el.const({ value: 440 }), el.const({ value: 1 }), 'voice',
-    [], 1, {}, undefined, undefined, undefined, el.const({ value: rowHz }),
+    {}, 1, {}, undefined, undefined, undefined, el.const({ value: rowHz }),
   )
 
 /** Visit every Elementary node in a repr tree. N-ary children chain as
@@ -121,7 +121,7 @@ describe('tempo-synced delay time', () => {
     }
     compileModular(
       makeDelayPatch(1), el.const({ value: 440 }), el.const({ value: 1 }), 'voice',
-      [], 1, {}, undefined, refs as never, undefined, el.const({ value: 8 }),
+      {}, 1, {}, undefined, refs as never, undefined, el.const({ value: 8 }),
     )
     expect(keys.has('i1:dl:time')).toBe(true)
   })

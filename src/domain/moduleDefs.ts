@@ -39,6 +39,8 @@ export interface ModuleDef {
   singleton?: boolean
   /** Palette group. Required for every non-singleton type. */
   group?: ModuleGroup
+  /** Label of the sample picker, for modules that reference a sample (`Module.sampleId`). */
+  samplePicker?: string
 }
 
 /** Waveform selector values for the oscillator. */
@@ -319,12 +321,11 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     type: 'conv',
     group: 'time',
     label: 'Convolution',
+    samplePicker: 'IR Sample',
     inlets: ['in', 'inR'],
     outlets: ['out', 'outL', 'outR'],
     params: [
       { key: 'bypass', label: 'Bypass', min: 0, max: 1, default: 0, step: 1, enumLabels: ['on', 'off'] },
-      { key: 'sampleIndex', label: 'IR Sample', min: 0, max: 0, default: 0, step: 1 },
-      // max and enumLabels are populated dynamically from entities.samples
       // Half-dry by default: L1 normalization makes full wet very quiet for
       // most samples, and the dry keeps the channel audible.
       { key: 'mix', label: 'Mix', min: 0, max: 1, default: 0.5, step: 0.01 },
@@ -381,11 +382,10 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     type: 'sample',
     group: 'generators',
     label: 'Sample',
+    samplePicker: 'Sample',
     inlets: ['gate', 'freq'],
     outlets: ['out', 'outR'],
     params: [
-      { key: 'sampleIndex', label: 'Sample', min: 0, max: 0, default: 0, step: 1 },
-      // max and enumLabels are populated dynamically from entities.samples
       { key: 'startOffset', label: 'Start (smp)', min: 0, max: 1_000_000, default: 0, step: 1 },
       { key: 'loop', label: 'Loop', min: 0, max: 1, default: 0, step: 1, enumLabels: ['off', 'on'] },
       { key: 'loopStart', label: 'Loop start', min: 0, max: 1_000_000, default: 0, step: 1 },
@@ -399,12 +399,10 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     type: 'wave',
     group: 'generators',
     label: 'Sample Waveform',
+    samplePicker: 'Sample',
     inlets: ['freq'],
     outlets: ['out', 'outR'],
     params: [
-      { key: 'sampleIndex', label: 'Sample', min: 0, max: 0, default: 0, step: 1 },
-      // max and enumLabels are populated dynamically from entities.samples,
-      // filtered to samples ≤ WAVEFORM_MAX_LENGTH_SECONDS.
       { key: 'finetune', label: 'Fine (ct)', min: -100, max: 100, default: 0, step: 1 },
       { key: 'gain', label: 'Level', min: 0, max: 2, default: 1, step: 0.01 },
     ],

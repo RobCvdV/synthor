@@ -38,6 +38,13 @@ describe('keyToHex', () => {
 })
 
 describe('isEditableTarget', () => {
+  it('includes anything inside an open dialog', () => {
+    const inDialog = { tagName: 'BUTTON', closest: (sel: string) => (sel === '.dialog-overlay' ? {} : null) }
+    expect(isEditableTarget(inDialog as unknown as EventTarget)).toBe(true)
+    const outside = { tagName: 'BUTTON', closest: () => null }
+    expect(isEditableTarget(outside as unknown as EventTarget)).toBe(false)
+  })
+
   it('excludes range sliders so shortcuts keep working while tweaking', () => {
     expect(isEditableTarget(fakeTarget({ tagName: 'INPUT', type: 'range' }))).toBe(false)
   })

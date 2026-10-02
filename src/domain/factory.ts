@@ -6,6 +6,7 @@ import type {
   DrumKitInstrument,
   DrumKitSlot,
   Instrument,
+  LibraryInfo,
   MixChannel,
   Module,
   ModularInstrument,
@@ -59,7 +60,7 @@ export function newDrumKitInstrument(name: string): DrumKitInstrument {
   return { id: makeId('inst'), kind: 'drumkit', name, slots: [], keyLo: 36, keyHi: 60, params: { gain: 1 }, channelId: MASTER_CHANNEL_ID, pan: 0, midiChannel: 10 }
 }
 
-/** A new sample entity (metadata only — binary data is stored in OPFS). */
+/** A new sample entity (metadata only — binary data is stored in storage). */
 export function newSampleEntity(
   name: string,
   hash: string,
@@ -135,6 +136,23 @@ export function newModularInstrument(name: string): ModularInstrument {
   }
 }
 
+/** A synth with only the fixed sources and the output, unwired. */
+export function newEmptyModularInstrument(name: string): ModularInstrument {
+  const modules = [newModule('note', 40, 40), newModule('gate', 40, 240), newModule('volume', 40, 440), newModule('output', 480, 160)]
+  return {
+    id: makeId('inst'),
+    kind: 'modular',
+    name,
+    modules: Object.fromEntries(modules.map((m) => [m.id, m])),
+    connections: {},
+    outputId: modules[3].id,
+    effectSettings: { ...DEFAULT_EFFECT_SETTINGS },
+    channelId: MASTER_CHANNEL_ID,
+    pan: 0,
+    voices: DEFAULT_LIVE_VOICES,
+  }
+}
+
 /**
  * Deep-clone an instrument with fresh ids. For modular instruments every module
  * and connection gets a new id and all `Port.moduleId` references (and
@@ -151,7 +169,7 @@ export function cloneInstrument(inst: Instrument, name: string): Instrument {
       volume: s.volume,
       pan: s.pan,
     }))
-    return { id: makeId('inst'), kind: 'drumkit', name, slots, keyLo: inst.keyLo ?? 36, keyHi: inst.keyHi ?? 60, params: { ...inst.params }, channelId: inst.channelId ?? MASTER_CHANNEL_ID, pan: inst.pan ?? 0 }
+    return { id: makeId('inst'), kind: 'drumkit', name, slots, keyLo: inst.keyLo ?? 36, keyHi: inst.keyHi ?? 60, params: { ...inst.params }, channelId: inst.channelId ?? MASTER_CHANNEL_ID, pan: inst.pan ?? 0, ...copyLibraryInfo(inst) }
   }
 
   const idMap = new Map<string, string>()
@@ -161,7 +179,7 @@ export function cloneInstrument(inst: Instrument, name: string): Instrument {
   const modules: Record<string, Module> = {}
   for (const m of Object.values(inst.modules)) {
     const id = idMap.get(m.id)!
-    modules[id] = { id, type: m.type, params: { ...m.params }, pos: { ...m.pos }, name: m.name }
+    modules[id] = { id, type: m.type, params: { ...m.params }, pos: { ...m.pos }, name: m.name, ...(m.sampleId ? { sampleId: m.sampleId } : {}) }
   }
   const connections: Record<string, Connection> = {}
   for (const c of Object.values(inst.connections)) {
@@ -178,7 +196,14 @@ export function cloneInstrument(inst: Instrument, name: string): Instrument {
     effectSettings: { ...inst.effectSettings },
     channelId: inst.channelId ?? MASTER_CHANNEL_ID,
     pan: inst.pan ?? 0,
+    ...(inst.voices !== undefined ? { voices: inst.voices } : {}),
+    ...copyLibraryInfo(inst),
   }
+}
+
+/** A copy keeps category and tags but isn't the library item itself. */
+function copyLibraryInfo(inst: Instrument): { library?: LibraryInfo } {
+  return inst.library ? { library: { category: inst.library.category, tags: [...inst.library.tags] } } : {}
 }
 
 /**

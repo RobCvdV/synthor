@@ -38,6 +38,8 @@ Chains are ordered; each hop is verified. Skipping the tail is how features half
 | Transport / BPM / note timing | `state/transportStore.ts` + `player/` — must not cause a recompile |
 | New keyboard shortcut | `ui/useAppKeys.ts` (global + mixer), `ui/tracker/useTrackerKeys.ts` (tracker editing; cursor math in `tracker/trackerNav.ts`), or the view's own handler (`InstrumentsView`, `SampleLibraryView`, `ModularEditor`, `SampleEditor`). `ui/keymap.ts` is only the note layout |
 | Save / load / project format | `persist/serialize.ts`: bump `CURRENT_SCHEMA_VERSION` **and** add the `migrate` case |
+| Instrument files / instrument library | `domain/instrumentBundle.ts` (collect + insert with fresh ids) → `persist/instrumentFile.ts` (`.synthinst`, migrated like songs) → `persist/instrumentLibrary.ts` (`instruments/<id>/`) → `ui/instrumentActions.ts` → `ui/library/` dialogs. Song instruments keep `library` (category, tags, the library id they came from); bundles strip it and files/library items carry it as metadata, so set it again when inserting |
+| Sample library | `persist/sampleLibrary.ts` (`samples/<id>/sample.json` + the original audio file) → `ui/sampleActions.ts` → `ui/SampleToolbar.tsx`. Song samples keep `library` like instruments do (shared `LibraryInfo`, `patchLibraryInfo`); instrument bundles strip it from their samples. Both libraries share `domain/library.ts` and the `ui/library/` dialogs through a `LibrarySource` |
 | Sample import / edit / storage | `audio/sampleLoader.ts`, `audio/sampleEdit.ts`, `persist/sampleStorage.ts` (OPFS) |
 | Something should change audibly without a recompile | a `paramRefs` ref, not `compileGraph` |
 
@@ -65,7 +67,8 @@ Chains are ordered; each hop is verified. Skipping the tail is how features half
 - **TrackerGrid `muted`/`soloed` props are keyed 1-based** (`muted[ti + 1]`), not by track id.
 - **Shared slots are a known limitation, not a bug:** two patterns can map different track numbers to the same (instrument, slot); mute refs are static, so current-pattern-last wins.
 - **The host is inert until a user gesture** (autoplay policy) — synthetic/synthesized key events won't start the AudioContext.
-- **Elementary VFS keys are content hashes**; changing a conv/wave/sample module's `sampleIndex` is a structural change (forces recompile + VFS path change).
+- **Samples are referenced by id** (`Module.sampleId`, `ChannelEffect.sampleId`, `DrumKitSlot.sampleId`), never by position in a sorted list — adding or renaming a sample must not repoint anything. Modules with a `samplePicker` in `MODULE_DEFS` get one.
+- **Elementary VFS keys are content hashes**; changing a conv/wave/sample module's `sampleId` is a structural change (forces recompile + VFS path change).
 
 ## Electron build (feature/electron-build)
 
@@ -73,7 +76,14 @@ Chains are ordered; each hop is verified. Skipping the tail is how features half
 - The renderer needs COOP/COEP headers — `electron/main.ts` injects them for `file://` responses inside `app.whenReady().then(…)` (touching `session.defaultSession` earlier hangs the main process).
 - `index.html` guards the service-worker registration with `location.protocol !== 'file:'`.
 - The Electron bundle should hash-match the web build of the same commit (`index-*.js`) — a mismatch means a stale vite dep cache (`node_modules/.vite`): clear it and rebuild.
-- OPFS storage is per-origin — the Electron (`file://`) app does not share songs with the https site.
+- Storage goes through `persist/storage.ts` (`StorageBackend`): OPFS on the web, the library folder (`~/Documents/Synthor`, main-process `electron/libraryFs.ts`) in Electron, or on the web a folder the user connected (`persist/webFolder.ts`, Chromium only; the handle lives in IndexedDB and is picked up in `loadStartupSong` before anything loads). Never call OPFS or `fs` directly from persist modules.
+- Library backup/restore (`persist/libraryBackup.ts`) covers `songs/`, `instruments/`, `samples/`; restoring merges and never overwrites.
+- Electron app settings (incl. the appStore key-value store) live in `userData/settings.json` (`electron/appSettings.ts`), loaded synchronously by the preload so the store hydrates before first render.
+- The preload is CommonJS (`electron/preload.cts` → `preload.cjs`) — Electron ignores `"type": "module"` for preloads. Its surface is typed in `src/persist/electronBridge.ts`; change both together.
+- On first launch per renderer origin, browser-stored (OPFS) songs are copied into the library (`persist/importBrowserStorage.ts`); dev (`localhost:5193`) and packaged (`file://`) are separate origins.
+- The File menu (`electron/appMenu.ts`) only sends a command (`menu:command`); `ui/appCommands.ts` runs it, and on the web ⌘S / ⇧⌘S / ⌘O reach the same function through `useAppKeys`. The `AppCommand` list lives in both `appMenu.ts` and `persist/electronBridge.ts`; change both together.
+- Songs opened from the OS (double-click, "Open With", command line, a second launch) are queued in main (`electron/openFiles.ts`) until `SongCommandHost` takes them after the startup song loads; a single-instance lock routes second launches to the running app.
+- `SYNTHOR_USER_DATA=<dir>` runs Electron on an isolated profile (put a `settings.json` there with `libraryPath` to redirect the library too).
 - Deploys: push a `deploy-vx.y.z` tag → web deploy (FTP) + Electron release (GitHub Releases) workflows.
 
 ## Testing — required on every code change

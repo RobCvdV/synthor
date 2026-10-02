@@ -22,6 +22,32 @@ describe('instrumentOps', () => {
     expect(doc().entities.mixerInstrumentOrder).toHaveLength(orderBefore + 1)
   })
 
+  it('addEmptyInstrument creates a named synth with only the fixed modules, or an empty kit', () => {
+    const store = useDocStore.getState()
+    const synthId = store.addEmptyInstrument('modular', 'Blank')
+    const synth = doc().entities.instruments[synthId] as ModularInstrument
+    expect(synth.name).toBe('Blank')
+    expect(Object.values(synth.modules).map((m) => m.type).sort()).toEqual(['gate', 'note', 'output', 'volume'])
+    expect(synth.connections).toEqual({})
+    expect(synth.modules[synth.outputId].type).toBe('output')
+
+    const kitId = store.addEmptyInstrument('drumkit', 'Kit A')
+    const kit = doc().entities.instruments[kitId]
+    expect(kit).toMatchObject({ kind: 'drumkit', name: 'Kit A', slots: [] })
+    expect(doc().entities.mixerInstrumentOrder.slice(-2)).toEqual([synthId, kitId])
+  })
+
+  it('setLibraryInfo updates category and tags, keeping the library link', () => {
+    const store = useDocStore.getState()
+    const id = store.addEmptyInstrument('modular', 'Pad')
+    store.setLibraryInfo(id, { tags: ['Warm', 'warm', ' soft'] })
+    expect(doc().entities.instruments[id].library).toEqual({ category: '', tags: ['warm', 'soft'] })
+    store.setLibraryInfo(id, { id: 'pad', category: ' Pads ' })
+    expect(doc().entities.instruments[id].library).toEqual({ id: 'pad', category: 'Pads', tags: ['warm', 'soft'] })
+    store.undo()
+    expect(doc().entities.instruments[id].library?.id).toBeUndefined()
+  })
+
   it('removeInstrument refuses instruments still in use', () => {
     const store = useDocStore.getState()
     const instId = firstInstId()

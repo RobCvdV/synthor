@@ -2,31 +2,26 @@ import { createNode, el, unpack, type NodeRepr_t } from '@elemaudio/core'
 import type { Doc, Id, SampleEntity, Instrument } from '../domain/types'
 import { MASTER_CHANNEL_ID, liveVoiceCount } from '../domain/types'
 import { midiToFreq } from '../domain/notes'
-import { renderDrumKitSlot, renderInstrument } from './instruments'
+import { renderDrumKitSlot, renderInstrument, type SampleMeta } from './instruments'
 import type { StereoOut } from './modular'
 import { applyPan, applyChannelMix, compileChannelEffects } from './mixer'
 import type { ArrangementItem } from './arrangement'
 import { computeSlotLayouts, slotGlobalIndex, MAX_SLOT_SIGNALS, REGULAR_CH, DRUMKIT_CH, DRUMKIT_EXTRA_CHANNELS } from './voiceSlotLayout'
 import type { InstrumentSlotLayout } from './voiceSlotLayout'
 
-/**
- * Name-sorted sample metadata, indexed like the UI's sampleIndex choices. A sample not yet
- * in the VFS keeps its index with an empty hash, so later samples don't shift onto it.
- */
+/** Sample metadata by sample id. A sample not yet in the VFS gets an empty hash (treated as missing). */
 export function buildSampleMeta(
   samples: Record<Id, SampleEntity>,
   vfsLoaded?: Set<string>,
   l1Sums?: Record<string, number>,
-): { hash: string; channels: number; sampleRate: number; frames: number; l1?: number }[] {
-  return Object.values(samples)
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .map((s) => ({
-      hash: !vfsLoaded || vfsLoaded.has(s.hash) ? s.hash : '',
-      channels: s.channels,
-      sampleRate: s.sampleRate,
-      frames: s.frames,
-      l1: l1Sums?.[s.hash],
-    }))
+): Record<Id, SampleMeta> {
+  return Object.fromEntries(Object.values(samples).map((s) => [s.id, {
+    hash: !vfsLoaded || vfsLoaded.has(s.hash) ? s.hash : '',
+    channels: s.channels,
+    sampleRate: s.sampleRate,
+    frames: s.frames,
+    l1: l1Sums?.[s.hash],
+  }]))
 }
 
 /** Build a sampleId → hash lookup for drumkit slot resolution. */

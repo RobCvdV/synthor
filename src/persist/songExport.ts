@@ -2,7 +2,7 @@
  * Self-contained song export/import as a zip container (`.synthor`).
  *
  * The zip contains `song.json` + `samples/<hash>.bin` for every sample asset,
- * making the file fully portable across devices and OPFS origins. Standard zip
+ * making the file fully portable across devices and storage origins. Standard zip
  * tools can open it; our app treats it as a single document.
  *
  * JSON-only export/import remains available for lightweight sharing.
@@ -17,7 +17,7 @@ import type { SampleEntity } from '../domain/types'
  * Build a self-contained `.synthor` zip blob.
  *
  * Reads the current song JSON and every referenced sample's binary data from
- * OPFS, then packs them into a single zip. Samples not found in OPFS are
+ * storage, then packs them into a single zip. Samples not found in storage are
  * silently skipped (the song will still load but those samples won't play).
  */
 export async function exportSongZip(
@@ -29,7 +29,7 @@ export async function exportSongZip(
   // song.json
   files['song.json'] = strToU8(serializeSong(file))
 
-  // samples/<hash>.bin for each sample entity with data in OPFS
+  // samples/<hash>.bin for each sample entity with data in storage
   const samples: SampleEntity[] = Object.values(file.doc.entities.samples)
   for (const s of samples) {
     const raw = await readSampleAsset(slug, s.hash)
@@ -47,7 +47,7 @@ export interface ImportResult {
   file: SongFile
   /** Where the samples were written, as chosen by `chooseSlug`. */
   slug: string
-  /** Number of sample binaries extracted from the zip into OPFS. */
+  /** Number of sample binaries extracted from the zip into storage. */
   samplesImported: number
 }
 
@@ -56,7 +56,7 @@ export interface ImportResult {
  *
  * If the data starts with `{` it's treated as plain JSON (backward compat).
  * Otherwise it's unzipped: `song.json` is parsed and every `samples/<hash>.bin`
- * entry is written to OPFS under the slug `chooseSlug` picks for the parsed song.
+ * entry is written to storage under the slug `chooseSlug` picks for the parsed song.
  */
 export async function importSongZip(
   data: ArrayBuffer,
@@ -81,7 +81,7 @@ export async function importSongZip(
   const slug = chooseSlug(file)
   let samplesImported = 0
 
-  // Write sample binaries to OPFS
+  // Write sample binaries to storage
   for (const [path, bytes] of Object.entries(entries)) {
     const match = /^samples\/([0-9a-f]+)\.bin$/.exec(path)
     if (!match) continue

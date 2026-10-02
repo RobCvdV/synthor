@@ -103,6 +103,8 @@ export interface Module {
   /** User-assigned name for `eff` modules (the modulation inlet name).
    *  Undefined for other module types. */
   name?: string
+  /** The sample a `sample` / `wave` / `conv` module plays. */
+  sampleId?: Id
 }
 
 /** A patch cord from one module's outlet to another's inlet. */
@@ -112,6 +114,14 @@ export interface Connection {
   to: Port
   /** Per-cord "impact" knob: the source is scaled by this before summing. */
   gain: number
+}
+
+/** Library attributes an instrument or sample keeps inside a song, so saving it back to the library keeps them. */
+export interface LibraryInfo {
+  /** The library item this instrument came from or was saved as. */
+  id?: string
+  category: string
+  tags: string[]
 }
 
 export interface ModularInstrument {
@@ -132,14 +142,15 @@ export interface ModularInstrument {
   midiChannel?: number
   /** Live (free play) polyphony. Missing = DEFAULT_LIVE_VOICES. */
   voices?: number
+  library?: LibraryInfo
 }
 
-/** A managed sample asset — metadata only. Binary PCM data lives in OPFS. */
+/** A managed sample asset — metadata only. Binary PCM data lives in storage. */
 export interface SampleEntity {
   id: Id
   /** User-facing name. */
   name: string
-  /** Content-addressed hash used as the OPFS filename and VFS key. */
+  /** Content-addressed hash used as the storage filename and VFS key. */
   hash: string
   /** Original filename for display. */
   originalName: string
@@ -149,6 +160,7 @@ export interface SampleEntity {
   channels: number
   /** Total frames per channel. */
   frames: number
+  library?: LibraryInfo
 }
 
 /** A drum kit slot: an assignment at a specific MIDI note.
@@ -193,6 +205,7 @@ export interface DrumKitInstrument {
   pan: number
   /** MIDI channel (1-16) for external MIDI routing.  Defaults to 10 (drum channel). */
   midiChannel?: number
+  library?: LibraryInfo
 }
 
 export const DEFAULT_LIVE_VOICES = 4
@@ -250,6 +263,8 @@ export interface ChannelEffect {
    *  Used for mono effects (filter, gain, etc.) so L and R can be tuned independently.
    *  Stereo effects (reverb, delay, echo) and unset = process both channels. */
   side?: 'L' | 'R'
+  /** The impulse-response sample of a `conv` effect. */
+  sampleId?: Id
 }
 
 /** A mix channel (sub or master). Always stereo. */

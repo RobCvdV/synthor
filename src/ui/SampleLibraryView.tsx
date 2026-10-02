@@ -3,12 +3,17 @@ import { useDocStore } from '../state/docStore'
 import { useProjectStore } from '../state/projectStore'
 import { useAppStore } from '../state/appStore'
 import { loadAudioFile } from '../audio/sampleLoader'
+import { hasStorage } from '../persist/storage'
 import { readSampleAsset, writeSampleAsset, deleteSampleAsset } from '../persist/sampleStorage'
-import { newSampleEntity } from '../domain/factory'
 import { samplePlaybackRate } from '../domain/notes'
 import { codeToSemitone, isEditableTarget } from './keymap'
 import { formatDuration, formatSize } from './format'
 import { pickFiles } from './pickFiles'
+import { SampleToolbar } from './SampleToolbar'
+import { saveSongSampleToLibrary } from './sampleActions'
+import { SaveToLibraryDialog, type SaveToLibraryValues } from './library/SaveToLibraryDialog'
+import { sampleLibrary } from './library/librarySource'
+import { TagEditor } from './library/TagEditor'
 import { SampleEditor } from './sampleEditor/SampleEditor'
 import { CreateSampleDialog } from './CreateSampleDialog'
 import { sampleDialogOpenRef } from './sampleDialogRef'
@@ -18,6 +23,9 @@ import type { SampleEntity } from '../domain/types'
 interface Props {
   host: AudioHost
 }
+
+/** For the Save to Library name check; previews happen in the toolbar's library. */
+const sampleLibrarySource = sampleLibrary()
 
 /**
  * Full-screen sample library — browse, rename, import, delete, and relink
@@ -29,10 +37,10 @@ interface Props {
 export function SampleLibraryView({ host }: Props) {
   const sampleMap = useDocStore((s) => s.doc.entities.samples)
   const samples = Object.values(sampleMap)
-  const addSampleEntity = useDocStore((s) => s.addSampleEntity)
   const removeSampleEntity = useDocStore((s) => s.removeSampleEntity)
   const replaceSampleAsset = useDocStore((s) => s.replaceSampleAsset)
   const renameSample = useDocStore((s) => s.renameSample)
+  const setSampleLibraryInfo = useDocStore((s) => s.setSampleLibraryInfo)
   const vfsLoadedHashes = useDocStore((s) => s.vfsLoadedHashes)
   const slug = useProjectStore((s) => s.slug)
   const selectedSampleId = useAppStore((s) => s.selectedSampleId)
@@ -42,28 +50,18 @@ export function SampleLibraryView({ host }: Props) {
   /** Sample loaded in the editor below the list (null = editor closed). */
   const [editingId, setEditingId] = useState<string | null>(null)
   const [createDialog, setCreateDialog] = useState(false)
+  const [savingId, setSavingId] = useState<string | null>(null)
+  const storage = hasStorage()
 
-  const doImport = useCallback(async () => {
-    const files = await pickFiles({ accept: 'audio/*', multiple: true })
-    for (const file of files) {
-      try {
-        const loaded = await loadAudioFile(file)
-        const entity = newSampleEntity(
-          file.name.replace(/\.[^.]+$/, ''),
-          loaded.hash,
-          file.name,
-          loaded.sampleRate,
-          loaded.channels,
-          loaded.frames,
-        )
-        if (slug) await writeSampleAsset(slug, loaded.hash, file)
-        addSampleEntity(entity)
-        // The next render cycle will pick up the new sample via vfsKeys change.
-      } catch (err) {
-        console.error('Failed to import sample:', file.name, err)
-      }
+  const saveToLibrary = async (values: SaveToLibraryValues) => {
+    if (!savingId) return
+    setSavingId(null)
+    try {
+      await saveSongSampleToLibrary(savingId, values)
+    } catch (err) {
+      alert(`Could not save to the library: ${(err as Error).message}`)
     }
-  }, [slug, addSampleEntity])
+  }
 
   const doDelete = useCallback(
     async (id: string, hash: string) => {
@@ -81,9 +79,9 @@ export function SampleLibraryView({ host }: Props) {
 
     try {
       const loaded = await loadAudioFile(file)
-      // Write new binary to OPFS.
+      // Write the new binary.
       await writeSampleAsset(slug, loaded.hash, file)
-      // Remove old OPFS file if hash changed (content-address means new file).
+      // Remove the old file if the hash changed (content-address means new file).
       if (loaded.hash !== relinkInfo.oldHash) {
         await deleteSampleAsset(slug, relinkInfo.oldHash).catch(() => {})
       }
@@ -179,13 +177,7 @@ export function SampleLibraryView({ host }: Props) {
 
   return (
     <div className={'sample-library-view' + (editingId ? ' has-editor' : '')}>
-      <div className="slv-toolbar">
-        <button onClick={() => void doImport()}>Import Samples</button>
-        <button onClick={() => setCreateDialog(true)}>Create Sample…</button>
-        <span className="muted">{samples.length} sample{samples.length === 1 ? '' : 's'}</span>
-        <span className="spacer" />
-        <span className="muted">Play keys to preview (C-4 = original pitch)</span>
-      </div>
+      <SampleToolbar host={host} count={samples.length} onSelect={setSelectedSampleId} onCreate={() => setCreateDialog(true)} />
       {samples.length === 0 ? (
         <div className="slv-empty">
           <p>No samples yet.</p>
@@ -199,6 +191,8 @@ export function SampleLibraryView({ host }: Props) {
             <thead>
               <tr>
                 <th>Name</th>
+                <th>Category</th>
+                <th>Tags</th>
                 <th>Original</th>
                 <th>Ch</th>
                 <th>Info</th>
@@ -223,6 +217,12 @@ export function SampleLibraryView({ host }: Props) {
                         onChange={(e) => renameSample(s.id, e.target.value)}
                         title="Rename sample — this is how it appears in drumkit and module pickers"
                       />
+                    </td>
+                    <td>
+                      <SampleCategoryInput key={`${s.id}:${s.library?.category ?? ''}`} sampleId={s.id} category={s.library?.category ?? ''} />
+                    </td>
+                    <td className="slv-tags">
+                      <TagEditor tags={s.library?.tags ?? []} onChange={(tags) => setSampleLibraryInfo(s.id, { tags })} />
                     </td>
                     <td className={'slv-original' + (missing ? ' slv-missing-file' : '')}>
                       <span
@@ -267,6 +267,19 @@ export function SampleLibraryView({ host }: Props) {
                       >
                         ▶
                       </button>
+                      {storage && (
+                        <button
+                          className="slv-save"
+                          title={missing ? 'Sample binary missing — cannot save' : 'Save to library…'}
+                          disabled={missing}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setSavingId(s.id)
+                          }}
+                        >
+                          + Lib
+                        </button>
+                      )}
                       <button
                         className="slv-delete"
                         title="Delete sample"
@@ -297,6 +310,13 @@ export function SampleLibraryView({ host }: Props) {
         />
       )}
 
+      {savingId && sampleMap[savingId] && (
+        <SaveToLibraryDialog source={sampleLibrarySource} defaultName={sampleMap[savingId].name}
+          initialCategory={sampleMap[savingId].library?.category} initialTags={sampleMap[savingId].library?.tags}
+          linkedId={sampleMap[savingId].library?.id}
+          onSave={(values) => void saveToLibrary(values)} onCancel={() => setSavingId(null)} />
+      )}
+
       {createDialog && (
         <CreateSampleDialog
           onClose={() => setCreateDialog(false)}
@@ -304,5 +324,17 @@ export function SampleLibraryView({ host }: Props) {
         />
       )}
     </div>
+  )
+}
+
+/** The category a sample keeps in the song; committed on blur or Enter. */
+function SampleCategoryInput({ sampleId, category }: { sampleId: string; category: string }) {
+  const setInfo = useDocStore((st) => st.setSampleLibraryInfo)
+  const [value, setValue] = useState(category)
+  const commit = () => { if (value.trim() !== category) setInfo(sampleId, { category: value }) }
+  return (
+    <input className="slv-name-input slv-category-input" value={value} placeholder="—" aria-label="Category"
+      onChange={(e) => setValue(e.target.value)} onBlur={commit}
+      onKeyDown={(e) => { if (e.key === 'Enter') commit() }} />
   )
 }

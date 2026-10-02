@@ -10,14 +10,15 @@
  * document stays small and cheap to rewrite on every autosave.
  */
 
-import { DEFAULT_LIVE_VOICES, type Doc } from '../domain/types'
+import { DEFAULT_LIVE_VOICES, type Doc, type ModuleType, type SampleEntity } from '../domain/types'
 import { nextEffName } from '../domain/factory'
-import { defaultParams } from '../domain/moduleDefs'
+import { defaultParams, MODULE_DEFS } from '../domain/moduleDefs'
+import { sampleChoices, sortSamples } from '../domain/sampleChoices'
 
 /**
  * Bump when the on-disk shape changes; add a matching `migrate` case.
  */
-export const CURRENT_SCHEMA_VERSION = 12
+export const CURRENT_SCHEMA_VERSION = 14
 
 export interface SongMeta {
   name: string
@@ -106,6 +107,12 @@ export function migrate(raw: unknown): SongFile {
   // v11→v12: modular instruments get a live `voices` count.
   if (version < 12) raw = upgradeV11toV12(raw)
 
+  // v12→v13: sample / wave / conv refer to samples by id, not by name-sorted index.
+  if (version < 13) raw = upgradeV12toV13(raw)
+
+  // v13→v14: instruments and samples may carry `library` (category, tags, library id). No data
+  // conversion — the bump makes older app versions reject files instead of dropping it.
+
   // v1→v1 migration: when the stereo output was added (commit b3917fc), the
   // output module's inlet changed from 'in' to 'inL'. Old modular instruments
   // with connections targeting 'in' would silently produce silence because
@@ -178,6 +185,42 @@ function upgradeV11toV12(raw: any): any {
     ),
   )
   return { ...raw, schemaVersion: 12, doc: { ...doc, entities: { ...doc.entities, instruments } } }
+}
+
+/**
+ * v12→v13: `params.sampleIndex` (a position in the name-sorted sample list, filtered to
+ * waveform-sized samples for `wave`) becomes `sampleId`. A missing index meant 0.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function upgradeV12toV13(raw: any): any {
+  const doc = raw.doc
+  if (!doc || !isRecord(doc.entities)) return raw
+  const sorted = sortSamples(isRecord(doc.entities.samples) ? doc.entities.samples as Record<string, SampleEntity> : {})
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const convert = (m: any): any => {
+    if (!isRecord(m) || !MODULE_DEFS[m.type as ModuleType]?.samplePicker) return m
+    const { sampleIndex, ...params } = isRecord(m.params) ? m.params : {} as Record<string, unknown>
+    const idx = typeof sampleIndex === 'number' ? Math.round(sampleIndex) : 0
+    const sampleId = sampleChoices(m.type as ModuleType, sorted)[idx]?.id
+    return { ...m, params, ...(sampleId ? { sampleId } : {}) }
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const convertInst = (inst: any): any => {
+    if (!isRecord(inst) || inst.kind !== 'modular' || !isRecord(inst.modules)) return inst
+    const modules = Object.fromEntries(Object.entries(inst.modules).map(([mid, m]) => [mid, convert(m)]))
+    return Object.keys(modules).some((mid) => modules[mid] !== (inst.modules as Record<string, unknown>)[mid]) ? { ...inst, modules } : inst
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const convertChannel = (ch: any): any => {
+    if (!isRecord(ch) || !Array.isArray(ch.effects)) return ch
+    const effects = ch.effects.map(convert)
+    return effects.some((e, i) => e !== (ch.effects as unknown[])[i]) ? { ...ch, effects } : ch
+  }
+  const mapValues = (rec: unknown, fn: (v: unknown) => unknown) =>
+    isRecord(rec) ? Object.fromEntries(Object.entries(rec).map(([k, v]) => [k, fn(v)])) : rec
+  const instruments = mapValues(doc.entities.instruments, convertInst)
+  const mixChannels = mapValues(doc.entities.mixChannels, convertChannel)
+  return { ...raw, schemaVersion: 13, doc: { ...doc, entities: { ...doc.entities, instruments, mixChannels } } }
 }
 
 /** v1→v2: initialise the samples entity map for old files. */

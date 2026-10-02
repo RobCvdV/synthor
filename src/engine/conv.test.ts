@@ -9,16 +9,20 @@ import { DEFAULT_EFFECT_SETTINGS, MASTER_CHANNEL_ID, type ChannelEffect, type Mo
 const META: SampleMeta = { hash: 'irhash', channels: 1, sampleRate: 44100, frames: 2048 }
 const META_2: SampleMeta = { hash: 'irhash2', channels: 1, sampleRate: 44100, frames: 2048 }
 
-const DEFAULT_CONV: Record<string, number> = { bypass: 0, sampleIndex: 0, mix: 1, gain: 1 }
+const DEFAULT_CONV: Record<string, number> = { bypass: 0, mix: 1, gain: 1 }
+
+/** Sample metadata keyed `s0`, `s1`, … like the ids the patches below reference. */
+const byId = (metas: SampleMeta[]): Record<string, SampleMeta> =>
+  Object.fromEntries(metas.map((m, i) => [`s${i}`, m]))
 
 /** A minimal patch: gate → gain(1) → conv.in → output.inL. */
-function makeConvPatch(params: Record<string, number>): ModularInstrument {
+function makeConvPatch(params: Record<string, number>, sampleId = 's0'): ModularInstrument {
   return {
     id: 'i1', kind: 'modular', name: 'Test',
     modules: {
       gate: { id: 'gate', type: 'gate', params: {}, pos: { x: 0, y: 0 } },
       g1: { id: 'g1', type: 'gain', params: { level: 1 }, pos: { x: 0, y: 0 } },
-      cv: { id: 'cv', type: 'conv', params, pos: { x: 0, y: 0 } },
+      cv: { id: 'cv', type: 'conv', params, sampleId, pos: { x: 0, y: 0 } },
       out: { id: 'out', type: 'output', params: { gain: 1 }, pos: { x: 0, y: 0 } },
     },
     connections: {
@@ -48,7 +52,7 @@ function mockParamRefs() {
 const compile = (inst: ModularInstrument, meta: SampleMeta[], paramRefs?: ReturnType<typeof mockParamRefs>) =>
   compileModular(
     inst, el.const({ value: 440 }), el.const({ value: 1 }), 'voice',
-    meta, 1, {}, undefined, paramRefs as never,
+    byId(meta), 1, {}, undefined, paramRefs as never,
   )
 
 /** Visit every Elementary node in a repr tree (see delayTime.test.ts). */
@@ -108,7 +112,7 @@ function renderPatch(meta: SampleMeta[], ir: Float32Array, params = DEFAULT_CONV
 }
 
 describe('conv module structure', () => {
-  it('convolves with the sample at sampleIndex via its VFS hash', () => {
+  it('convolves with the referenced sample via its VFS hash', () => {
     const { left } = compile(makeConvPatch(DEFAULT_CONV), [META])
     const nodes = collect(left)
     const conv = nodes.find((n) => n.kind === 'convolve')
@@ -116,8 +120,8 @@ describe('conv module structure', () => {
     expect(conv!.props.path).toBe('irhash')
   })
 
-  it('switching sampleIndex swaps the IR path', () => {
-    const { left } = compile(makeConvPatch({ ...DEFAULT_CONV, sampleIndex: 1 }), [META, META_2])
+  it('switching the sample swaps the IR path', () => {
+    const { left } = compile(makeConvPatch(DEFAULT_CONV, 's1'), [META, META_2])
     expect(collect(left).find((n) => n.kind === 'convolve')?.props.path).toBe('irhash2')
   })
 
@@ -203,7 +207,7 @@ describe('conv module rendering', () => {
 
 describe('conv as a mixer channel effect', () => {
   const fx = (params: Record<string, number>, side?: 'L' | 'R'): ChannelEffect =>
-    ({ id: 'chef_x', type: 'conv', params, ...(side ? { side } : {}) })
+    ({ id: 'chef_x', type: 'conv', params, sampleId: 's0', ...(side ? { side } : {}) })
   const compileFx = (params: Record<string, number>, meta: SampleMeta[], refs = mockParamRefs(), side?: 'L' | 'R') => {
     const out = compileChannelEffects(
       [fx(params, side)],
@@ -211,7 +215,7 @@ describe('conv as a mixer channel effect', () => {
       'chan_1',
       refs as never,
       8,
-      meta,
+      byId(meta),
     )
     return { out, refs }
   }
@@ -261,12 +265,12 @@ describe('stereo conv (no side) with width', () => {
 
   const compileFx = (params: Record<string, number>, meta: SampleMeta[]) => {
     const out = compileChannelEffects(
-      [{ id: 'chef_x', type: 'conv', params }],
+      [{ id: 'chef_x', type: 'conv', params, sampleId: 's0' }],
       { left: el.const({ value: 1 }), right: el.const({ value: 0 }) },
       'chan_1',
       mockParamRefs() as never,
       8,
-      meta,
+      byId(meta),
     )
     return out
   }
@@ -274,12 +278,12 @@ describe('stereo conv (no side) with width', () => {
   it('registers a live width ref', () => {
     const refs = mockParamRefs()
     compileChannelEffects(
-      [{ id: 'chef_x', type: 'conv', params: DEFAULT_CONV }],
+      [{ id: 'chef_x', type: 'conv', params: DEFAULT_CONV, sampleId: 's0' }],
       { left: el.const({ value: 1 }), right: el.const({ value: 0 }) },
       'chan_1',
       refs as never,
       8,
-      [META],
+      byId([META]),
     )
     expect(refs.keys.has('chan:chan_1:chef_x:width')).toBe(true)
   })
@@ -300,12 +304,12 @@ describe('stereo conv (no side) with width', () => {
 
   it('width 2 spreads a mono input via Haas (L=R=1 → 2/0, sum preserved)', async () => {
     const wide = compileChannelEffects(
-      [{ id: 'chef_x', type: 'conv', params: { ...DEFAULT_CONV, width: 2 } }],
+      [{ id: 'chef_x', type: 'conv', params: { ...DEFAULT_CONV, width: 2 }, sampleId: 's0' }],
       { left: el.const({ value: 1 }), right: el.const({ value: 1 }) },
       'chan_1',
       mockParamRefs() as never,
       8,
-      [META],
+      byId([META]),
     )
     const w = await renderSettled(wide, { irhash: impulse })
     expect(w.l).toBeCloseTo(2, 1)

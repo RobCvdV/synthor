@@ -16,6 +16,7 @@ import { InstrumentsView } from './ui/InstrumentsView'
 import { SampleLibraryView } from './ui/SampleLibraryView'
 import { MixerView } from './ui/mixer/MixerView'
 import { DialogHost } from './ui/components/DialogHost'
+import { SongCommandHost } from './ui/SongCommandHost'
 import { renameCurrentSong } from './ui/songActions'
 import { useProjectStore } from './state/projectStore'
 import { midiToName } from './domain/notes'
@@ -44,7 +45,6 @@ export default function App() {
   const instruments = Object.values(doc.entities.instruments)
 
   const projectName = useProjectStore((s) => s.name)
-  const slug = useProjectStore((s) => s.slug)
   const playing = useTransportStore((s) => s.playing)
   const audioStatus = useAudioStore((s) => s.status)
   const playbackStarted = useAudioStore((s) => s.playbackStarted)
@@ -120,7 +120,7 @@ export default function App() {
               onCellClick={trackerKeys.onCellClick}
             />
           </main>
-          <TrackerRightPane doc={doc} slug={slug} />
+          <TrackerRightPane doc={doc} />
         </div>
       ) : view === 'instruments' ? (
         <div className="layout">
@@ -135,6 +135,7 @@ export default function App() {
           <SampleLibraryView host={host} />
         </div>
       ))}
+      {ready && <SongCommandHost />}
       <DialogHost />
     </div>
   )

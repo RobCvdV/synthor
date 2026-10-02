@@ -1,11 +1,16 @@
-import { MAX_LIVE_VOICES, type Id, type Instrument } from '../domain/types'
-import { cloneInstrument, newDrumKitInstrument, newModularInstrument } from '../domain/factory'
+import { MAX_LIVE_VOICES, type Id, type Instrument, type LibraryInfo } from '../domain/types'
+import { patchLibraryInfo } from '../domain/library'
+import { cloneInstrument, newDrumKitInstrument, newEmptyModularInstrument, newModularInstrument } from '../domain/factory'
 import type { DocState } from './docStore'
 
 export interface InstrumentOps {
   addInstrument: (kind: Instrument['kind']) => Id
+  /** A named empty synth (fixed sources + output only) or an empty drum kit. */
+  addEmptyInstrument: (kind: Instrument['kind'], name: string) => Id
   removeInstrument: (instrumentId: Id) => void
   renameInstrument: (instrumentId: Id, name: string) => void
+  /** Updates the library attributes the instrument keeps in the song (category, tags, library link). */
+  setLibraryInfo: (instrumentId: Id, patch: Partial<LibraryInfo>) => void
   /** Set an effect range max value on an instrument. */
   setEffectSetting: (instrumentId: Id, key: string, value: number) => void
   /** Live (free play) polyphony of a modular instrument, 1..MAX_LIVE_VOICES. */
@@ -16,18 +21,20 @@ export interface InstrumentOps {
 }
 
 export function instrumentOps(get: () => DocState): InstrumentOps {
+  const insertInstrument = (inst: Instrument): Id => {
+    get().mutate((draft) => {
+      draft.entities.instruments[inst.id] = inst
+      if (!draft.entities.mixerInstrumentOrder.includes(inst.id)) draft.entities.mixerInstrumentOrder.push(inst.id)
+    })
+    return inst.id
+  }
+
   return {
-    addInstrument: (kind) => {
-      const inst: Instrument =
-        kind === 'drumkit' ? newDrumKitInstrument('Drum Kit') : newModularInstrument('Synth')
-      get().mutate((draft) => {
-        draft.entities.instruments[inst.id] = inst
-        if (!draft.entities.mixerInstrumentOrder.includes(inst.id)) {
-          draft.entities.mixerInstrumentOrder.push(inst.id)
-        }
-      })
-      return inst.id
-    },
+    addInstrument: (kind) =>
+      insertInstrument(kind === 'drumkit' ? newDrumKitInstrument('Drum Kit') : newModularInstrument('Synth')),
+
+    addEmptyInstrument: (kind, name) =>
+      insertInstrument(kind === 'drumkit' ? newDrumKitInstrument(name) : newEmptyModularInstrument(name)),
 
     removeInstrument: (instrumentId) =>
       get().mutate((draft) => {
@@ -39,6 +46,12 @@ export function instrumentOps(get: () => DocState): InstrumentOps {
         // Remove from mixer order too.
         const idx = draft.entities.mixerInstrumentOrder.indexOf(instrumentId)
         if (idx >= 0) draft.entities.mixerInstrumentOrder.splice(idx, 1)
+      }),
+
+    setLibraryInfo: (instrumentId, patch) =>
+      get().mutate((draft) => {
+        const inst = draft.entities.instruments[instrumentId]
+        if (inst) inst.library = patchLibraryInfo(inst.library, patch)
       }),
 
     renameInstrument: (instrumentId, name) =>

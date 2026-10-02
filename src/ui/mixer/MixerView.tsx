@@ -115,6 +115,7 @@ export function MixerView() {
               onRemove={() => store().removeChannelEffect(selectedChan.id, fx.id)}
               onParamSilent={(key, value) => store().setChannelEffectParamSilent(selectedChan.id, fx.id, key, value)}
               onParamCommit={(key, value) => store().setChannelEffectParam(selectedChan.id, fx.id, key, value)}
+              onSampleChange={(sampleId) => store().setChannelEffectSample(selectedChan.id, fx.id, sampleId)}
               onMoveUp={idx > 0 ? () => store().moveChannelEffect(selectedChan.id, fx.id, idx - 1) : undefined}
               onMoveDown={idx < selectedChan.effects.length - 1 ? () => store().moveChannelEffect(selectedChan.id, fx.id, idx + 1) : undefined}
             />

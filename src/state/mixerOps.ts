@@ -1,7 +1,8 @@
 import type { Id, ModuleType } from '../domain/types'
 import { MASTER_CHANNEL_ID } from '../domain/types'
 import { createChannelEffect, createMixChannel } from '../domain/factory'
-import { isStereoEffect } from '../domain/moduleDefs'
+import { isStereoEffect, MODULE_DEFS } from '../domain/moduleDefs'
+import { defaultSampleId } from '../domain/sampleChoices'
 import { updateParamRef } from '../audio/paramRefs'
 import type { DocState } from './docStore'
 
@@ -13,6 +14,8 @@ export interface MixerOps {
   setChannelPan: (channelId: Id, pan: number) => void
   setChannelMute: (channelId: Id, mute: boolean) => void
   setChannelSolo: (channelId: Id, solo: boolean) => void
+  /** Points a conv effect at an impulse-response sample. */
+  setChannelEffectSample: (channelId: Id, effectId: Id, sampleId: Id) => void
   addChannelEffect: (channelId: Id, type: ModuleType) => Id
   removeChannelEffect: (channelId: Id, effectId: Id) => void
   moveChannelEffect: (channelId: Id, effectId: Id, newIndex: number) => void
@@ -78,11 +81,19 @@ export function mixerOps(get: () => DocState): MixerOps {
         if (chan) chan.solo = solo
       }),
 
+    setChannelEffectSample: (channelId, effectId, sampleId) =>
+      get().mutate((draft) => {
+        if (!draft.entities.samples[sampleId]) return
+        const fx = draft.entities.mixChannels[channelId]?.effects.find((e) => e.id === effectId)
+        if (fx) fx.sampleId = sampleId
+      }),
+
     addChannelEffect: (channelId, type) => {
       if (isStereoEffect(type)) {
         const effect = createChannelEffect(type)
         get().mutate((draft) => {
           const chan = draft.entities.mixChannels[channelId]
+          if (MODULE_DEFS[type].samplePicker) effect.sampleId = defaultSampleId(type, draft.entities.samples)
           if (chan) chan.effects.push(effect)
         })
         return effect.id

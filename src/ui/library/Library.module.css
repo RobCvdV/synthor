@@ -1,0 +1,113 @@
+/* Qualified with the shared .dialog-box so these win over its defaults. */
+:global(.dialog-box).dialog {
+  width: min(760px, calc(100vw - 32px));
+  max-width: none;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+:global(.dialog-box).narrowDialog {
+  width: min(420px, calc(100vw - 32px));
+  max-width: none;
+  text-align: left;
+}
+.dialog h3, .narrowDialog h3 { margin: 0 0 4px; }
+:global(.dialog-box) .detail p, :global(.dialog-box).narrowDialog p { text-align: left; }
+:global(.dialog-box) .detail p { font-size: 11px; margin: 0; }
+
+.toolbar { display: flex; gap: 6px; align-items: center; }
+.search {
+  flex: 1; min-width: 0;
+  background: var(--bg); color: var(--fg);
+  border: 1px solid var(--line); border-radius: 3px;
+  padding: 4px 6px; font: inherit; font-size: 11px;
+}
+.search:focus { border-color: var(--accent); outline: none; }
+.searchBlock { width: 100%; box-sizing: border-box; margin-bottom: 8px; }
+
+.body {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 10px;
+  height: min(420px, 60vh);
+}
+.listPane, .detail {
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+}
+.listPane { display: flex; flex-direction: column; overflow: hidden; }
+.detail { padding: 10px; overflow: auto; }
+
+.listHead {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 8px; font-size: 11px;
+  border-bottom: 1px solid var(--line);
+}
+.list { list-style: none; margin: 0; padding: 0; overflow: auto; flex: 1; }
+.row {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 8px; font-size: 11px; cursor: pointer;
+  border-bottom: 1px solid #1a2029;
+}
+.row:hover { background: var(--beat); }
+.row.active { background: var(--cursor); }
+.kind { color: var(--muted); width: 12px; text-align: center; }
+.name { flex-shrink: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.category { color: var(--accent); font-size: 10px; flex-shrink: 0; }
+.rowTags { display: flex; gap: 3px; overflow: hidden; min-width: 0; flex: 1; }
+.play {
+  margin-left: auto; flex-shrink: 0;
+  background: none; border: 1px solid var(--line); border-radius: 3px;
+  color: var(--accent); cursor: pointer; font-size: 9px; padding: 0 4px; line-height: 14px;
+}
+.play:hover { border-color: var(--accent); }
+.empty { color: var(--muted); font-size: 11px; padding: 12px; margin: 0; text-align: left; }
+
+.fields { display: flex; flex-direction: column; gap: 10px; text-align: left; }
+.narrowDialog .fields { margin-bottom: 16px; }
+.field { display: flex; flex-direction: column; gap: 3px; font-size: 11px; }
+.field > span { color: var(--muted); }
+.field input {
+  background: var(--panel); color: var(--fg);
+  border: 1px solid var(--line); border-radius: 3px;
+  padding: 3px 6px; font: inherit; font-size: 11px;
+}
+.field input:focus { border-color: var(--accent); outline: none; }
+.detailActions { display: flex; gap: 6px; }
+
+.tags {
+  display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
+  background: var(--panel);
+  border: 1px solid var(--line); border-radius: 3px;
+  padding: 3px;
+}
+.tags:focus-within { border-color: var(--accent); }
+.tag {
+  display: inline-flex; align-items: center; gap: 2px;
+  background: #1f2a36; color: var(--fg);
+  border-radius: 8px; padding: 0 6px;
+  font-size: 10px; line-height: 16px; white-space: nowrap;
+}
+.tagRemove {
+  background: none; border: 0; padding: 0 0 0 2px;
+  color: var(--muted); cursor: pointer; font: inherit;
+}
+.tagRemove:hover { color: var(--fg); }
+.field .tagInput, .tagInput {
+  flex: 1; min-width: 60px;
+  background: none; border: 0; padding: 1px 2px;
+}
+
+.checklist {
+  list-style: none; margin: 0 0 16px; padding: 0;
+  max-height: 260px; overflow: auto;
+  border: 1px solid var(--line); border-radius: 4px;
+}
+.checklist label {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 8px; font-size: 11px; cursor: pointer;
+}
+.checklist label:hover { background: var(--beat); }

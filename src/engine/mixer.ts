@@ -7,7 +7,7 @@
  */
 
 import { el, type NodeRepr_t } from '@elemaudio/core'
-import type { ChannelEffect } from '../domain/types'
+import type { ChannelEffect, Id } from '../domain/types'
 import { isStereoEffect } from '../domain/moduleDefs'
 import { HAAS_DELAY_SAMPLES, HAAS_DELAY_SIZE, TICK_DELAY_SIZE, tickTimeSamps, type StereoOut } from './modular'
 import { makeFdnReverb } from './reverbFdn'
@@ -38,8 +38,8 @@ export function compileChannelEffects(
   paramRefs?: ParamRefRegistry,
   /** Live rows-per-second node for tempo-synced delay/echo times. */
   rowHzNode: NodeRepr_t | number = 8,
-  /** Sample metadata for conv (IR) effects — sampleIndex → VFS hash. */
-  sampleMeta: SampleMeta[] = [],
+  /** Sample metadata for conv (IR) effects, by sample id. */
+  sampleMeta: Record<Id, SampleMeta> = {},
 ): StereoOut {
   let out = input
   for (const fx of effects) {
@@ -56,7 +56,7 @@ function compileOneEffect(
   channelId: string,
   paramRefs?: ParamRefRegistry,
   rowHzNode: NodeRepr_t | number = 8,
-  sampleMeta: SampleMeta[] = [],
+  sampleMeta: Record<Id, SampleMeta> = {},
 ): StereoOut {
   const p = fx.params
   const key = (name: string) => chanRefKey(channelId, fx.id, name)
@@ -311,8 +311,7 @@ function compileOneEffect(
 
     // ── Convolution (IR) Reverb ────────────────────────────
     case 'conv': {
-      const idx = Math.round(p.sampleIndex ?? 0)
-      const meta = idx >= 0 && idx < sampleMeta.length ? sampleMeta[idx] : null
+      const meta = fx.sampleId ? sampleMeta[fx.sampleId] : undefined
       // Missing/unloaded IR → pass through untouched rather than silence.
       if (!meta?.hash) return input
       const mix = k('mix', p.mix ?? 0.5)
