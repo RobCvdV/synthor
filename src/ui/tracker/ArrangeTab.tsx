@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { useDocStore } from '../../state/docStore'
+import { useAppStore } from '../../state/appStore'
+import { resolveStep } from '../../engine/arrangement'
+import { usePlayingStep } from '../usePlayhead'
 import { EditableLabel } from '../components/EditableLabel'
 import type { Doc, Id } from '../../domain/types'
 import { Button } from '../components/Button'
@@ -25,6 +28,22 @@ export function ArrangeTab({ doc }: { doc: Doc }) {
   const renamePattern = useDocStore((s) => s.renamePattern)
   const reorderSections = useDocStore((s) => s.reorderSections)
   const reorderPatternsInSection = useDocStore((s) => s.reorderPatternsInSection)
+  const currentStepHint = useAppStore((s) => s.currentStep)
+  const setCurrentStep = useAppStore((s) => s.setCurrentStep)
+  const current = useMemo(() => resolveStep(doc, currentStepHint), [doc, currentStepHint])
+  const playing = usePlayingStep()
+
+  const selectStep = (sectionId: Id, step: number) => {
+    const patId = doc.entities.sections[sectionId]?.patternIds[step]
+    if (!patId) return
+    setCurrentStep({ sectionId, step })
+    if (patId !== doc.patternId) setCurrentPattern(patId)
+  }
+  /** Selecting a section keeps the current pattern when the section uses it, else jumps to its first step. */
+  const selectSection = (sectionId: Id) => {
+    const idx = doc.entities.sections[sectionId]?.patternIds.indexOf(doc.patternId) ?? -1
+    selectStep(sectionId, Math.max(0, idx))
+  }
 
 
   // Refs to section DOM elements for container-level hit testing
@@ -379,34 +398,36 @@ export function ArrangeTab({ doc }: { doc: Doc }) {
         if (!section) return null
         const above = secLine?.idx === si && secLine?.edge === 'above'
         const below = secLine?.idx === si && secLine?.edge === 'below'
-        // Selected = contains the current pattern (same rule as the pattern highlight).
-        const isSelected = section.patternIds.includes(doc.patternId)
+        const isSelected = current?.sectionId === secId
+        const isPlaying = playing?.sectionId === secId
 
         return (
           <div key={secId}>
             {above && <div className="arrange-drop-line" />}
 
             <div
-              className={'arrange-section' + (isSelected ? ' selected' : '')}
+              className={'arrange-section' + (isSelected ? ' selected' : '') + (isPlaying ? ' playing' : '')}
               ref={(el) => { if (el) sectionEls.current.set(secId, el); else sectionEls.current.delete(secId) }}
             >
               <div
                 className="arrange-section-head"
+                onClick={() => selectSection(secId)}
+                title="Click to make this the current section"
                 draggable
                 onDragStart={(e) => onSecDragStart(e, si)}
                 onDragEnd={clearAll}
               >
                 <span className="arrange-section-arrows">
                   {si > 0 && (
-                    <button className="arrange-arrow-btn" title="Move section up" onClick={() => reorderSections(si, si - 1)}>▲</button>
+                    <button className="arrange-arrow-btn" title="Move section up" onClick={(e) => { e.stopPropagation(); reorderSections(si, si - 1) }}>▲</button>
                   )}
                   {si < doc.sectionIds.length - 1 && (
-                    <button className="arrange-arrow-btn" title="Move section down" onClick={() => reorderSections(si, si + 1)}>▼</button>
+                    <button className="arrange-arrow-btn" title="Move section down" onClick={(e) => { e.stopPropagation(); reorderSections(si, si + 1) }}>▼</button>
                   )}
                 </span>
                 <EditableLabel value={section.name} onCommit={(name) => renameSection(secId, name)}
                   className="arrange-section-name" inputClassName="arrange-name-input" />
-                <button className="arrange-del-btn" title="Remove section" onClick={() => removeSection(secId)}>×</button>
+                <button className="arrange-del-btn" title="Remove section" onClick={(e) => { e.stopPropagation(); removeSection(secId) }}>×</button>
               </div>
               <ul
                 className="arrange-pattern-list"
@@ -418,7 +439,8 @@ export function ArrangeTab({ doc }: { doc: Doc }) {
                   // console.log('[render] section',secId,', patId', patId, 'pi', pi, 'pat', pat)
 
                   if (!pat) return null
-                  const isCurrent = patId === doc.patternId
+                  const isCurrent = isSelected && current?.step === pi
+                  const isPlayingStep = isPlaying && playing?.step === pi
                   const lineAbove = patLine?.secId === secId && patLine?.idx === pi && patLine?.edge === 'above'
                   const lineBelow = patLine?.secId === secId && patLine?.idx === pi && patLine?.edge === 'below'
 
@@ -426,16 +448,16 @@ export function ArrangeTab({ doc }: { doc: Doc }) {
                     <li key={`${secId}-${patId}-${pi}`}>
                       {lineAbove && <div className="arrange-drop-line" />}
                       <div
-                        className={'arrange-pattern-item' + (isCurrent ? ' current' : '')}
+                        className={'arrange-pattern-item' + (isCurrent ? ' current' : '') + (isPlayingStep ? ' playing' : '')}
                         data-pat-id={patId}
                         draggable
                         onDragStart={(e) => onSecPatDragStart(e, secId, patId, pi)}
                         onDragEnd={clearAll}
                         onDragOver={(e) => onPatItemDragOver(e, secId, pi)}
                         onDrop={(e) => onPatDrop(e, secId)}
-                        onClick={() => setCurrentPattern(patId)}
+                        onClick={() => selectStep(secId, pi)}
                       >
-                        <span className="arrange-pattern-num">{pi + 1}</span>
+                        <span className="arrange-pattern-num">{isPlayingStep ? '▶' : pi + 1}</span>
                         <EditableLabel value={pat.name} onCommit={(name) => renamePattern(patId, name)}
                           className="arrange-pattern-name" inputClassName="arrange-name-input" />
                         <button className="arrange-del-btn" title="Remove pattern from section" onClick={(e) => { e.stopPropagation(); removePatternFromSection(secId, pi) }}>×</button>

@@ -10,6 +10,7 @@
   --beat: #1b212b;
   --cursor: #2b3a55;
   --playhead: #3a2b1b;
+  --play: #e0a458;
   --control-bg: #222;
   --control-border: #333;
   --line: #2a3644;
@@ -365,6 +366,8 @@ body {
   overflow: hidden;
 }
 .arrange-section.selected { border-color: rgba(79, 209, 197, 0.55); }
+.arrange-section.playing { border-color: var(--play); }
+.arrange-section.playing .arrange-section-name { color: var(--play); }
 .arrange-section-head {
   display: flex; align-items: center; gap: 4px;
   padding: 4px 6px; background: #1a1e26; border-bottom: 1px solid #2a2f38;
@@ -412,6 +415,8 @@ body {
   flex: 1; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .arrange-pattern-item.current .arrange-pattern-name { color: var(--accent); }
+.arrange-pattern-item.playing { background: var(--playhead); }
+.arrange-pattern-item.playing .arrange-pattern-num { color: var(--play); }
 .arrange-add-item { cursor: default; }
 .arrange-add-item:hover { background: none; }
 .arrange-add-select {

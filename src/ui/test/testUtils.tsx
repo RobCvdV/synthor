@@ -31,6 +31,7 @@ export function resetStores(): void {
     editStep: 1,
     followPlayhead: true,
     editMode: true,
+    currentStep: null,
   })
   useTransportStore.setState({
     playing: false,

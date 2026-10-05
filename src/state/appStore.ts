@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import { settingsStorage } from '../persist/settingsStorage'
 import type { Doc, Id, Pattern } from '../domain/types'
+import type { StepRef } from '../engine/arrangement'
 
 export type PlayMode = 'song' | 'section' | 'pattern'
 export const PLAY_MODES: PlayMode[] = ['song', 'section', 'pattern']
@@ -71,6 +72,9 @@ interface AppState {
   followPlayhead: boolean
   /** Off: the tracker grid is read-only and note keys just play. */
   editMode: boolean
+  /** The section step being edited — tells repeats of one pattern apart. Resolve it with
+   *  `resolveStep`, since it can go stale. */
+  currentStep: StepRef | null
 
   setPlayMode: (mode: PlayMode) => void
   cyclePlayMode: () => void
@@ -85,6 +89,7 @@ interface AppState {
   setEditStep: (step: number) => void
   setFollowPlayhead: (on: boolean) => void
   setEditMode: (on: boolean) => void
+  setCurrentStep: (step: StepRef | null) => void
 }
 
 export const MAX_EDIT_STEP = 16
@@ -104,6 +109,7 @@ export function partializeAppState(state: AppState) {
     editStep: state.editStep,
     followPlayhead: state.followPlayhead,
     editMode: state.editMode,
+    currentStep: state.currentStep,
   }
 }
 
@@ -122,6 +128,7 @@ export const useAppStore = create<AppState>()(
       editStep: 1,
       followPlayhead: true,
       editMode: true,
+      currentStep: null,
 
       setPlayMode: (playMode) => set({ playMode }),
       cyclePlayMode: () => set((s) => {
@@ -143,6 +150,8 @@ export const useAppStore = create<AppState>()(
       setEditStep: (step) => set({ editStep: Math.max(0, Math.min(MAX_EDIT_STEP, Math.round(step))) }),
       setFollowPlayhead: (followPlayhead) => set({ followPlayhead }),
       setEditMode: (editMode) => set({ editMode }),
+      setCurrentStep: (step) => set((s) =>
+        s.currentStep?.sectionId === step?.sectionId && s.currentStep?.step === step?.step ? {} : { currentStep: step }),
     }),
     {
       name: 'synthor-app-state',

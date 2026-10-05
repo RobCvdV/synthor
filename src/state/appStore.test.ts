@@ -53,6 +53,7 @@ function resetStore() {
     editStep: 1,
     followPlayhead: true,
     editMode: true,
+    currentStep: null,
   })
 }
 
@@ -218,6 +219,14 @@ describe('appStore', () => {
     expect(useAppStore.getState().editMode).toBe(true)
     useAppStore.getState().setEditMode(false)
     expect(partializeAppState(useAppStore.getState()).editMode).toBe(false)
+  })
+
+  it('stores the current section step, persisted, keeping identity for an equal step', () => {
+    useAppStore.getState().setCurrentStep({ sectionId: 's1', step: 2 })
+    const first = useAppStore.getState().currentStep
+    useAppStore.getState().setCurrentStep({ sectionId: 's1', step: 2 })
+    expect(useAppStore.getState().currentStep).toBe(first)
+    expect(partializeAppState(useAppStore.getState()).currentStep).toEqual({ sectionId: 's1', step: 2 })
   })
 
   /* ---- state shape: only the persisted fields are user-settable ---- */

@@ -21,6 +21,11 @@
 - **Edit mode** (Cmd/Ctrl+E / header button, persisted): off makes the grid
   read-only — note keys play the instrument (held) so melodies can be tried
   out; navigation, selection, copy and track/lane management still work.
+- **Play modes fixed**: section mode plays the *current step's* section (a
+  step = section + position, so repeated patterns stay distinct) instead of
+  the first section using the visible pattern — playback no longer jumps
+  sections. Play from cursor starts at the current step. The Arrange tab
+  marks the current step (teal) and the playing section + step (orange, ▶).
 - **Mouse**: drag to select; clicking a note / vol / lane sub-column moves the
   cursor into that column.
 

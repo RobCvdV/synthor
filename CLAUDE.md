@@ -68,6 +68,7 @@ Chains are ordered; each hop is verified. Skipping the tail is how features half
 - **Shared slots are a known limitation, not a bug:** two patterns can map different track numbers to the same (instrument, slot); mute refs are static, so current-pattern-last wins.
 - **The host is inert until a user gesture** (autoplay policy) — synthetic/synthesized key events won't start the AudioContext.
 - **Samples are referenced by id** (`Module.sampleId`, `ChannelEffect.sampleId`, `DrumKitSlot.sampleId`), never by position in a sorted list — adding or renaming a sample must not repoint anything. Modules with a `samplePicker` in `MODULE_DEFS` get one.
+- **Section playback follows `appStore.currentStep`** (section + step index, resolved with `resolveStep`), never "the section containing `doc.patternId`" — playback rewrites `patternId`, and a pattern can sit in several sections or twice in one. Play-start rows are arrangement-global: use `playStartRow`.
 - **Elementary VFS keys are content hashes**; changing a conv/wave/sample module's `sampleId` is a structural change (forces recompile + VFS path change).
 
 ## Electron build (feature/electron-build)

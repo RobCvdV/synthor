@@ -9,6 +9,7 @@ import { useTransportStore } from '../state/transportStore'
 import { codeToSemitone, isEditableTarget } from './keymap'
 import { electronApi } from '../persist/electronBridge'
 import { fileShortcut, runAppCommand } from './appCommands'
+import { playStartRow } from './usePlayhead'
 
 /**
  * The app's one keydown/keyup listener pair: transport, undo, panic, mute/solo, view and
@@ -28,7 +29,7 @@ export function useAppKeys(host: AudioHost, keyboardPlayer: KeyboardPlayer, onTr
       if (e.code === 'Space' && !e.metaKey && !editing) {
         e.preventDefault()
         void host.start()
-        useTransportStore.getState().toggle(host.currentTime, e.ctrlKey ? 0 : app.trackerCursor.row)
+        useTransportStore.getState().toggle(host.currentTime, playStartRow(e.ctrlKey))
         return
       }
 

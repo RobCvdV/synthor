@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { AudioHost, OUTPUT_WARMUP_MS } from '../audio/host'
 import { compileGraph } from '../engine/compile'
-import { buildArrangement } from '../engine/arrangement'
+import { buildArrangement, resolveStep, type StepRef } from '../engine/arrangement'
 import { buildPlaybackData, mapPatternTracksToSlots, type PlaybackData } from '../player/playbackData'
 import { buildTxSeqData } from '../player/txSeqData'
 import { syncSamplesToVfs } from '../audio/vfsLoader'
@@ -285,10 +285,10 @@ export function useEngine(): AudioHost {
 
       const doRecompile = () => {
         const { bpm, linesPerBeat, playing, startRow, playEpoch } = useTransportStore.getState()
-        const playMode = useAppStore.getState().playMode
+        const { playMode, currentStep } = useAppStore.getState()
 
         const arrangement = playMode !== 'pattern'
-          ? buildArrangement(doc, playMode)
+          ? buildArrangement(doc, playMode, currentStep)
           : undefined
         const effectiveArrangement = arrangement && arrangement.length > 1 ? arrangement : undefined
 
@@ -394,13 +394,21 @@ export function useEngine(): AudioHost {
 
     // ── mute/solo + live routing subscription ──────────────────────────
     const unsubApp = useAppStore.subscribe((state, prev) => {
-      if (state.freePlay !== prev.freePlay || state.selectedInstrumentId !== prev.selectedInstrumentId) {
+      if (state.freePlay !== prev.freePlay || state.selectedInstrumentId !== prev.selectedInstrumentId ||
+          state.playMode !== prev.playMode || playedSectionChanged(state.currentStep, prev.currentStep)) {
         schedule()
       }
       if (state.mutedTrackNumbers === prev.mutedTrackNumbers &&
           state.soloedTrackNumbers === prev.soloedTrackNumbers) return
       applyMuteRefs()
     })
+
+    /** Section mode plays the current step's section; a step move within it changes nothing. */
+    function playedSectionChanged(next: StepRef | null, prev: StepRef | null): boolean {
+      if (next === prev || useAppStore.getState().playMode !== 'section') return false
+      const { doc } = useDocStore.getState()
+      return resolveStep(doc, next)?.sectionId !== resolveStep(doc, prev)?.sectionId
+    }
 
     host.onReady = () => {
       const core = host.core
