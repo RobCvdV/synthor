@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useDocStore } from '../state/docStore'
 import { useProjectStore } from '../state/projectStore'
 import { useAppStore } from '../state/appStore'
 import { loadAudioFile } from '../audio/sampleLoader'
 import { hasStorage } from '../persist/storage'
 import { readSampleAsset, writeSampleAsset, deleteSampleAsset } from '../persist/sampleStorage'
-import { samplePlaybackRate } from '../domain/notes'
+import { samplePreviewPlan } from '../domain/sampleChoices'
 import { codeToSemitone, isEditableTarget } from './keymap'
 import { formatDuration, formatSize } from './format'
 import { pickFiles } from './pickFiles'
@@ -14,6 +14,7 @@ import { saveSongSampleToLibrary } from './sampleActions'
 import { SaveToLibraryDialog, type SaveToLibraryValues } from './library/SaveToLibraryDialog'
 import { sampleLibrary } from './library/librarySource'
 import { TagEditor } from './library/TagEditor'
+import { NameInput } from './components/NameInput'
 import { SampleEditor } from './sampleEditor/SampleEditor'
 import { CreateSampleDialog } from './CreateSampleDialog'
 import { sampleDialogOpenRef } from './sampleDialogRef'
@@ -120,10 +121,10 @@ export function SampleLibraryView({ host }: Props) {
 
   /** One-shot preview via plain Web Audio (host.ctx → destination). */
   const playSample = useCallback(
-    async (sample: SampleEntity, rate = 1) => {
+    async (sample: SampleEntity, rate = 1, loopKey?: string) => {
       const raw = await readSampleAsset(slug, sample.hash).catch(() => null)
       if (!raw) return
-      void host.playSamplePreview(sample.hash, raw, rate)
+      await host.playSamplePreview(sample.hash, raw, rate, loopKey)
     },
     [slug, host],
   )
@@ -135,7 +136,8 @@ export function SampleLibraryView({ host }: Props) {
     setSelectedSampleId(Object.keys(map)[0] ?? null)
   }, [sampleMap, selectedSampleId, setSelectedSampleId])
 
-  // Note keys play the selected row; one-shot, no key-up handling.
+  // Note keys play the sample being edited, else the selected row. Single cycles loop until key-up.
+  const heldKeys = useRef(new Set<string>())
   const onKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (isEditableTarget(e.target) || e.metaKey || e.ctrlKey || e.altKey) return
@@ -150,21 +152,38 @@ export function SampleLibraryView({ host }: Props) {
       if (e.repeat) return // one attack per physical press
       const semi = codeToSemitone(e.code)
       if (semi === undefined) return
-      const sample = selectedSampleId
-        ? useDocStore.getState().doc.entities.samples[selectedSampleId]
-        : undefined
+      const targetId = editingId ?? selectedSampleId
+      const sample = targetId ? useDocStore.getState().doc.entities.samples[targetId] : undefined
       if (!sample) return
       e.preventDefault()
-      const note = useAppStore.getState().octave * 12 + semi
-      void playSample(sample, samplePlaybackRate(note))
+      const plan = samplePreviewPlan(sample, useAppStore.getState().octave * 12 + semi)
+      if (!plan.loop) return void playSample(sample, plan.rate)
+      const code = e.code
+      heldKeys.current.add(code)
+      void playSample(sample, plan.rate, code).then(() => {
+        // Released while the sample was still loading.
+        if (!heldKeys.current.has(code)) host.stopSamplePreview(code)
+      })
     },
-    [host, selectedSampleId, playSample],
+    [host, selectedSampleId, editingId, playSample],
   )
 
   useEffect(() => {
+    const release = (code: string) => {
+      heldKeys.current.delete(code)
+      host.stopSamplePreview(code)
+    }
+    const onKeyUp = (e: KeyboardEvent) => release(e.code)
+    const onBlur = () => [...heldKeys.current].forEach(release)
     window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [onKeyDown])
+    window.addEventListener('keyup', onKeyUp)
+    window.addEventListener('blur', onBlur)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keyup', onKeyUp)
+      window.removeEventListener('blur', onBlur)
+    }
+  }, [onKeyDown, host])
 
   // Cut any ringing preview when leaving the view.
   useEffect(() => () => host.stopSamplePreviews(), [host])
@@ -211,10 +230,10 @@ export function SampleLibraryView({ host }: Props) {
                     onClick={() => setSelectedSampleId(s.id)}
                   >
                     <td>
-                      <input
+                      <NameInput
                         className="slv-name-input"
                         value={s.name}
-                        onChange={(e) => renameSample(s.id, e.target.value)}
+                        onCommit={(name) => renameSample(s.id, name)}
                         title="Rename sample — this is how it appears in drumkit and module pickers"
                       />
                     </td>

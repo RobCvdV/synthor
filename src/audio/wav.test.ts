@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { encodeWav } from './wav'
+import { encodeWav, readWavCycleLength } from './wav'
 
 const ascii = (dv: DataView, off: number, len: number) => {
   let s = ''
@@ -80,5 +80,25 @@ describe('encodeWav', () => {
     expect(() => encodeWav([], 44100)).toThrow()
     expect(() => encodeWav([new Float32Array(0)], 44100)).toThrow()
     expect(() => encodeWav([new Float32Array(4), new Float32Array(3)], 44100)).toThrow()
+  })
+})
+
+describe('wavetable cycle length', () => {
+  const frames = (n: number) => [new Float32Array(n).fill(0.25)]
+
+  it('round-trips the clm chunk and keeps the audio decodable as plain PCM', () => {
+    const bytes = encodeWav(frames(1024), 48000, 256)
+    expect(readWavCycleLength(bytes)).toEqual({ cycleLength: 256, sampleRate: 48000 })
+    const plain = encodeWav(frames(1024), 48000)
+    // Same samples after the extra chunk.
+    expect(new Uint8Array(bytes).slice(-2048)).toEqual(new Uint8Array(plain).slice(-2048))
+    expect(new DataView(bytes).getUint32(4, true)).toBe(bytes.byteLength - 8)
+  })
+
+  it('assumes 2048-frame cycles for whole multiples of 2048, and nothing otherwise', () => {
+    expect(readWavCycleLength(encodeWav(frames(4096), 44100))).toEqual({ cycleLength: 2048, sampleRate: 44100 })
+    expect(readWavCycleLength(encodeWav(frames(2048), 44100))).toBeNull()
+    expect(readWavCycleLength(encodeWav(frames(5000), 44100))).toBeNull()
+    expect(readWavCycleLength(new ArrayBuffer(4))).toBeNull()
   })
 })

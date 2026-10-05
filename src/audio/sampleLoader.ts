@@ -4,6 +4,8 @@
  * browser supports (WAV, MP3, OGG, FLAC, etc.).
  */
 
+import { readWavCycleLength } from './wav'
+
 let _decodeCtx: AudioContext | null = null
 
 /** Shared offline AudioContext for decoding — created once, reused. */
@@ -23,6 +25,8 @@ export interface LoadedSample {
   channels: number
   /** Total frames per channel. */
   frames: number
+  /** Frames per wavetable cycle the file declares, at the decoded rate. */
+  cycleLength?: number
 }
 
 /** Compute SHA-256 hex digest of an ArrayBuffer, used as the content hash. */
@@ -58,5 +62,7 @@ export async function loadAudioFile(file: File): Promise<LoadedSample> {
   const hash = await computeHash(rawBytes)
   const decoded = await decodeCtx().decodeAudioData(rawBytes.slice(0))
   const { sampleData, channels, frames } = extractChannelData(decoded)
-  return { hash, sampleData, sampleRate: decoded.sampleRate, channels, frames }
+  const declared = readWavCycleLength(rawBytes)
+  const cycleLength = declared ? declared.cycleLength * decoded.sampleRate / declared.sampleRate : undefined
+  return { hash, sampleData, sampleRate: decoded.sampleRate, channels, frames, ...(cycleLength ? { cycleLength } : {}) }
 }

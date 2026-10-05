@@ -2,7 +2,7 @@ import { el, type NodeRepr_t } from '@elemaudio/core'
 import { makeSampleLoop, makeSampleOneShot } from './samplePlay'
 import type { Connection, Id, Module, ModularInstrument } from '../domain/types'
 import { midiToFreq } from '../domain/notes'
-import { fitsWaveform } from '../domain/sampleChoices'
+import { cycleLength, fitsWavetable, wavetableFrameCount } from '../domain/sampleChoices'
 import { makeFdnReverb } from './reverbFdn'
 import type { SampleMeta } from './instruments'
 
@@ -172,6 +172,13 @@ export function compileModular(
     return out
   }
 
+  /** `f` scaled by the `fm` inlet: f · (1 + fm · depth). */
+  function withFm(f: NodeRepr_t, m: Module): NodeRepr_t {
+    const fm = inlet(m.id, 'fm')
+    if (fm === null) return f
+    return el.mul(f, el.add(el.const({ value: 1 }), el.mul(fm, kconst(`${m.id}:fmDepth`, m.params.fmDepth ?? 1))))
+  }
+
   function render(m: Module): Node {
     const p = m.params
     const key = (name: string) => `${m.id}:${name}`
@@ -213,7 +220,8 @@ export function compileModular(
         const ln2 = el.const({ value: Math.LN2 })
         const exponent = el.add(el.div(detuneRef, 12), el.div(finetuneRef, 1200))
         const ratio = el.exp(el.mul(ln2, exponent))
-        const tuned = el.mul(f, ratio)
+        // The blep oscillators only wrap upward, so FM below 0 Hz would run away.
+        const tuned = el.max(el.const({ value: 0 }), withFm(el.mul(f, ratio), m))
         const width = kconst(key('pulseWidth'), p.pulseWidth ?? 0.5)
         const gain = kconst(key('gain'), p.gain ?? 1)
         // Waveform selector ref: 0=saw,1=square,2=triangle,3=sine,4=pulse.
@@ -718,25 +726,56 @@ export function compileModular(
 
       case 'wave': {
         const freqIn = inlet(m.id, 'freq')
-        // The whole sample is one cycle, so the phasor runs directly at the
-        // requested frequency — the sample's native rate/length is irrelevant.
+        // One cycle of the table per period, so the phasor runs directly at the
+        // requested frequency — the sample's native rate is irrelevant.
         const meta = m.sampleId ? sampleMeta[m.sampleId] : undefined
         // Same eligibility as the UI's sampleChoices; also covers a sample that no longer qualifies.
-        if (!meta?.hash || !fitsWaveform(meta)) return SILENCE
+        if (!meta?.hash || !fitsWavetable(meta)) return SILENCE
 
         const gain = kconst(key('gain'), p.gain ?? 1)
-        const finetuneRef = kconst(key('finetune'), p.finetune ?? 0)
-        const ln2 = el.const({ value: Math.LN2 })
-        const ratio = el.exp(el.mul(ln2, el.div(finetuneRef, 1200)))
-        const f = freqIn ?? 440
-        // The table index is normalized 0..1, so the raw phasor sweeps the
-        // whole buffer once per cycle — one full sample = one waveform cycle.
-        const phase = el.phasor(el.mul(f, ratio))
-        const ch = el.mc.table({
-          key: `${keyPrefix}:${m.id}:tbl:${meta.hash}`,
+        const octaves = el.add(
+          kconst(key('octave'), p.octave ?? 0),
+          el.div(kconst(key('semi'), p.semi ?? 0), 12),
+          el.div(kconst(key('finetune'), p.finetune ?? 0), 1200),
+        )
+        const ratio = el.exp(el.mul(el.const({ value: Math.LN2 }), octaves))
+        // Through-zero FM is fine here: the phasor wraps both ways.
+        const rate = withFm(el.mul(freqIn ?? 440, ratio), m)
+        const sync = inlet(m.id, 'sync')
+        const pm = inlet(m.id, 'pm')
+        const ramp = sync === null ? el.phasor(rate) : el.syncphasor(rate, sync)
+        const offset = kconst(key('phase'), p.phase ?? 0)
+        const shifted = pm === null ? el.add(ramp, offset) : el.add(ramp, offset, el.mul(pm, kconst(key('pmDepth'), p.pmDepth ?? 1)))
+        const phase = el.sub(shifted, el.floor(shifted))
+
+        const size = cycleLength(meta, p.cycle ?? 0)
+        const count = wavetableFrameCount(meta.frames, size)
+        // The table index is normalized over the whole buffer: frame k spans
+        // [k·size, k·size + size − 1] of its frames − 1 steps.
+        const span = Math.max(1, meta.frames - 1)
+        const read = (frame: NodeRepr_t | number, tag: string) => el.mc.table({
+          key: `${keyPrefix}:${m.id}:${tag}:${meta.hash}`,
           path: meta.hash,
           channels: meta.channels,
-        }, phase) as unknown as NodeRepr_t[]
+        }, el.div(el.add(el.mul(frame, size), el.mul(phase, size - 1)), span)) as unknown as NodeRepr_t[]
+
+        let ch: NodeRepr_t[]
+        if (count === 1) {
+          ch = read(0, 'tbl')
+        } else {
+          // Position (plus the pos inlet) picks a point between frames; the two
+          // neighbouring frames are crossfaded so sweeps morph smoothly.
+          const posIn = inlet(m.id, 'pos')
+          const posRef = kconst(key('position'), p.position ?? 0)
+          const pos = el.min(1, el.max(0, posIn === null ? posRef : el.add(posRef, posIn)))
+          const at = el.mul(pos, count - 1)
+          const lo = el.floor(at)
+          const hi = el.min(count - 1, el.add(lo, 1))
+          const frac = el.sub(at, lo)
+          const a = read(lo, 'tblA')
+          const b = read(hi, 'tblB')
+          ch = a.map((x, i) => el.add(x, el.mul(el.sub(b[i], x), frac)))
+        }
         const outL = el.mul(ch[0], gain)
         if (meta.channels === 2) memo.set(`${m.id}:outR`, el.mul(ch[1], gain))
         else memo.set(`${m.id}:outR`, outL)

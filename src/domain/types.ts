@@ -160,6 +160,8 @@ export interface SampleEntity {
   channels: number
   /** Total frames per channel. */
   frames: number
+  /** Frames per cycle when the sample is a single-cycle waveform or a wavetable; may be fractional after resampling. */
+  cycleLength?: number
   library?: LibraryInfo
 }
 

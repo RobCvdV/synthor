@@ -20,6 +20,7 @@ export function buildSampleMeta(
     channels: s.channels,
     sampleRate: s.sampleRate,
     frames: s.frames,
+    cycleLength: s.cycleLength,
     l1: l1Sums?.[s.hash],
   }]))
 }

@@ -34,6 +34,20 @@ export function zoomAround(px: number, scroll: number, x: number, zoomIn: boolea
   return { px: next, scroll: frame - x / next }
 }
 
+/** Zooms by `factor` with frame `focus` in the middle of the view. Scroll is unclamped. */
+export function zoomCentered(px: number, width: number, factor: number, focus: number): { px: number; scroll: number } {
+  const next = clampZoom(px * factor)
+  return { px: next, scroll: focus - width / 2 / next }
+}
+
+/** Fits `[start, end)` in the view with a small margin either side. Scroll is unclamped. */
+export function zoomToRange(width: number, start: number, end: number): { px: number; scroll: number } {
+  const len = Math.max(1, end - start)
+  const margin = len * 0.05
+  const px = clampZoom(width / (len + 2 * margin))
+  return { px, scroll: (start + end) / 2 - width / 2 / px }
+}
+
 /** Min and max sample value drawn in pixel column `x`, or null past the end. */
 export function columnPeak(ch: Float32Array, x: number, px: number, scroll: number): [number, number] | null {
   const f0 = Math.floor(scroll + x / px)
@@ -65,6 +79,22 @@ export function laneLayout(height: number, lanes: number): Lane[] {
 /** Y of sample value `v` (-1..1) in a lane; +1 is the lane's top. */
 export function amplitudeY(lane: Lane, v: number): number {
   return lane.top + ((1 - v) * lane.height) / 2
+}
+
+/** Index of the lane at `y` (the nearest one in a gap). */
+export function laneAt(lanes: Lane[], y: number): number {
+  let best = 0
+  lanes.forEach((l, i) => {
+    const d = Math.max(l.top - y, y - (l.top + l.height), 0)
+    const bd = Math.max(lanes[best].top - y, y - (lanes[best].top + lanes[best].height), 0)
+    if (d < bd) best = i
+  })
+  return best
+}
+
+/** Sample value at `y` in a lane, the inverse of `amplitudeY`, clamped to -1..1. */
+export function valueAtY(lane: Lane, y: number): number {
+  return Math.max(-1, Math.min(1, 1 - (2 * (y - lane.top)) / lane.height))
 }
 
 export interface Thumb { width: number; left: number; maxScroll: number }

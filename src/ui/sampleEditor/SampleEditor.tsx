@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AudioHost } from '../../audio/host'
-import { framesOf } from '../../audio/sampleEdit'
-import { fitsWaveform } from '../../domain/sampleChoices'
-import { WAVEFORM_MAX_LENGTH_SECONDS } from '../../domain/moduleDefs'
+import { drawLine, framesOf, type PcmData } from '../../audio/sampleEdit'
+import { fitsWavetable, waveUse } from '../../domain/sampleChoices'
 import type { Id } from '../../domain/types'
 import { useAppStore } from '../../state/appStore'
 import { useDocStore } from '../../state/docStore'
@@ -11,18 +10,20 @@ import { formatDuration } from '../format'
 import { isEditableTarget } from '../keymap'
 import { sampleDialogOpenRef } from '../sampleDialogRef'
 import {
-  copySelection, cutSelection, fadeSelection, gainSelection, pasteClip, replaceSelection, reverseSelection,
+  copySelection, cutSelection, fadeSelection, gainSelection, normalizeSelection, pasteClip, removeDcSelection,
+  repitchSelection, replaceSelection, reverseSelection, silenceSelection, snapSelection, targetRange, trimSelection,
   type EditResult,
 } from './editCommands'
-import { EditorToolbar, type EditDialogKind, type EditorActions } from './EditorToolbar'
+import { EditorToolbar, type EditDialogKind, type EditorActions, type ProcessKind } from './EditorToolbar'
 import { EditDialog } from './SampleEditDialog'
+import { MakeCycleDialog } from './MakeCycleDialog'
 import { SaveAsDialog } from './SampleSaveAsDialog'
 import { fitToLength, pointerDown, pointerMove, pointerUp, type Drag, type Sel } from './selectionGestures'
 import { useSamplePcm } from './useSamplePcm'
 import { useWaveformCanvas } from './useWaveformCanvas'
 import { useElementSize, useWaveView } from './useWaveView'
 import { WaveScrollbar } from './WaveScrollbar'
-import { frameAtX, laneLayout, visibleFrames } from './waveView'
+import { frameAtX, laneAt, laneLayout, valueAtY, visibleFrames } from './waveView'
 import { AmplitudeAxis } from './AmplitudeAxis'
 import s from './SampleEditor.module.css'
 
@@ -49,6 +50,11 @@ export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: 
   const [sel, setSel] = useState<Sel | null>(null)
   const [dialog, setDialog] = useState<EditDialogKind | null>(null)
   const [saveAsOpen, setSaveAsOpen] = useState(false)
+  const [cycleRange, setCycleRange] = useState<Sel | null>(null)
+  const [drawing, setDrawing] = useState(false)
+  /** The audio being drawn on; committed as one edit when the stroke ends. */
+  const [draft, setDraft] = useState<PcmData | null>(null)
+  const stroke = useRef<{ data: PcmData; lane: number; frame: number; value: number } | null>(null)
   const clip = useSampleClipboard((st) => st.pb)
 
   const waveRef = useRef<HTMLDivElement>(null)
@@ -58,14 +64,14 @@ export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: 
   const { fit } = view
   const laneCount = pcm?.length ?? 0
   const lanes = useMemo(() => laneLayout(height, laneCount), [height, laneCount])
-  useWaveformCanvas(canvasRef, { pcm, width, height, lanes, px: view.px, scroll: view.scroll, sel, cursor })
+  useWaveformCanvas(canvasRef, { pcm: draft ?? pcm, width, height, lanes, px: view.px, scroll: view.scroll, sel, cursor })
 
   // Handlers read the latest values without re-subscribing.
-  const live = useRef({ pcm, meta, sel, cursor, busy, dialog, view })
-  live.current = { pcm, meta, sel, cursor, busy, dialog, view }
+  const live = useRef({ pcm, meta, sel, cursor, busy, dialog, view, cycleRange, drawing, lanes })
+  live.current = { pcm, meta, sel, cursor, busy, dialog, view, cycleRange, drawing, lanes }
   const drag = useRef<Drag | null>(null)
 
-  useEffect(() => { sampleDialogOpenRef.current = dialog !== null }, [dialog])
+  useEffect(() => { sampleDialogOpenRef.current = dialog !== null || cycleRange !== null }, [dialog, cycleRange])
   useEffect(() => () => host.stopSamplePreviews(), [host])
 
   // A shorter sample (edit, undo, relink) must not leave the cursor or selection past its end.
@@ -128,6 +134,12 @@ export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: 
     if (st && pb) apply(pasteClip(st, pb.data, mode))
   }, [apply])
 
+  /** What zooming keeps centred: the selection, else the cursor, else the view's middle. */
+  const zoomFocus = () => {
+    const { sel: sl, cursor: c } = live.current
+    return sl ? (sl.start + sl.end) / 2 : c ?? undefined
+  }
+
   const actions: EditorActions = {
     play,
     copy,
@@ -140,18 +152,36 @@ export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: 
       if (st && pb) apply(replaceSelection(st, pb.data))
     },
     reverse: () => { const st = editState(); if (st) apply(reverseSelection(st)) },
+    snap: () => { const st = editState(); const next = st && snapSelection(st); if (next) setSel(next) },
+    process: (kind: ProcessKind) => {
+      const st = editState()
+      if (!st) return
+      if (kind === 'pitch') setDialog('pitch')
+      else apply({ trim: trimSelection, silence: silenceSelection, normalize: normalizeSelection, removeDc: removeDcSelection }[kind](st))
+    },
+    toggleDraw: () => setDrawing((d) => !d),
+    makeCycle: () => { const st = editState(); if (st) setCycleRange(targetRange(st)) },
     openDialog: setDialog,
     saveAs: () => setSaveAsOpen(true),
     exportFile: () => void sample.exportFile(),
-    zoomOut: () => view.zoomBy(0.5),
-    zoomIn: () => view.zoomBy(2),
+    zoomOut: () => view.zoomBy(0.5, zoomFocus()),
+    zoomIn: () => view.zoomBy(2, zoomFocus()),
+    zoomSel: () => { const sl = live.current.sel; if (sl) view.zoomTo(sl.start, sl.end) },
     zoomFit: view.fit,
     close: onClose,
   }
 
-  const saveAs = async (name: string) => {
-    const created = await sample.saveAs(name)
+  const previewPcm = (data: PcmData) => {
+    const m = live.current.meta
+    if (!m) return
+    host.stopSamplePreviews()
+    void host.playPcmPreview(data, m.sampleRate)
+  }
+
+  const saveAs = async (name: string, data?: PcmData, cycleLength?: number) => {
+    const created = await sample.saveAs(name, data, cycleLength)
     if (!created) return
+    setCycleRange(null)
     useAppStore.getState().setSelectedSampleId(created.id)
     onSwitchSample(created.id)
   }
@@ -159,7 +189,7 @@ export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: 
   // Capture phase, so Space and Cmd+C/X/V win over the app-wide handlers.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (live.current.dialog || isEditableTarget(e.target)) return
+      if (live.current.dialog || live.current.cycleRange || isEditableTarget(e.target)) return
       const mod = e.metaKey || e.ctrlKey
       const handler =
         e.code === 'Space' && !mod && !e.altKey ? play
@@ -178,10 +208,32 @@ export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: 
   // Presses anywhere in the wave box count, measured from the waveform's left edge: the axis and the
   // right gutter lie outside the sample, so a drag from there starts at its very start or end.
   const pointerX = (e: React.PointerEvent) => e.clientX - (waveRef.current?.getBoundingClientRect().left ?? 0)
+  const pointerY = (e: React.PointerEvent) => e.clientY - (waveRef.current?.getBoundingClientRect().top ?? 0)
   const frameOf = (x: number) => frameAtX(x, live.current.view.scroll, live.current.view.px, frames)
 
+  // Draw strokes: each move draws a line from the last point, so fast drags leave no gaps.
+  const drawTo = (e: React.PointerEvent) => {
+    const s0 = stroke.current
+    if (!s0) return
+    const frame = Math.min(frames - 1, frameOf(pointerX(e)))
+    const value = valueAtY(live.current.lanes[s0.lane], pointerY(e))
+    drawLine(s0.data[s0.lane], s0.frame, s0.value, frame, value)
+    stroke.current = { ...s0, frame, value }
+    setDraft([...s0.data])
+  }
+
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!live.current.pcm || live.current.busy) return
+    const { pcm: data, busy: isBusy, drawing: isDrawing, lanes: laneList } = live.current
+    if (!data || isBusy) return
+    if (isDrawing) {
+      const lane = laneAt(laneList, pointerY(e))
+      const frame = Math.min(frames - 1, frameOf(pointerX(e)))
+      const value = valueAtY(laneList[lane], pointerY(e))
+      stroke.current = { data: data.map((ch) => new Float32Array(ch)), lane, frame, value }
+      drawTo(e)
+      e.currentTarget.setPointerCapture(e.pointerId)
+      return
+    }
     const x = pointerX(e)
     const next = pointerDown({
       frame: frameOf(x), x, scroll: view.scroll, px: view.px, sel, cursor,
@@ -194,6 +246,7 @@ export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: 
   }
 
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (stroke.current) return drawTo(e)
     if (!drag.current) return
     const next = pointerMove(drag.current, frameOf(pointerX(e)), live.current.sel, live.current.cursor)
     setSel(next.sel)
@@ -202,6 +255,12 @@ export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: 
 
   const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
     e.currentTarget.releasePointerCapture(e.pointerId)
+    if (stroke.current) {
+      const data = stroke.current.data
+      stroke.current = null
+      void commit(data).finally(() => setDraft(null))
+      return
+    }
     setSel(pointerUp(drag.current, live.current.sel))
     drag.current = null
   }
@@ -210,18 +269,18 @@ export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: 
 
   return (
     <div className={s.editor}>
-      <EditorToolbar ready={!missing && !busy} hasSel={sel !== null} hasClip={clip !== null} actions={actions} />
+      <EditorToolbar ready={!missing && !busy} hasSel={sel !== null} hasClip={clip !== null} drawing={drawing} actions={actions} />
 
       {meta && entity && (
         <div className={s.info}>
           <span>
             {entity.name} · {meta.sampleRate.toLocaleString()} Hz · {meta.channels === 2 ? 'stereo' : 'mono'} · {formatDuration(meta.sampleRate, meta.frames)}
           </span>
-          {!fitsWaveform(meta) && <span className={s.warn}>&gt; {WAVEFORM_MAX_LENGTH_SECONDS}s — hidden from wave module pickers</span>}
+          <span className={fitsWavetable(meta) ? undefined : s.warn}>{waveUse(meta)}</span>
         </div>
       )}
 
-      <div className={s.wave} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}>
+      <div className={drawing ? `${s.wave} ${s.drawing}` : s.wave} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}>
         <AmplitudeAxis lanes={lanes} />
         <div className={s.canvasBox} ref={waveRef}>
           <canvas ref={canvasRef} className={s.canvas} />
@@ -237,10 +296,17 @@ export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: 
       <WaveScrollbar width={width} frames={frames} visible={visibleFrames(width, view.px)}
         scroll={view.scroll} onScroll={view.setScroll} />
 
-      {dialog && sel && (
+      {dialog && (sel || dialog === 'pitch') && (
         <EditDialog kind={dialog} onClose={() => setDialog(null)}
           onApplyVolume={(pct) => { const st = editState(); if (st) apply(gainSelection(st, pct)) }}
-          onApplyFade={(from, to) => { const st = editState(); if (st) apply(fadeSelection(st, from, to)) }} />
+          onApplyFade={(from, to) => { const st = editState(); if (st) apply(fadeSelection(st, from, to)) }}
+          onApplyPitch={(semis) => { const st = editState(); if (st) apply(repitchSelection(st, semis)) }} />
+      )}
+
+      {cycleRange && pcm && meta && entity && (
+        <MakeCycleDialog pcm={pcm} range={cycleRange} sampleRate={meta.sampleRate} defaultName={entity.name}
+          busy={busy} onPreview={previewPcm} onSave={(name, cycle, length) => void saveAs(name, cycle, length)}
+          onClose={() => setCycleRange(null)} />
       )}
 
       {saveAsOpen && entity && (

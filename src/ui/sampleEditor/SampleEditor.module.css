@@ -45,3 +45,20 @@
   justify-content: center;
   background: var(--bg);
 }
+
+:global(.dialog-box).cycleDialog { width: 440px; }
+.cycleDialog :global(.dialog-row) select { width: 200px; }
+.cycleDialog :global(.dialog-row) input[type='checkbox'] { width: auto; }
+.cycleDialog :global(.dialog-row) input:not([type]) { width: 200px; }
+.cycleShape {
+  width: 100%;
+  height: 110px;
+  display: block;
+  margin: 4px 0 10px;
+  background: var(--bg);
+  border: 1px solid #222;
+  border-radius: 4px;
+}
+.cycleAxis { stroke: #2a3644; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.cycleLine { fill: none; stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.drawing { cursor: cell; }

@@ -8,6 +8,7 @@ import { syncSamplesToVfs } from '../audio/vfsLoader'
 import { computeSlotLayouts } from '../engine/voiceSlotLayout'
 import { liveGraphOptions } from '../player/liveSlot'
 import { liveVoiceCount } from '../domain/types'
+import { structuralParamsKey } from '../domain/moduleDefs'
 import { useDocStore } from '../state/docStore'
 import { useMidiStore } from '../state/midiStore'
 import { useProjectStore } from '../state/projectStore'
@@ -50,6 +51,7 @@ export function useEngine(): AudioHost {
   }
 
   const vfsSyncRef = useRef<Promise<void> | null>(null)
+  const vfsSeqRef = useRef(0)
   const lastVfsKeysRef = useRef('')
   const vfsLoadedRef = useRef<Set<string>>(new Set())
   const l1SumsRef = useRef<Record<string, number>>({})
@@ -105,6 +107,8 @@ export function useEngine(): AudioHost {
             let key = `${mid}:${mod.type}`
             // Sample changes are structural (different hash → different table key).
             if (mod.sampleId) key += `:s${mod.sampleId}`
+            const params = structuralParamsKey(mod.type, mod.params)
+            if (params) key += `:p[${params}]`
             return key
           }).join(',')
           const conns = Object.values(inst.connections)
@@ -135,7 +139,7 @@ export function useEngine(): AudioHost {
 
       // Samples.
       for (const s of Object.values(doc.entities.samples)) {
-        parts.push(`samp:${s.hash}`)
+        parts.push(`samp:${s.hash}:${s.cycleLength ?? ''}:${vfsLoadedRef.current.has(s.hash) ? 'in' : 'out'}`)
       }
 
       // Sections.
@@ -233,8 +237,18 @@ export function useEngine(): AudioHost {
         lastVfsKeysRef.current = keys
         if (samples.length > 0) {
           useAudioStore.getState().setStatus('warming')
+          const seq = ++vfsSeqRef.current
           vfsSyncRef.current = syncSamplesToVfs(host, samples, slug).then(
-            ({ loaded, l1Sums }) => { vfsSyncRef.current = null; vfsLoadedRef.current = loaded; l1SumsRef.current = l1Sums; useDocStore.getState().setVfsLoaded(loaded) },
+            ({ loaded, l1Sums }) => {
+              // A newer sync has started: its result (and pending promise) wins.
+              if (seq !== vfsSeqRef.current) return
+              vfsSyncRef.current = null
+              vfsLoadedRef.current = loaded
+              l1SumsRef.current = l1Sums
+              useDocStore.getState().setVfsLoaded(loaded)
+              // Samples compiled while still loading were silenced; recompile now they are in.
+              schedule()
+            },
           )
         }
       }

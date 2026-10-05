@@ -160,3 +160,124 @@ export function fadeRange(data: PcmData, start: number, end: number, from: numbe
     return out
   })
 }
+
+/** Keep only `[start, end)`. */
+export function trimToRange(data: PcmData, start: number, end: number): PcmData {
+  const out = copyRange(data, start, end)
+  return framesOf(out) === 0 ? silentMinimum(data) : out
+}
+
+export function silenceRange(data: PcmData, start: number, end: number): PcmData {
+  return gainRange(data, start, end, 0)
+}
+
+/** Scale `[start, end)` so its loudest frame (over all channels) peaks at `peak`. */
+export function normalizeRange(data: PcmData, start: number, end: number, peak = 1): PcmData {
+  const [a, b] = clampRange(start, end, framesOf(data))
+  let max = 0
+  for (const ch of data) for (let i = a; i < b; i++) max = Math.max(max, Math.abs(ch[i]))
+  return max === 0 ? data : gainRange(data, a, b, peak / max)
+}
+
+/** Subtract each channel's average over `[start, end)`. */
+export function removeDcRange(data: PcmData, start: number, end: number): PcmData {
+  const [a, b] = clampRange(start, end, framesOf(data))
+  if (b <= a) return data
+  return mapChannels(data, (ch) => {
+    let sum = 0
+    for (let i = a; i < b; i++) sum += ch[i]
+    const mean = sum / (b - a)
+    const out = new Float32Array(ch)
+    for (let i = a; i < b; i++) out[i] = Math.max(-1, Math.min(1, ch[i] - mean))
+    return out
+  })
+}
+
+/** Mono view of the audio (channel average), for analysis. */
+export function mixDown(data: PcmData): Float32Array {
+  if (data.length === 1) return data[0]
+  return adaptChannels(data, 1)[0]
+}
+
+/**
+ * The rising zero crossing nearest to `frame` (within `radius`), judged on the mono mix;
+ * `frame` itself when there is none.
+ */
+export function nearestZeroCrossing(data: PcmData, frame: number, radius = 2048): number {
+  const mono = mixDown(data)
+  const n = mono.length
+  const rising = (i: number) => i > 0 && i < n && mono[i - 1] < 0 && mono[i] >= 0
+  if (frame <= 0 || frame >= n) return Math.max(0, Math.min(n, frame))
+  for (let d = 0; d <= radius; d++) {
+    if (rising(frame - d)) return frame - d
+    if (rising(frame + d)) return frame + d
+  }
+  return frame
+}
+
+const SINC_HALF_TAPS = 16
+
+/** Blackman-windowed sinc, `x` in input samples, cutoff as a fraction of Nyquist. */
+function windowedSinc(x: number, cutoff: number, halfWidth: number): number {
+  if (Math.abs(x) >= halfWidth) return 0
+  const w = 0.42 + 0.5 * Math.cos(Math.PI * x / halfWidth) + 0.08 * Math.cos(2 * Math.PI * x / halfWidth)
+  const t = Math.PI * x * cutoff
+  return cutoff * (t === 0 ? 1 : Math.sin(t) / t) * w
+}
+
+/**
+ * Band-limited read of `ch` at fractional positions: `pos(i)` for output frame i, reading
+ * `step` input frames per output frame (steps above 1 low-pass against aliasing).
+ * `periodic` wraps reads around the ends, for single cycles.
+ */
+export function readInterpolated(
+  ch: Float32Array, frames: number, pos: (i: number) => number, step: number, periodic = false,
+): Float32Array<ArrayBuffer> {
+  const n = ch.length
+  const cutoff = Math.min(1, 1 / step)
+  const half = SINC_HALF_TAPS / cutoff
+  const out = new Float32Array(frames)
+  for (let i = 0; i < frames; i++) {
+    const p = pos(i)
+    const lo = Math.ceil(p - half)
+    const hi = Math.floor(p + half)
+    let acc = 0
+    for (let j = lo; j <= hi; j++) {
+      const k = periodic ? ((j % n) + n) % n : j
+      if (k < 0 || k >= n) continue
+      acc += ch[k] * windowedSinc(p - j, cutoff, half)
+    }
+    out[i] = acc
+  }
+  return out
+}
+
+/** Stretch or shrink the whole sample to `frames` frames (pitch changes with length). */
+export function resampleTo(data: PcmData, frames: number, periodic = false): PcmData {
+  const from = framesOf(data)
+  const to = Math.max(1, Math.round(frames))
+  if (from === 0 || to === from) return data
+  const step = from / to
+  return mapChannels(data, (ch) => readInterpolated(ch, to, (i) => i * step, step, periodic))
+}
+
+/** Resample `[start, end)` by `semitones` (up = shorter), keeping the rest. */
+export function repitchRange(data: PcmData, start: number, end: number, semitones: number): PcmData {
+  const [a, b] = clampRange(start, end, framesOf(data))
+  if (b <= a || semitones === 0) return data
+  const part = resampleTo(copyRange(data, a, b), (b - a) / Math.pow(2, semitones / 12))
+  return replaceRange(data, a, b, part)
+}
+
+/** Draws a straight line from (f0, v0) to (f1, v1) into `ch`, in place, clamped to [-1, 1]. */
+export function drawLine(ch: Float32Array, f0: number, v0: number, f1: number, v1: number): void {
+  const last = ch.length - 1
+  if (last < 0) return
+  const [a, va, b, vb] = f0 <= f1 ? [f0, v0, f1, v1] : [f1, v1, f0, v0]
+  const from = Math.max(0, Math.round(a))
+  const to = Math.min(last, Math.round(b))
+  for (let i = from; i <= to; i++) {
+    const t = b === a ? 1 : (i - a) / (b - a)
+    ch[i] = Math.max(-1, Math.min(1, va + (vb - va) * Math.max(0, Math.min(1, t))))
+  }
+}

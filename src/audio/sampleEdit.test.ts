@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
-  adaptChannels, copyRange, cutRange, fadeRange, framesOf,
-  gainRange, insertAt, pasteAt, replaceRange, reverseRange,
+  adaptChannels, copyRange, drawLine, cutRange, fadeRange, framesOf,
+  gainRange, insertAt, nearestZeroCrossing, normalizeRange, pasteAt, removeDcRange, repitchRange, replaceRange,
+  resampleTo, reverseRange, silenceRange, trimToRange,
 } from './sampleEdit'
 
 const mono = (vals: number[]) => [new Float32Array(vals)]
@@ -149,5 +150,82 @@ describe('framesOf', () => {
   it('reads the first channel length', () => {
     expect(framesOf(mono([1, 2]))).toBe(2)
     expect(framesOf([])).toBe(0)
+  })
+})
+
+const sine = (frames: number, period: number, amp = 0.5, phase = 0) =>
+  Float32Array.from({ length: frames }, (_, i) => amp * Math.sin(2 * Math.PI * i / period + phase))
+
+describe('trim, silence, normalize and DC', () => {
+  it('keeps only the range when trimming, never leaving nothing', () => {
+    expect(toArr(trimToRange(mono([1, 2, 3, 4]), 1, 3))).toEqual([[2, 3]])
+    expect(toArr(trimToRange(mono([1, 2]), 1, 1))).toEqual([[0]])
+  })
+  it('silences a range', () => {
+    expect(toArr(silenceRange(mono([0.5, 0.5, 0.5]), 1, 2))).toEqual([[0.5, 0, 0.5]])
+  })
+  it('normalizes a range to its loudest frame across channels', () => {
+    const out = normalizeRange(stereo([0.1, 0.25], [-0.5, 0.2]), 0, 2)
+    expect(toArr(out).map((c) => c.map((v) => +v.toFixed(3)))).toEqual([[0.2, 0.5], [-1, 0.4]])
+    const silent = mono([0, 0])
+    expect(normalizeRange(silent, 0, 2)).toBe(silent)
+  })
+  it('removes each channel\'s offset within the range', () => {
+    expect(toArr(removeDcRange(stereo([0.6, 0.4], [0, 0]), 0, 2)).map((c) => c.map((v) => +v.toFixed(3)))).toEqual([[0.1, -0.1], [0, 0]])
+  })
+})
+
+describe('nearestZeroCrossing', () => {
+  it('finds the closest rising crossing on the mono mix', () => {
+    const data = [sine(400, 100, 0.5, 0.01)]
+    expect(nearestZeroCrossing(data, 95)).toBe(100)
+    expect(nearestZeroCrossing(data, 140)).toBe(100)
+    expect(nearestZeroCrossing(data, 160)).toBe(200)
+  })
+  it('stays put when there is no crossing in reach', () => {
+    expect(nearestZeroCrossing(mono([0.5, 0.5, 0.5, 0.5]), 2)).toBe(2)
+  })
+})
+
+describe('resampling', () => {
+  it('stretches to the requested length and keeps the waveform', () => {
+    const out = resampleTo([sine(400, 100)], 800)
+    expect(framesOf(out)).toBe(800)
+    // A period of 100 becomes 200: compare away from the edges.
+    for (const i of [100, 250, 333, 500]) expect(out[0][i]).toBeCloseTo(0.5 * Math.sin(2 * Math.PI * i / 200), 2)
+  })
+  it('wraps a single cycle around its ends when periodic', () => {
+    const out = resampleTo([sine(64, 64)], 256, true)
+    for (const i of [0, 1, 255]) expect(out[0][i]).toBeCloseTo(0.5 * Math.sin(2 * Math.PI * i / 256), 2)
+  })
+  it('filters content above the new Nyquist when shrinking', () => {
+    // A period of 3 frames is above Nyquist once halved; it must not alias into the result.
+    const out = resampleTo([sine(3000, 3)], 1500)
+    const mid = Array.from(out[0].subarray(200, 1300))
+    expect(Math.max(...mid.map(Math.abs))).toBeLessThan(0.05)
+  })
+  it('repitches only the range: an octave up halves it', () => {
+    const data = [new Float32Array(100).fill(0.25)]
+    const out = repitchRange(data, 20, 60, 12)
+    expect(framesOf(out)).toBe(80)
+    expect(out[0][0]).toBe(0.25)
+    expect(out[0][79]).toBe(0.25)
+  })
+})
+
+describe('drawLine', () => {
+  it('interpolates between the points in either direction and clamps', () => {
+    const ch = new Float32Array(6)
+    drawLine(ch, 1, 0, 4, 0.75)
+    expect(Array.from(ch)).toEqual([0, 0, 0.25, 0.5, 0.75, 0])
+    drawLine(ch, 5, 2, 5, 2)
+    expect(ch[5]).toBe(1)
+    drawLine(ch, 3, -1, 0, -0.25)
+    expect(Array.from(ch).slice(0, 4)).toEqual([-0.25, -0.5, -0.75, -1])
+  })
+  it('ignores the part outside the sample', () => {
+    const ch = new Float32Array(3)
+    drawLine(ch, -2, 0.5, 10, 0.5)
+    expect(Array.from(ch)).toEqual([0.5, 0.5, 0.5])
   })
 })

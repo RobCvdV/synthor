@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
-import { clampScroll, clampZoom, fitZoom, zoomAround } from './waveView'
+import { clampScroll, fitZoom, zoomAround, zoomCentered, zoomToRange } from './waveView'
 
 /** Inner size of an element, kept current with a ResizeObserver. */
 export function useElementSize(ref: RefObject<HTMLElement | null>): { width: number; height: number } {
@@ -37,7 +37,19 @@ export function useWaveView(frames: number, width: number, wheelTarget: RefObjec
     setScrollRaw((sc) => clampScroll(sc, frames, width, px))
   }, [frames, width, px])
 
-  const zoomBy = useCallback((factor: number) => setPx((p) => clampZoom(p * factor)), [])
+  /** Zooms keeping `focus` (a frame) centred; without one, the middle of the view stays put. */
+  const zoomBy = useCallback((factor: number, focus?: number) => {
+    const { px: p, scroll: sc, width: w } = live.current
+    const next = zoomCentered(p, w, factor, focus ?? sc + w / 2 / p)
+    setPx(next.px)
+    setScroll(next.scroll, next.px)
+  }, [setScroll])
+
+  const zoomTo = useCallback((start: number, end: number) => {
+    const next = zoomToRange(live.current.width, start, end)
+    setPx(next.px)
+    setScroll(next.scroll, next.px)
+  }, [setScroll])
 
   const fit = useCallback(() => {
     const { frames: f, width: w } = live.current
@@ -66,5 +78,5 @@ export function useWaveView(frames: number, width: number, wheelTarget: RefObjec
     return () => el.removeEventListener('wheel', onWheel)
   }, [wheelTarget, setScroll])
 
-  return { px, scroll, setScroll, zoomBy, fit }
+  return { px, scroll, setScroll, zoomBy, zoomTo, fit }
 }

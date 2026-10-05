@@ -7,14 +7,17 @@ export function EditDialog({
   onClose,
   onApplyVolume,
   onApplyFade,
+  onApplyPitch,
 }: {
-  kind: 'volume' | 'fadeIn' | 'fadeOut'
+  kind: 'volume' | 'fadeIn' | 'fadeOut' | 'pitch'
   onClose: () => void
   onApplyVolume: (pct: number) => void
   onApplyFade: (from: number, to: number) => void
+  onApplyPitch: (semitones: number) => void
 }) {
-  const isFade = kind !== 'volume'
-  const [v1, setV1] = useState(isFade ? (kind === 'fadeIn' ? '0' : '100') : '100')
+  const isFade = kind === 'fadeIn' || kind === 'fadeOut'
+  const isPitch = kind === 'pitch'
+  const [v1, setV1] = useState(isFade ? (kind === 'fadeIn' ? '0' : '100') : isPitch ? '0' : '100')
   const [v2, setV2] = useState(isFade ? (kind === 'fadeIn' ? '100' : '0') : '100')
   const [err, setErr] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -22,7 +25,13 @@ export function EditDialog({
   const apply = () => {
     const a = parseFloat(v1)
     const b = parseFloat(v2)
-    if (!isFade) {
+    if (isPitch) {
+      if (!isFinite(a) || a < -48 || a > 48) {
+        setErr('Pitch must be −48 to 48 semitones')
+        return
+      }
+      onApplyPitch(a)
+    } else if (!isFade) {
       if (!isFinite(a) || a < 0 || a > 1000) {
         setErr('Volume must be 0–1000%')
         return
@@ -78,6 +87,20 @@ export function EditDialog({
               <span className="muted">%</span>
             </div>
           </>
+        ) : isPitch ? (
+          <div className="dialog-row">
+            <label>Pitch</label>
+            <input
+              value={v1}
+              onChange={(e) => setV1(e.target.value)}
+              onFocus={(e) => e.target.select()}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') onClose()
+              }}
+              autoFocus
+            />
+            <span className="muted">semitones (changes the length)</span>
+          </div>
         ) : (
           <div className="dialog-row">
             <label>Volume</label>

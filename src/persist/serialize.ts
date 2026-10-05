@@ -13,12 +13,12 @@
 import { DEFAULT_LIVE_VOICES, type Doc, type ModuleType, type SampleEntity } from '../domain/types'
 import { nextEffName } from '../domain/factory'
 import { defaultParams, MODULE_DEFS } from '../domain/moduleDefs'
-import { sampleChoices, sortSamples } from '../domain/sampleChoices'
+import { fitsWaveform, sortSamples } from '../domain/sampleChoices'
 
 /**
  * Bump when the on-disk shape changes; add a matching `migrate` case.
  */
-export const CURRENT_SCHEMA_VERSION = 14
+export const CURRENT_SCHEMA_VERSION = 15
 
 export interface SongMeta {
   name: string
@@ -113,6 +113,8 @@ export function migrate(raw: unknown): SongFile {
   // v13→v14: instruments and samples may carry `library` (category, tags, library id). No data
   // conversion — the bump makes older app versions reject files instead of dropping it.
 
+  // v14→v15: samples may carry `cycleLength` (wavetables). No data conversion, same reason.
+
   // v1→v1 migration: when the stereo output was added (commit b3917fc), the
   // output module's inlet changed from 'in' to 'inL'. Old modular instruments
   // with connections targeting 'in' would silently produce silence because
@@ -201,7 +203,9 @@ function upgradeV12toV13(raw: any): any {
     if (!isRecord(m) || !MODULE_DEFS[m.type as ModuleType]?.samplePicker) return m
     const { sampleIndex, ...params } = isRecord(m.params) ? m.params : {} as Record<string, unknown>
     const idx = typeof sampleIndex === 'number' ? Math.round(sampleIndex) : 0
-    const sampleId = sampleChoices(m.type as ModuleType, sorted)[idx]?.id
+    // v12 wave pickers listed single cycles only; later wavetable support must not shift the index.
+    const choices = m.type === 'wave' ? sorted.filter(fitsWaveform) : sorted
+    const sampleId = choices[idx]?.id
     return { ...m, params, ...(sampleId ? { sampleId } : {}) }
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
