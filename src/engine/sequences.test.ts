@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { buildSequences } from '../engine/sequences'
+import { buildDrumKitSlotSequences, buildSequences } from '../engine/sequences'
 import { emptyCells } from '../domain/factory'
-import type { Track } from '../domain/types'
+import type { DrumKitInstrument, Track } from '../domain/types'
+import { newDrumKitInstrument } from '../domain/factory'
+import { midiToFreq } from '../domain/notes'
 
 /** Helper: create a track with `length` empty cells and the given lanes. */
 function makeTrack(length: number, lanes: { id: string; type: string }[] = []): Track {
@@ -361,5 +363,56 @@ describe('buildSequences', () => {
     const track = makeTrack(4, lanes)
     const seq = buildSequences(track, 4)
     expect(seq.laneDefs).toEqual(lanes)
+  })
+})
+
+describe('buildDrumKitSlotSequences', () => {
+  // Kick at C-2 (36, a synth slot pitched as C-4), snare at D-2 (38).
+  const kit: DrumKitInstrument = {
+    ...newDrumKitInstrument('Kit'),
+    slots: [
+      { id: 'kick', note: 36, sampleId: null, instrumentId: 'synth', baseNote: 60, volume: 1, pan: 0 },
+      { id: 'snare', note: 38, sampleId: 's', instrumentId: null, baseNote: 60, volume: 1, pan: 0 },
+    ],
+  }
+
+  it('holds a slot\'s gate through hold rows, so an instrument slot\'s envelope sees the note length', () => {
+    const t = makeTrack(8)
+    setNote(t, 0, 36)
+    for (const r of [1, 2, 3]) setHold(t, r)
+    const { slotGateSeqs } = buildDrumKitSlotSequences(t, 8, kit)
+    expect(slotGateSeqs.kick).toEqual([1, 1, 1, 1, 0, 0, 0, 0])
+    expect(slotGateSeqs.snare).toEqual([0, 0, 0, 0, 0, 0, 0, 0])
+  })
+
+  it('keeps each slot\'s frequency after its gate drops, so the release stays at pitch', () => {
+    const t = makeTrack(6)
+    setNote(t, 1, 36)
+    setNote(t, 3, 38)
+    const { slotFreqSeqs } = buildDrumKitSlotSequences(t, 6, kit)
+    const c4 = midiToFreq(60)
+    expect(slotFreqSeqs.kick).toEqual([0, c4, c4, c4, c4, c4])
+    // The snare is the last hit, so its release carries over the loop into the pattern start.
+    expect(slotFreqSeqs.snare).toEqual([c4, c4, c4, c4, c4, c4])
+  })
+
+  it('gives back-to-back hits a gap to retrigger, like a regular track', () => {
+    const t = makeTrack(6)
+    setNote(t, 0, 36)
+    setHold(t, 1)
+    setNote(t, 2, 36)
+    const { slotGateSeqs } = buildDrumKitSlotSequences(t, 6, kit)
+    // The last hold row is given up so the second hit has a rising edge.
+    expect(slotGateSeqs.kick.slice(0, 3)).toEqual([1, 0, 1])
+  })
+
+  it('sends a hit to its slot and wraps a held last note into the pattern start', () => {
+    const t = makeTrack(4)
+    setNote(t, 2, 38)
+    setHold(t, 3)
+    const { slotGateSeqs, slotFreqSeqs } = buildDrumKitSlotSequences(t, 4, kit)
+    expect(slotGateSeqs.snare).toEqual([1, 1, 1, 1])
+    expect(slotFreqSeqs.snare[0]).toBe(midiToFreq(60))
+    expect(slotGateSeqs.kick).toEqual([0, 0, 0, 0])
   })
 })

@@ -207,9 +207,10 @@ export interface DrumKitSlotSequences {
 
 /**
  * Build per-slot gate and frequency sequences for a drumkit track.
- * Each row is dispatched to exactly one slot based on the cell's MIDI note
- * (nearest slot.note <= cell.note). Rows with no note or no matching slot
- * produce silence for that slot.
+ * Each note goes to one slot (nearest slot.note <= cell.note). The gate follows the regular
+ * track gate — hold rows ('|'), retrigger gaps and wrap-around sustain — on the slot of the
+ * latest note, so an instrument slot's envelope sees the note's real length. Each slot keeps
+ * its last frequency after its gate drops, so a release still sounds at pitch.
  */
 export function buildDrumKitSlotSequences(
   track: Track,
@@ -218,26 +219,33 @@ export function buildDrumKitSlotSequences(
 ): DrumKitSlotSequences {
   const slotGateSeqs: Record<string, number[]> = {}
   const slotFreqSeqs: Record<string, number[]> = {}
-
-  // Initialise empty arrays for every slot.
   for (const slot of drumkit.slots) {
     slotGateSeqs[slot.id] = new Array(length).fill(0)
     slotFreqSeqs[slot.id] = new Array(length).fill(0)
   }
 
-  for (let row = 0; row < length; row++) {
+  const { gateSeq } = buildSequences(track, length)
+  const hit = (row: number) => {
     const note = track.cells[row]?.note ?? null
-    if (note === null) continue
+    const slot = note === null ? undefined : getSlotForNote(drumkit, note)
+    return slot && note !== null ? { slot, freq: midiToFreq(slot.baseNote + (note - slot.note)) } : null
+  }
 
-    const slot = getSlotForNote(drumkit, note)
-    if (!slot) continue
+  // Rows before the first note continue the pattern's last note (wrap-around sustain).
+  let current: ReturnType<typeof hit> = null
+  for (let row = length - 1; row >= 0 && !current; row--) {
+    if (track.cells[row]?.note != null) current = hit(row)
+  }
+  const lastFreq: Record<string, number> = {}
+  if (current) lastFreq[current.slot.id] = current.freq
 
-    slotGateSeqs[slot.id][row] = 1
-    // Effective note: baseNote + key-offset within the slot's range.
-    // For instrument slots the synth receives this frequency directly.
-    // For sample slots the freq is unused (el.mc.sample uses static playbackRate).
-    const effectiveNote = slot.baseNote + (note - slot.note)
-    slotFreqSeqs[slot.id][row] = midiToFreq(effectiveNote)
+  for (let row = 0; row < length; row++) {
+    if (track.cells[row]?.note != null) {
+      current = hit(row)
+      if (current) lastFreq[current.slot.id] = current.freq
+    }
+    if (current && gateSeq[row] === 1) slotGateSeqs[current.slot.id][row] = 1
+    for (const [id, f] of Object.entries(lastFreq)) slotFreqSeqs[id][row] = f
   }
 
   return { slotGateSeqs, slotFreqSeqs }
