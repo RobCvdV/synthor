@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { detectPeriod, detectPeriodIn, extractCycle, extractWavetable, loopCycle, sweepWavetable } from './cycle'
+import { closeSeam, detectPeriod, detectPeriodIn, extractCycle, extractWavetable, loopCycle, sweepWavetable } from './cycle'
 import { framesOf } from './sampleEdit'
 import { CYCLE_PEAK } from './waveGen'
 
@@ -108,5 +108,32 @@ describe('wavetables', () => {
     expect(out.length).toBe(100)
     expect(out[10]).toBeCloseTo(0.5, 1)
     expect(out[90]).toBeCloseTo(-0.5, 1)
+  })
+})
+
+describe('closeSeam', () => {
+  const maxStep = (c: Float32Array) => Math.max(...Array.from(c, (v, i) => Math.abs(v - c[(i + 1) % c.length])))
+
+  it('removes the step where the cycle wraps, spreading it over the whole cycle', () => {
+    // A sine read with a period 3% too long ends short of where it started.
+    const off = Float32Array.from({ length: 512 }, (_, i) => Math.sin(2 * Math.PI * i * 1.03 / 512))
+    expect(Math.abs(off[0] - off[511])).toBeGreaterThan(0.15)
+    const closed = closeSeam(off)
+    expect(maxStep(closed)).toBeLessThan(0.02)
+    // The shape stays the same apart from a gentle ramp.
+    expect(Math.max(...Array.from(closed, (v, i) => Math.abs(v - off[i])))).toBeLessThan(0.2)
+  })
+
+  it('keeps a seamless cycle as it is', () => {
+    const sine = Float32Array.from({ length: 512 }, (_, i) => Math.sin(2 * Math.PI * i / 512))
+    const closed = closeSeam(sine)
+    expect(Math.max(...Array.from(closed, (v, i) => Math.abs(v - sine[i])))).toBeLessThan(1e-3)
+  })
+
+  it('leaves no jump inside an extracted cycle when the period is slightly off', () => {
+    const data = [tone(8000)]
+    const cycle = extractCycle(data, 1000, 6000, { length: 1024, period: SR / 220 * 1.02, average: true })[0]
+    const typical = maxStep(Float32Array.from({ length: 1024 }, (_, i) => cycle[i]).subarray(0, 512))
+    expect(maxStep(cycle)).toBeLessThan(typical * 2)
   })
 })

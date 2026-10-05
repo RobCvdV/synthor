@@ -134,6 +134,12 @@ export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: 
     if (st && pb) apply(pasteClip(st, pb.data, mode))
   }, [apply])
 
+  /** What zooming keeps centred: the selection, else the cursor, else the view's middle. */
+  const zoomFocus = () => {
+    const { sel: sl, cursor: c } = live.current
+    return sl ? (sl.start + sl.end) / 2 : c ?? undefined
+  }
+
   const actions: EditorActions = {
     play,
     copy,
@@ -158,8 +164,9 @@ export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: 
     openDialog: setDialog,
     saveAs: () => setSaveAsOpen(true),
     exportFile: () => void sample.exportFile(),
-    zoomOut: () => view.zoomBy(0.5),
-    zoomIn: () => view.zoomBy(2),
+    zoomOut: () => view.zoomBy(0.5, zoomFocus()),
+    zoomIn: () => view.zoomBy(2, zoomFocus()),
+    zoomSel: () => { const sl = live.current.sel; if (sl) view.zoomTo(sl.start, sl.end) },
     zoomFit: view.fit,
     close: onClose,
   }

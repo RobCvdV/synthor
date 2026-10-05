@@ -16,7 +16,7 @@ function setup(pcm = tone(240)) {
 describe('MakeCycleDialog', () => {
   it('shows the detected pitch and saves a cycle of the chosen length', () => {
     const { onSave, container } = setup()
-    expect(screen.getByText(/Detected 240\.0 Hz · B-3 -49 ct · 200\.0 frames/)).toBeInTheDocument()
+    expect(screen.getByText(/Repeats at 240\.0 Hz · B-3 -49 ct · 200\.0 frames/)).toBeInTheDocument()
     expect(container.innerHTML).toMatchSnapshot()
     fireEvent.change(screen.getByDisplayValue('2048 frames'), { target: { value: '512' } })
     fireEvent.click(screen.getByText('Save as Sample'))
@@ -34,7 +34,7 @@ describe('MakeCycleDialog', () => {
 
   it('falls back to the whole selection for unpitched audio', () => {
     setup([new Float32Array(6000)])
-    expect(screen.getByText('No clear pitch in the selection.')).toBeInTheDocument()
+    expect(screen.getByText(/No repeating pitch/)).toBeInTheDocument()
     expect(screen.getByDisplayValue('The whole selection')).toBeDisabled()
   })
 })
@@ -51,5 +51,20 @@ describe('MakeCycleDialog wavetables', () => {
     expect(name).toBe('Voice wavetable')
     expect(table[0]).toHaveLength(8 * 256)
     expect(length).toBe(256)
+  })
+})
+
+describe('MakeCycleDialog defaults', () => {
+  it('takes a cycle-sized selection whole, and a longer one by its detected period', () => {
+    const pcm = tone(240)
+    const shortSel = render(<MakeCycleDialog pcm={pcm} range={{ start: 0, end: 600 }} sampleRate={SR}
+      defaultName="V" busy={false} onPreview={vi.fn()} onSave={vi.fn()} onClose={vi.fn()} />)
+    expect(screen.getByDisplayValue('The whole selection')).toBeInTheDocument()
+    expect(screen.getByText(/Selection: 600 frames \(80\.0 Hz as one cycle\)/)).toBeInTheDocument()
+    shortSel.unmount()
+    const long = Float32Array.from({ length: SR }, (_, i) => 0.5 * Math.sin(2 * Math.PI * 240 * i / SR))
+    render(<MakeCycleDialog pcm={[long]} range={{ start: 0, end: SR }} sampleRate={SR}
+      defaultName="V" busy={false} onPreview={vi.fn()} onSave={vi.fn()} onClose={vi.fn()} />)
+    expect(screen.getByDisplayValue('One detected period')).toBeInTheDocument()
   })
 })

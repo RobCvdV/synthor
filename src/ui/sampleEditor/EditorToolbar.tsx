@@ -32,6 +32,7 @@ export interface EditorActions {
   exportFile: () => void
   zoomOut: () => void
   zoomIn: () => void
+  zoomSel: () => void
   zoomFit: () => void
   close: () => void
 }
@@ -71,8 +72,9 @@ export function EditorToolbar({ ready, hasSel, hasClip, drawing = false, actions
       <Button disabled={!ready} onClick={a.saveAs} title="Save the edited sample as a new sample in the list">Save As…</Button>
       <Button disabled={!ready} onClick={a.exportFile} title="Export sample to file">Export</Button>
       <span className={s.spacer} />
-      <Button onClick={a.zoomOut} title="Zoom out">zoom −</Button>
-      <Button onClick={a.zoomIn} title="Zoom in">zoom +</Button>
+      <Button onClick={a.zoomOut} title="Zoom out, keeping the selection or cursor centred">zoom −</Button>
+      <Button onClick={a.zoomIn} title="Zoom in, keeping the selection or cursor centred">zoom +</Button>
+      <Button disabled={!hasSel} onClick={a.zoomSel} title="Zoom to the selection">zoom sel</Button>
       <Button onClick={a.zoomFit} title="Fit whole sample">zoom fit</Button>
       <Button onClick={a.close} title="Close editor">Close ×</Button>
     </div>

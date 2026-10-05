@@ -74,8 +74,8 @@ export interface CycleOptions {
 }
 
 /**
- * One cycle from `[start, end)`, resampled to `length` frames, DC-free, normalized and rotated
- * to start on a rising zero crossing. Each period is read band-limited.
+ * One cycle from `[start, end)`, resampled to `length` frames, DC-free and normalized. A cycle
+ * found from a period starts on a rising zero crossing. Each period is read band-limited.
  */
 export function extractCycle(data: PcmData, start: number, end: number, opts: CycleOptions): PcmData {
   const frames = framesOf(data)
@@ -99,7 +99,22 @@ export function extractCycle(data: PcmData, start: number, end: number, opts: Cy
     }
     return sum
   })
-  return rotateToZeroCrossing(normalizeRange(removeDcRange(cycle, 0, length), 0, length, CYCLE_PEAK))
+  const shaped = normalizeRange(removeDcRange(cycle.map(closeSeam), 0, length), 0, length, CYCLE_PEAK)
+  // A detected period has no natural start; a range taken whole keeps the one it was given.
+  return opts.period ? rotateToZeroCrossing(shaped) : shaped
+}
+
+/**
+ * Makes a cycle loop without a step: the gap between where the end is heading and where the
+ * start is gets spread as a ramp over the whole cycle. An imperfect period otherwise leaves a
+ * jump at the seam, which rotation would move into the middle of the wave.
+ */
+export function closeSeam(ch: Float32Array<ArrayBuffer>): Float32Array<ArrayBuffer> {
+  const n = ch.length
+  if (n < 3) return ch
+  const next = ch[n - 1] + (ch[n - 1] - ch[n - 2])
+  const gap = ch[0] - next
+  return ch.map((v, i) => v + gap * (i + 1) / n)
 }
 
 /** Rotates a cycle so it starts on its first rising zero crossing (read on the mono mix). */

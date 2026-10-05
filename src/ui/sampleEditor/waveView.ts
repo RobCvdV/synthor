@@ -34,6 +34,20 @@ export function zoomAround(px: number, scroll: number, x: number, zoomIn: boolea
   return { px: next, scroll: frame - x / next }
 }
 
+/** Zooms by `factor` with frame `focus` in the middle of the view. Scroll is unclamped. */
+export function zoomCentered(px: number, width: number, factor: number, focus: number): { px: number; scroll: number } {
+  const next = clampZoom(px * factor)
+  return { px: next, scroll: focus - width / 2 / next }
+}
+
+/** Fits `[start, end)` in the view with a small margin either side. Scroll is unclamped. */
+export function zoomToRange(width: number, start: number, end: number): { px: number; scroll: number } {
+  const len = Math.max(1, end - start)
+  const margin = len * 0.05
+  const px = clampZoom(width / (len + 2 * margin))
+  return { px, scroll: (start + end) / 2 - width / 2 / px }
+}
+
 /** Min and max sample value drawn in pixel column `x`, or null past the end. */
 export function columnPeak(ch: Float32Array, x: number, px: number, scroll: number): [number, number] | null {
   const f0 = Math.floor(scroll + x / px)

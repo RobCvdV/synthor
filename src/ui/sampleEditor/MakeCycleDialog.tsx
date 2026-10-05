@@ -3,6 +3,7 @@ import { detectPeriodIn, extractCycle, extractWavetable, loopCycle, sweepWavetab
 import { CYCLE_LENGTHS, DEFAULT_CYCLE_LENGTH } from '../../audio/waveGen'
 import type { PcmData } from '../../audio/sampleEdit'
 import { freqToNote, midiToName } from '../../domain/notes'
+import { fitsWaveform } from '../../domain/sampleChoices'
 import { Dialog } from '../Dialog'
 import { Button } from '../components/Button'
 import { Select } from '../components/Select'
@@ -27,7 +28,9 @@ export function MakeCycleDialog({ pcm, range, sampleRate, defaultName, busy, onP
   onClose: () => void
 }) {
   const estimate = useMemo(() => detectPeriodIn(pcm, range.start, range.end, sampleRate), [pcm, range, sampleRate])
-  const [useDetected, setUseDetected] = useState(estimate !== null)
+  const selected = range.end - range.start
+  // A cycle-sized selection is meant as the cycle itself; detection is for longer stretches of sound.
+  const [useDetected, setUseDetected] = useState(estimate !== null && !fitsWaveform({ frames: selected, sampleRate }))
   const [average, setAverage] = useState(true)
   const [length, setLength] = useState<number>(DEFAULT_CYCLE_LENGTH)
   const [frames, setFrames] = useState(1)
@@ -35,7 +38,7 @@ export function MakeCycleDialog({ pcm, range, sampleRate, defaultName, busy, onP
   const table = frames > 1
   const shownName = name ?? `${defaultName} ${table ? 'wavetable' : 'cycle'}`
 
-  const period = useDetected && estimate ? estimate.period : (range.end - range.start) / frames
+  const period = useDetected && estimate ? estimate.period : selected / frames
   const result = useMemo(
     () => table
       ? extractWavetable(pcm, range.start, range.end, sampleRate, {
@@ -61,7 +64,11 @@ export function MakeCycleDialog({ pcm, range, sampleRate, defaultName, busy, onP
         <Button disabled={busy || !shownName.trim()} onClick={save}>{busy ? 'Saving…' : 'Save as Sample'}</Button>
         <Button onClick={onClose}>Cancel</Button>
       </>}>
-      <p className="muted">{estimate ? describePitch(estimate.frequency, estimate.period) : 'No clear pitch in the selection.'}</p>
+      <p className="muted">
+        Selection: {selected.toLocaleString()} frames ({(sampleRate / selected).toFixed(1)} Hz as one cycle)
+        <br />
+        {estimate ? describePitch(estimate.frequency, estimate.period) : 'No repeating pitch found in it.'}
+      </p>
       <CycleShape data={result[0]} cycleLength={length} />
       <div className="dialog-row">
         <label>Frames</label>
@@ -98,7 +105,7 @@ export function MakeCycleDialog({ pcm, range, sampleRate, defaultName, busy, onP
 
 function describePitch(frequency: number, period: number): string {
   const { midi, cents } = freqToNote(frequency)
-  return `Detected ${frequency.toFixed(1)} Hz · ${midiToName(midi)} ${cents >= 0 ? '+' : ''}${cents} ct · ${period.toFixed(1)} frames per period`
+  return `Repeats at ${frequency.toFixed(1)} Hz · ${midiToName(midi)} ${cents >= 0 ? '+' : ''}${cents} ct · ${period.toFixed(1)} frames per period`
 }
 
 const SHAPE_POINTS = 256

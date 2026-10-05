@@ -5,7 +5,7 @@ import { EditorToolbar, type EditorActions } from './EditorToolbar'
 
 function actions(): EditorActions {
   const names = ['play', 'copy', 'cut', 'paste', 'insert', 'replace', 'reverse', 'snap', 'process', 'makeCycle', 'toggleDraw', 'openDialog', 'saveAs',
-    'exportFile', 'zoomOut', 'zoomIn', 'zoomFit', 'close'] as const
+    'exportFile', 'zoomOut', 'zoomIn', 'zoomSel', 'zoomFit', 'close'] as const
   return Object.fromEntries(names.map((n) => [n, vi.fn()])) as unknown as EditorActions
 }
 

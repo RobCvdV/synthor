@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  MAX_PX, MIN_PX, amplitudeY, clampScroll, laneLayout, columnPeak, fitZoom, frameAtX, laneAt, scrollAtThumb, scrollThumb, valueAtY, zoomAround,
+  MAX_PX, MIN_PX, amplitudeY, clampScroll, laneLayout, columnPeak, fitZoom, frameAtX, laneAt, scrollAtThumb, scrollThumb, valueAtY, zoomAround, zoomCentered, zoomToRange,
 } from './waveView'
 
 describe('waveView', () => {
@@ -83,5 +83,19 @@ describe('drawing positions', () => {
     expect(valueAtY(lanes[0], 85)).toBe(-0.5)
     expect(valueAtY(lanes[0], 500)).toBe(-1)
     expect(valueAtY(lanes[0], amplitudeY(lanes[0], 0.3))).toBeCloseTo(0.3)
+  })
+})
+
+describe('zooming to a focus', () => {
+  it('keeps the focus frame in the middle of the view', () => {
+    const z = zoomCentered(1, 800, 2, 5000)
+    expect(z.px).toBe(2)
+    expect(z.scroll + 400 / z.px).toBe(5000)
+  })
+  it('fits a range with a margin, centred', () => {
+    const z = zoomToRange(1000, 2000, 3000)
+    expect(z.px).toBeCloseTo(1000 / 1100)
+    expect(z.scroll + 500 / z.px).toBeCloseTo(2500)
+    expect(z.scroll).toBeCloseTo(1950)
   })
 })
