@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { BUILTIN_LANE_TYPES, effInletNames, isBuiltinLaneType, LANE_DEFS, readableLaneLabel, valueHex } from '../domain/effects'
+import {
+  BUILTIN_LANE_TYPES, effInletNames, interpolateValues, isBuiltinLaneType, LANE_DEFS, parseHex, readableLaneLabel, valueHex,
+} from '../domain/effects'
 import { newDrumKitInstrument, newModularInstrument } from '../domain/factory'
 import type { Module } from '../domain/types'
 
@@ -52,5 +54,30 @@ describe('effInletNames', () => {
     inst.modules[dupe.id] = dupe
     // Unnamed module dropped; the second "Eff In 01" doesn't appear twice.
     expect(effInletNames(inst)).toEqual(['Eff In 01', 'Eff In 02'])
+  })
+})
+
+describe('parseHex', () => {
+  it('parses one or two hex digits into 0..1', () => {
+    expect(parseHex('FF')).toBe(1)
+    expect(parseHex(' 0 ')).toBe(0)
+    expect(parseHex('80')).toBe(128 / 255)
+    expect(parseHex('a')).toBe(10 / 255)
+  })
+
+  it('rejects anything else', () => {
+    for (const s of ['', 'G0', '100', '-1', '1.5']) expect(parseHex(s)).toBeNull()
+  })
+})
+
+describe('interpolateValues', () => {
+  it('ramps linearly, snapped to whole bytes', () => {
+    expect(interpolateValues(0, 1, 4).map((v) => valueHex(v))).toEqual(['00', '55', 'AA', 'FF'])
+    expect(interpolateValues(1, 0, 3).map((v) => valueHex(v))).toEqual(['FF', '80', '00'])
+  })
+
+  it('handles degenerate counts', () => {
+    expect(interpolateValues(0.5, 1, 1)).toEqual([0.5])
+    expect(interpolateValues(0, 1, 0)).toEqual([])
   })
 })

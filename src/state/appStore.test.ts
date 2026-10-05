@@ -50,6 +50,9 @@ function resetStore() {
     mutedTrackNumbers: {},
     soloedTrackNumbers: {},
     freePlay: true,
+    editStep: 1,
+    followPlayhead: true,
+    editMode: true,
   })
 }
 
@@ -191,6 +194,30 @@ describe('appStore', () => {
     useAppStore.getState().setFreePlay(false)
     expect(useAppStore.getState().freePlay).toBe(false)
     expect(partializeAppState(useAppStore.getState()).freePlay).toBe(false)
+  })
+
+  /* ---- edit step / follow ---- */
+
+  it('clamps the edit step to 0..16 and persists it', () => {
+    const { setEditStep } = useAppStore.getState()
+    setEditStep(4)
+    expect(partializeAppState(useAppStore.getState()).editStep).toBe(4)
+    setEditStep(-1)
+    expect(useAppStore.getState().editStep).toBe(0)
+    setEditStep(99)
+    expect(useAppStore.getState().editStep).toBe(16)
+  })
+
+  it('follow playhead defaults on, toggles, and is persisted', () => {
+    expect(useAppStore.getState().followPlayhead).toBe(true)
+    useAppStore.getState().setFollowPlayhead(false)
+    expect(partializeAppState(useAppStore.getState()).followPlayhead).toBe(false)
+  })
+
+  it('edit mode defaults on, toggles, and is persisted', () => {
+    expect(useAppStore.getState().editMode).toBe(true)
+    useAppStore.getState().setEditMode(false)
+    expect(partializeAppState(useAppStore.getState()).editMode).toBe(false)
   })
 
   /* ---- state shape: only the persisted fields are user-settable ---- */

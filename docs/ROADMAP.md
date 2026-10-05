@@ -6,6 +6,24 @@
 
 ## Done
 
+### Tracker editing (Oct 2026)
+- **Interpolate** (Cmd/Ctrl+I): linear fill of the selected rows in the volume
+  or effect-lane column under the cursor. One dialog asks for the start and end
+  value, prefilled from the first/last selected cell. One undo step.
+- **Column paste** (Cmd/Ctrl+Shift+V): pastes only the note, volume or effect
+  lane column under the cursor; a lane takes the copied same lane, else the
+  same type, else the same position. Other columns stay untouched.
+- **Follow mode** (Ctrl+F / header button, persisted): the playhead row stays
+  centred while playing; a cursor move pauses it until the next play. When not
+  following, the grid keeps the cursor row in view.
+- **Edit step** (Alt+0…9 / header −/+, 0–16, persisted): rows the cursor
+  advances after a note, hold, hex value or delete.
+- **Edit mode** (Cmd/Ctrl+E / header button, persisted): off makes the grid
+  read-only — note keys play the instrument (held) so melodies can be tried
+  out; navigation, selection, copy and track/lane management still work.
+- **Mouse**: drag to select; clicking a note / vol / lane sub-column moves the
+  cursor into that column.
+
 ### M5 — Song playback, effect lanes, mixer, sample editor (Aug 2026)
 - **Effect columns**: per-row lanes — vibrato rate/depth, tremolo rate/depth,
   portamento, volume slide, panning, staccato — plus **named inlets**: tracks
@@ -130,9 +148,7 @@ Proved the full stack end to end.
 See [FEATURES.md](./FEATURES.md) for detailed descriptions of each candidate.
 The shortlist:
 
-- **Interpolation** — linear fill between two selected cells.
 - **Block transpose** — larger transposition jumps (Cmd± ±1 exists).
-- **Follow mode** — auto-scroll grid to keep playhead visible.
 - **Render to WAV** — offline bounce via `@elemaudio/offline-renderer`.
 - **MIDI recording** — step-record and live-record (live playback exists).
 - **NNA** — new-note actions for monophonic behavior.

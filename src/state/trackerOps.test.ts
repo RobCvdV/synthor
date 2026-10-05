@@ -78,4 +78,39 @@ describe('trackerOps — cell editing', () => {
     store.setCellNote(firstTrackId(), 999, 60)
     expect(store.past.length).toBe(pastBefore)
   })
+  it('interpolateColumn fills only the volume column, as one undo step', () => {
+    const tid = firstTrackId()
+    const store = useDocStore.getState()
+    store.setCellNote(tid, 1, 60)
+    store.interpolateColumn(tid, 0, 3, null, 0, 1)
+
+    const cells = () => useDocStore.getState().doc.entities.tracks[tid].cells
+    expect(cells().slice(0, 4).map((c) => Math.round(c.volume! * 255))).toEqual([0, 85, 170, 255])
+    expect(cells()[4].volume).toBeNull()
+    expect(cells()[1].note).toBe(60)
+
+    useDocStore.getState().undo()
+    expect(cells().slice(0, 4).every((c) => c.volume === null)).toBe(true)
+  })
+
+  it('interpolateColumn fills only the given effect lane', () => {
+    const tid = firstTrackId()
+    const store = useDocStore.getState()
+    store.addEffectLane(tid, 'panning')
+    store.addEffectLane(tid, 'staccato')
+    const [pan, stac] = useDocStore.getState().doc.entities.tracks[tid].effectLanes.map((l) => l.id)
+    store.interpolateColumn(tid, 2, 4, pan, 1, 0)
+
+    const cells = useDocStore.getState().doc.entities.tracks[tid].cells
+    expect(cells.slice(2, 5).map((c) => Math.round(c.effectLanes[pan]! * 255))).toEqual([255, 128, 0])
+    expect(cells[1].effectLanes[pan]).toBeNull()
+    expect(cells.slice(2, 5).every((c) => c.effectLanes[stac] === null && c.volume === null)).toBe(true)
+  })
+
+  it('interpolateColumn ignores an unknown lane', () => {
+    const tid = firstTrackId()
+    const before = useDocStore.getState().doc
+    useDocStore.getState().interpolateColumn(tid, 0, 3, 'nope', 0, 1)
+    expect(useDocStore.getState().doc).toBe(before)
+  })
 })

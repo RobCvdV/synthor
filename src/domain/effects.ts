@@ -76,3 +76,15 @@ export function valueHex(v: number | null): string {
   const hex = Math.round(v * 255).toString(16).toUpperCase()
   return hex.length === 1 ? '0' + hex : hex
 }
+
+/** Parse a 1–2 digit hex string (00–FF) into 0..1, or null when it isn't one. */
+export function parseHex(s: string): number | null {
+  const t = s.trim()
+  return /^[0-9a-f]{1,2}$/i.test(t) ? parseInt(t, 16) / 255 : null
+}
+
+/** Linear ramp from `from` to `to` over `count` steps, snapped to whole hex bytes. */
+export function interpolateValues(from: number, to: number, count: number): number[] {
+  if (count <= 1) return count === 1 ? [from] : []
+  return Array.from({ length: count }, (_, i) => Math.round((from + ((to - from) * i) / (count - 1)) * 255) / 255)
+}

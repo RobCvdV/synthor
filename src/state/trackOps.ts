@@ -3,6 +3,7 @@ import type { Cell, EffectLaneDef, Id } from '../domain/types'
 import { cloneInstrument, fitCells, newTrack } from '../domain/factory'
 import { clamp } from './helpers'
 import type { DocState } from './docStore'
+import type { CellColumn } from './docStoreTypes'
 
 export interface TrackOps {
   addTrack: (atIndex: number, instrumentId: Id) => void
@@ -17,6 +18,14 @@ export interface TrackOps {
   copyRect: (trackIds: Id[], startRow: number, endRow: number, startTrack: number, endTrack: number) => void
   cutRect: (trackIds: Id[], startRow: number, endRow: number, startTrack: number, endTrack: number) => void
   pasteRect: (trackIds: Id[], atRow: number, atTrack: number) => void
+  /** Like pasteRect, but writes only `column` and leaves the rest of each cell alone. A lane column
+   *  maps to the same-type lane on the other pasted tracks. */
+  pasteRectColumn: (trackIds: Id[], atRow: number, atTrack: number, column: CellColumn) => void
+}
+
+/** The copied lane that feeds `target`: same lane, else same type, else same position. */
+function sourceLane(srcLanes: EffectLaneDef[], target: EffectLaneDef, targetIndex: number): EffectLaneDef | undefined {
+  return srcLanes.find((l) => l.id === target.id) ?? srcLanes.find((l) => l.type === target.type) ?? srcLanes[targetIndex]
 }
 
 export function trackOps(
@@ -175,6 +184,47 @@ export function trackOps(
             const targetRow = atRow + ri
             if (targetRow < 0 || targetRow >= pattern.length) continue
             track.cells[targetRow] = { ...col[ri] }
+          }
+        }
+      })
+    },
+
+    pasteRectColumn: (trackIds, atRow, atTrack, column) => {
+      const clip = get().rectClipboard
+      if (!clip || clip.cells.length === 0) return
+      get().mutate((draft) => {
+        const laneType = column.kind === 'lane'
+          ? draft.entities.tracks[trackIds[atTrack]]?.effectLanes.find((l) => l.id === column.laneId)?.type
+          : undefined
+        if (column.kind === 'lane' && laneType === undefined) return
+        for (let ti = 0; ti < clip.cells.length; ti++) {
+          const track = draft.entities.tracks[trackIds[atTrack + ti]]
+          if (!track) continue
+          let laneId: Id | undefined
+          let srcLaneId: Id | undefined
+          if (column.kind === 'lane') {
+            const targetIndex = ti === 0
+              ? track.effectLanes.findIndex((l) => l.id === column.laneId)
+              : track.effectLanes.findIndex((l) => l.type === laneType)
+            const target = track.effectLanes[targetIndex]
+            srcLaneId = target && sourceLane(clip.trackLanes[ti] ?? [], target, targetIndex)?.id
+            if (!target || !srcLaneId) continue
+            laneId = target.id
+          }
+          const col = clip.cells[ti]
+          for (let ri = 0; ri < col.length; ri++) {
+            const cell = track.cells[atRow + ri]
+            if (!cell) continue
+            const src = col[ri]
+            if (column.kind === 'note') {
+              cell.note = src.note
+              cell.hold = src.hold ?? false
+              cell.noteOff = src.noteOff
+            } else if (column.kind === 'volume') {
+              cell.volume = src.volume
+            } else if (laneId && srcLaneId) {
+              cell.effectLanes[laneId] = src.effectLanes[srcLaneId] ?? null
+            }
           }
         }
       })

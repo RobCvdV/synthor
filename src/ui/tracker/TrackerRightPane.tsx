@@ -15,7 +15,7 @@ export function TrackerRightPane({ doc }: Props) {
   const [tab, setTab] = useState<TabId>('arrange')
 
   return (
-    <aside className="tracker-pane">
+    <aside className={'tracker-pane' + (tab === 'legend' ? ' wide' : '')}>
       <div className="tracker-pane-tabs">
         {(['arrange', 'store', 'legend'] as TabId[]).map((t) => (
           <button

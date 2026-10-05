@@ -118,6 +118,7 @@ export default function App() {
               volumeEntry={trackerKeys.volumeEntry}
               laneEntry={trackerKeys.laneEntry}
               onCellClick={trackerKeys.onCellClick}
+              onCellDrag={trackerKeys.onCellDrag}
             />
           </main>
           <TrackerRightPane doc={doc} />

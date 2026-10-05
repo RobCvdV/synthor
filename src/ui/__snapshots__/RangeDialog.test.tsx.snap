@@ -1,0 +1,57 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`RangeDialog > prefills and submits both values with Enter 1`] = `
+<DocumentFragment>
+  <div
+    class="dialog-overlay"
+    tabindex="-1"
+  >
+    <div
+      class="dialog-box"
+    >
+      <p>
+        Interpolate Panning
+      </p>
+      <div
+        class="fields"
+      >
+        <label>
+          Start 
+          <input
+            class="input"
+            maxlength="2"
+            placeholder="00"
+            value="10"
+          />
+        </label>
+        <label>
+          End 
+          <input
+            class="input"
+            maxlength="2"
+            placeholder="FF"
+            value=""
+          />
+        </label>
+      </div>
+      <div
+        class="dialog-actions"
+      >
+        <button
+          class="button md"
+          type="button"
+        >
+          Cancel
+        </button>
+        <button
+          class="button md accent"
+          disabled=""
+          type="button"
+        >
+          OK
+        </button>
+      </div>
+    </div>
+  </div>
+</DocumentFragment>
+`;

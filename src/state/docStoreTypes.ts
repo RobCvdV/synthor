@@ -1,5 +1,5 @@
 import type { Patch } from 'immer'
-import type { Cell, EffectLaneDef, Instrument } from '../domain/types'
+import type { Cell, EffectLaneDef, Id, Instrument } from '../domain/types'
 
 /** One undoable step: forward patches and their inverse. */
 export interface HistoryEntry {
@@ -21,3 +21,6 @@ export interface RectClipboard {
    *  a different track/pattern auto-creates matching lanes. */
   trackLanes: EffectLaneDef[][]
 }
+
+/** One tracker column, for single-column edits. */
+export type CellColumn = { kind: 'note' } | { kind: 'volume' } | { kind: 'lane'; laneId: Id }

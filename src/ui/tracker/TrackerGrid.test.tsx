@@ -31,7 +31,7 @@ function renderGrid(doc: Doc, c: Cursor = cursor) {
   const pattern = doc.entities.patterns[doc.patternId]
   return render(
     <TrackerGrid doc={doc} pattern={pattern} cursor={c} muted={none} soloed={none}
-      selection={null} volumeEntry={null} laneEntry={null} onCellClick={noop} />,
+      selection={null} volumeEntry={null} laneEntry={null} onCellClick={noop} onCellDrag={noop} />,
   )
 }
 
@@ -63,7 +63,7 @@ describe('TrackerGrid render cost', () => {
     midiToName.mockClear()
     rerender(
       <TrackerGrid doc={doc} pattern={pattern} cursor={{ ...cursor, row: 5 }} muted={none} soloed={none}
-        selection={null} volumeEntry={null} laneEntry={null} onCellClick={noop} />,
+        selection={null} volumeEntry={null} laneEntry={null} onCellClick={noop} onCellDrag={noop} />,
     )
     expect(midiToName).toHaveBeenCalledTimes(2)
   })

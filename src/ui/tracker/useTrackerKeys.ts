@@ -1,12 +1,14 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AudioHost } from '../../audio/host'
 import type { KeyboardPlayer } from '../../audio/keyboardPlayer'
 import { trackLiveSlot } from '../../player/liveSlot'
 import { useAppStore, type TrackerCursor } from '../../state/appStore'
+import { askRange } from '../../state/dialogStore'
 import { useDocStore } from '../../state/docStore'
+import { valueHex } from '../../domain/effects'
 import { codeToSemitone, keyToHex } from '../keymap'
 import {
-  enterHexDigit, extendSelection, moveLeft, moveRight, selectionBounds, snapRow, stepRow, type Selection,
+  cursorColumn, dragSelection, enterHexDigit, extendSelection, interpolationTarget, moveLeft, moveRight, selectionBounds, snapRow, stepRow, type Selection,
 } from './trackerNav'
 
 export interface TrackerKeys {
@@ -14,7 +16,10 @@ export interface TrackerKeys {
   /** First hex digit typed into the volume / lane column, awaiting the second. */
   volumeEntry: number | null
   laneEntry: number | null
-  onCellClick: (row: number, track: number, shiftKey: boolean) => void
+  /** `col` is the clicked sub-column (0 note, 1 volume, 2+ lanes), when known. */
+  onCellClick: (row: number, track: number, shiftKey: boolean, col?: number) => void
+  /** The mouse entered a cell; extends the selection while a drag is on. */
+  onCellDrag: (row: number, track: number) => void
   /** Tracker editing keys; App's global listener calls it in the tracker view. */
   handleKeyDown: (e: KeyboardEvent) => void
 }
@@ -31,6 +36,12 @@ function laneCount(track: number): number {
 function trackCount(): number {
   const { doc } = useDocStore.getState()
   return doc.entities.patterns[doc.patternId]?.trackIds.length ?? 0
+}
+
+/** `col` on `track`, falling back to the volume column when that lane doesn't exist there. */
+function columnOn(track: number, col: number): Pick<TrackerCursor, 'col' | 'laneIndex'> {
+  if (col < 2) return { col, laneIndex: null }
+  return col - 2 < laneCount(track) ? { col, laneIndex: col - 2 } : { col: 1, laneIndex: null }
 }
 
 /** Moves the cursor to track `t`, clamped to the pattern's current tracks. */
@@ -53,13 +64,29 @@ export function useTrackerKeys(host: AudioHost, keyboardPlayer: KeyboardPlayer):
   const setLaneEntry = useCallback((v: number | null) => { laneEntryRef.current = v; setLaneEntryState(v) }, [])
   const clearEntry = useCallback(() => { setVolumeEntry(null); setLaneEntry(null) }, [setVolumeEntry, setLaneEntry])
 
-  const onCellClick = useCallback((row: number, track: number, shiftKey: boolean) => {
+  const dragAnchorRef = useRef<{ row: number; track: number } | null>(null)
+  useEffect(() => {
+    const endDrag = () => { dragAnchorRef.current = null }
+    window.addEventListener('mouseup', endDrag)
+    return () => window.removeEventListener('mouseup', endDrag)
+  }, [])
+
+  const onCellClick = useCallback((row: number, track: number, shiftKey: boolean, col?: number) => {
     clearEntry()
     const cur = getCursor()
-    const next = { ...cur, row, track }
+    const next = { ...cur, row, track, ...columnOn(track, col ?? cur.col) }
     setSelection(shiftKey ? extendSelection(selectionRef.current, cur, next) : null)
+    if (!shiftKey) dragAnchorRef.current = { row, track }
     setCursor(next)
   }, [clearEntry, setSelection])
+
+  const onCellDrag = useCallback((row: number, track: number) => {
+    const anchor = dragAnchorRef.current
+    if (!anchor) return
+    const cur = getCursor()
+    setSelection(dragSelection(anchor, row, track))
+    setCursor({ ...cur, row, track, ...columnOn(track, cur.col) })
+  }, [setSelection])
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     const store = useDocStore.getState()
@@ -80,11 +107,23 @@ export function useTrackerKeys(host: AudioHost, keyboardPlayer: KeyboardPlayer):
       setSelection(e.shiftKey ? extendSelection(sel, cur, next) : null)
       setCursor(next)
     }
-    const advance = () => setCursor(stepRow(getCursor(), 1, len))
+    const editing = useAppStore.getState().editMode
+    const advance = () => {
+      const step = useAppStore.getState().editStep
+      if (step > 0) setCursor(stepRow(getCursor(), step, len))
+    }
 
-    // --- Clipboard and track duplication (Cmd or Ctrl) ---
+    // --- Clipboard, track duplication, edit mode (Cmd or Ctrl) ---
     if (e.metaKey !== e.ctrlKey && !e.altKey) {
+      if (!editing && (e.code === 'KeyV' || e.code === 'KeyX' || e.code === 'KeyI')) { e.preventDefault(); return }
       switch (e.code) {
+        case 'KeyE': {
+          e.preventDefault()
+          const app = useAppStore.getState()
+          app.setEditMode(!app.editMode)
+          clearEntry()
+          return
+        }
         case 'KeyC':
           e.preventDefault()
           if (sel) store.copyRect(ids, sel.startRow, sel.endRow, sel.startTrack, sel.endTrack)
@@ -92,7 +131,10 @@ export function useTrackerKeys(host: AudioHost, keyboardPlayer: KeyboardPlayer):
           return
         case 'KeyV':
           e.preventDefault()
-          if (store.rectClipboard) store.pasteRect(ids, sel ? sel.startRow : cur.row, sel ? sel.startTrack : cur.track)
+          if (e.shiftKey) {
+            const column = cursorColumn(store.doc.entities.tracks[trackId], cur)
+            if (column) store.pasteRectColumn(ids, sel ? Math.min(sel.startRow, sel.endRow) : cur.row, cur.track, column)
+          } else if (store.rectClipboard) store.pasteRect(ids, sel ? sel.startRow : cur.row, sel ? sel.startTrack : cur.track)
           else { store.pasteTrack(cur.track + 1); focusTrack(cur.track + 1) }
           return
         case 'KeyX':
@@ -104,6 +146,19 @@ export function useTrackerKeys(host: AudioHost, keyboardPlayer: KeyboardPlayer):
           e.preventDefault()
           if (trackId) { store.duplicateTrack(trackId, cur.track + 1); focusTrack(cur.track + 1) }
           return
+        case 'KeyI': {
+          e.preventDefault()
+          const target = interpolationTarget(store.doc.entities.tracks[trackId], cur, sel)
+          if (!target) return
+          const hex = (v: number | null) => (v === null ? '' : valueHex(v))
+          void askRange({
+            message: `Interpolate ${target.label}, rows ${target.r0}–${target.r1}`,
+            start: hex(target.start), end: hex(target.end), confirmLabel: 'Interpolate',
+          }).then((range) => {
+            if (range) useDocStore.getState().interpolateColumn(trackId, target.r0, target.r1, target.laneId, range.start, range.end)
+          })
+          return
+        }
       }
     }
 
@@ -115,6 +170,7 @@ export function useTrackerKeys(host: AudioHost, keyboardPlayer: KeyboardPlayer):
         case 'Minus':
         case 'Equal': {
           e.preventDefault()
+          if (!editing) return
           const step = e.code === 'Equal' ? 1 : -1
           const { r0, r1, t0, t1 } = sel ? selectionBounds(sel) : { r0: 0, r1: len - 1, t0: cur.track, t1: cur.track }
           for (let ti = t0; ti <= t1; ti++) {
@@ -135,8 +191,8 @@ export function useTrackerKeys(host: AudioHost, keyboardPlayer: KeyboardPlayer):
     if (e.ctrlKey && !e.metaKey && !e.altKey) {
       switch (e.code) {
         case 'Backspace': e.preventDefault(); if (trackId) { store.removeTrack(trackId); focusTrack(cur.track) } return
-        case 'ArrowUp': e.preventDefault(); if (trackId) store.shiftTrack(trackId, 'up'); return
-        case 'ArrowDown': e.preventDefault(); if (trackId) store.shiftTrack(trackId, 'down'); return
+        case 'ArrowUp': e.preventDefault(); if (trackId && editing) store.shiftTrack(trackId, 'up'); return
+        case 'ArrowDown': e.preventDefault(); if (trackId && editing) store.shiftTrack(trackId, 'down'); return
         case 'Equal': {
           e.preventDefault()
           const inheritId = store.doc.entities.tracks[trackId]?.instrumentId
@@ -149,6 +205,12 @@ export function useTrackerKeys(host: AudioHost, keyboardPlayer: KeyboardPlayer):
         case 'Comma': e.preventDefault(); store.moveTrack(cur.track, cur.track - 1); focusTrack(cur.track - 1); return
         case 'Period': e.preventDefault(); store.moveTrack(cur.track, cur.track + 1); focusTrack(cur.track + 1); return
         case 'KeyL': e.preventDefault(); if (trackId) store.addEffectLane(trackId, 'panning'); return
+        case 'KeyF': {
+          e.preventDefault()
+          const app = useAppStore.getState()
+          app.setFollowPlayhead(!app.followPlayhead)
+          return
+        }
         case 'KeyK': {
           e.preventDefault()
           const lanes = trackId ? store.doc.entities.tracks[trackId]?.effectLanes : undefined
@@ -162,8 +224,10 @@ export function useTrackerKeys(host: AudioHost, keyboardPlayer: KeyboardPlayer):
       return
     }
 
-    // --- Alt: beat jumps ---
+    // --- Alt: beat jumps, edit step ---
     if (e.altKey && !e.ctrlKey && !e.metaKey) {
+      const digit = /^Digit(\d)$/.exec(e.code)
+      if (digit) { e.preventDefault(); useAppStore.getState().setEditStep(Number(digit[1])); return }
       if (e.code === 'ArrowUp') { moveTo(snapRow(cur, 4, -1, len)); return }
       if (e.code === 'ArrowDown') { moveTo(snapRow(cur, 4, 1, len)); return }
     }
@@ -178,6 +242,21 @@ export function useTrackerKeys(host: AudioHost, keyboardPlayer: KeyboardPlayer):
       clearEntry()
       if (!ids.length) return
       moveTo(e.code === 'ArrowRight' ? moveRight(cur, laneCount, ids.length) : moveLeft(cur, laneCount, ids.length))
+      return
+    }
+
+    // --- Edit mode off: note keys play (held until key-up) in any column; cells stay untouched ---
+    if (!editing) {
+      if (!noMods) return
+      const semi = codeToSemitone(e.code)
+      if (semi === undefined) return
+      e.preventDefault()
+      if (e.repeat) return
+      const instId = useAppStore.getState().selectedInstrumentId
+      if (!instId) return
+      const note = useAppStore.getState().octave * 12 + semi
+      const slot = trackLiveSlot(useDocStore.getState().doc, trackId, instId)
+      void host.start().then(() => keyboardPlayer.noteOn(instId, note, e.code, slot))
       return
     }
 
@@ -275,5 +354,5 @@ export function useTrackerKeys(host: AudioHost, keyboardPlayer: KeyboardPlayer):
     }
   }, [host, keyboardPlayer, clearEntry, setSelection, setVolumeEntry, setLaneEntry])
 
-  return { selection, volumeEntry, laneEntry, onCellClick, handleKeyDown }
+  return { selection, volumeEntry, laneEntry, onCellClick, onCellDrag, handleKeyDown }
 }

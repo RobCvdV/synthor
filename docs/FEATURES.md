@@ -11,16 +11,7 @@
 
 ## Tier 1 — High impact, low effort
 
-### Interpolation
-
-Select a range of cells in one column, run "interpolate" → linear fill between
-the first and last value. Classic for volume fades, pitch bends, and effect
-ramps. Would work across note, volume, and effect columns. Should probably affect only one lane to keep unrelated values untouched.
-
-**Prerequisites:** Rectangular selection (partially done, need lane specific selection).
-**Classic lineage:** Impulse Tracker "interpolate" function.
-
----
+_Nothing open right now._
 
 ## Tier 2 — Medium effort, big feel
 
@@ -33,18 +24,6 @@ for larger jumps (e.g., ±12 for octave).
 **Prerequisites:** Rectangular selection (done).
 **Classic lineage:** All trackers; Impulse Tracker had Alt+F1..F12 for preset
 transpose amounts.
-
----
-
-### Follow mode
-
-A toggle that keeps the playhead row visible during playback — the grid
-auto-scrolls so you always see where the music is. Navigating away from the
-playhead temporarily disables follow (like a modern IDE's "auto-scroll from
-source" toggle).
-
-**Prerequisites:** None — purely a UI scroll behavior.
-**Classic lineage:** FastTracker 2, Renoise, most tracker-inspired DAWs.
 
 ---
 

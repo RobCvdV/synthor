@@ -1,5 +1,6 @@
 import type { EffectLaneDef, Id } from '../domain/types'
 import { makeId } from '../domain/factory'
+import { interpolateValues } from '../domain/effects'
 import type { DocState } from './docStore'
 
 export interface TrackerOps {
@@ -10,6 +11,8 @@ export interface TrackerOps {
   removeEffectLane: (trackId: Id, laneId: Id) => void
   setEffectLaneType: (trackId: Id, laneId: Id, newType: string) => void
   setCellEffectLane: (trackId: Id, row: number, laneId: Id, value: number | null) => void
+  /** Linear fill of rows r0..r1 in one column as one undo step; `laneId` null is the volume column. */
+  interpolateColumn: (trackId: Id, r0: number, r1: number, laneId: Id | null, from: number, to: number) => void
 }
 
 export function trackerOps(get: () => DocState): TrackerOps {
@@ -45,6 +48,18 @@ export function trackerOps(get: () => DocState): TrackerOps {
       get().mutate((draft) => {
         const track = draft.entities.tracks[trackId]
         if (track && track.cells[row]) track.cells[row].effectLanes[laneId] = value
+      }),
+
+    interpolateColumn: (trackId, r0, r1, laneId, from, to) =>
+      get().mutate((draft) => {
+        const track = draft.entities.tracks[trackId]
+        if (!track || (laneId !== null && !track.effectLanes.some((l) => l.id === laneId))) return
+        interpolateValues(from, to, r1 - r0 + 1).forEach((v, i) => {
+          const cell = track.cells[r0 + i]
+          if (!cell) return
+          if (laneId === null) cell.volume = v
+          else cell.effectLanes[laneId] = v
+        })
       }),
 
     addEffectLane: (trackId, type) =>
