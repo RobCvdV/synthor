@@ -13,6 +13,9 @@ import type { DrumKitInstrument } from '../domain/types'
  *  few rows on the first play. */
 export const OUTPUT_WARMUP_MS = 1500
 
+/** Time constant (s) of the crossfade when a playing PCM preview's audio is swapped. */
+const PCM_SWAP_FADE = 0.004
+
 /**
  * Owns the AudioContext + Elementary WebRenderer and pushes compiled graphs to
  * the AudioWorklet. Stateless beyond the audio plumbing: it just renders
@@ -131,6 +134,31 @@ export class AudioHost {
       }
       this.samplePreviewBuffers.set(hash, buffer)
     }
+    this.playPreviewBuffer(buffer, playbackRate, loopKey)
+  }
+
+  /** `playSamplePreview` for in-memory PCM, e.g. a sample being tuned in the editor. */
+  async playPcmNote(data: Float32Array<ArrayBuffer>[], sampleRate: number, playbackRate = 1, loopKey?: string): Promise<void> {
+    await this.start()
+    const buffer = this.pcmBuffer(data, sampleRate)
+    if (buffer) this.playPreviewBuffer(buffer, playbackRate, loopKey)
+  }
+
+  /** Swaps the audio of every held loop (keeping its pitch), with a short crossfade. */
+  replaceHeldPreviews(data: Float32Array<ArrayBuffer>[], sampleRate: number): void {
+    const buffer = this.heldPreviews.size > 0 ? this.pcmBuffer(data, sampleRate) : null
+    if (!buffer || !this.ctx) return
+    const now = this.ctx.currentTime
+    for (const [key, held] of [...this.heldPreviews]) {
+      held.amp.gain.setTargetAtTime(0, now, PCM_SWAP_FADE)
+      try { held.src.stop(now + PCM_SWAP_FADE * 6) } catch { /* already stopped */ }
+      this.heldPreviews.delete(key)
+      this.playPreviewBuffer(buffer, held.src.playbackRate.value, key)
+    }
+  }
+
+  private playPreviewBuffer(buffer: AudioBuffer, playbackRate: number, loopKey?: string): void {
+    if (!this.ctx) return
     const src = this.ctx.createBufferSource()
     src.buffer = buffer
     src.playbackRate.value = playbackRate
@@ -173,36 +201,81 @@ export class AudioHost {
     }
     this.previewSources.clear()
     this.heldPreviews.clear()
+    this.pcmPreview?.amp.disconnect()
+    this.pcmPreview = null
   }
 
   /**
    * Play raw in-memory PCM via plain Web Audio — no Elementary, no VFS, no
    * decode (the editor already holds decoded channels). Builds an AudioBuffer
    * in the host context; tracked in previewSources so stopSamplePreviews() cuts
-   * it. `offsetSeconds` starts playback mid-buffer (clamped to its duration).
+   * it. `offsetSeconds` starts playback mid-buffer (clamped to its duration);
+   * `loop` (seconds) repeats that span until stopped.
    */
   async playPcmPreview(
     data: Float32Array<ArrayBuffer> | Float32Array<ArrayBuffer>[],
     sampleRate: number,
     offsetSeconds = 0,
+    loop?: { start: number; end: number },
   ): Promise<void> {
     await this.start()
-    if (!this.ctx) return
+    const buffer = this.pcmBuffer(data, sampleRate)
+    if (buffer) this.startPcmPreview(buffer, Math.max(0, Math.min(offsetSeconds, buffer.duration)), loop, false)
+  }
+
+  /**
+   * Swaps the audio of the playing PCM preview, carrying on from the same position with a
+   * short crossfade, so an edit being tuned is heard while it plays. No-op when none plays.
+   */
+  replacePcmPreview(data: Float32Array<ArrayBuffer>[], sampleRate: number): void {
+    const cur = this.pcmPreview
+    if (!cur || !this.ctx || !this.previewSources.has(cur.src)) return
+    const buffer = this.pcmBuffer(data, sampleRate)
+    if (!buffer) return
+    let pos = cur.offset + (this.ctx.currentTime - cur.startedAt)
+    if (cur.loop && pos >= cur.loop.end) pos = cur.loop.start + (pos - cur.loop.start) % (cur.loop.end - cur.loop.start)
+    if (pos >= buffer.duration) return
+    const now = this.ctx.currentTime
+    cur.amp.gain.setTargetAtTime(0, now, PCM_SWAP_FADE)
+    try { cur.src.stop(now + PCM_SWAP_FADE * 6) } catch { /* already stopped */ }
+    this.startPcmPreview(buffer, pos, cur.loop, true)
+  }
+
+  private pcmPreview: { src: AudioBufferSourceNode; amp: GainNode; startedAt: number; offset: number; loop?: { start: number; end: number } } | null = null
+
+  private pcmBuffer(data: Float32Array<ArrayBuffer> | Float32Array<ArrayBuffer>[], sampleRate: number): AudioBuffer | null {
     const chs = Array.isArray(data) ? data : [data]
     const frames = chs[0]?.length ?? 0
-    if (frames === 0) return
+    if (!this.ctx || frames === 0) return null
     const buffer = this.ctx.createBuffer(chs.length, frames, sampleRate)
     chs.forEach((ch, i) => buffer.copyToChannel(ch, i))
+    return buffer
+  }
 
-    const src = this.ctx.createBufferSource()
+  private startPcmPreview(buffer: AudioBuffer, offset: number, loop: { start: number; end: number } | undefined, fadeIn: boolean): void {
+    const ctx = this.ctx
+    if (!ctx) return
+    const src = ctx.createBufferSource()
     src.buffer = buffer
-    src.connect(this.ctx.destination)
+    if (loop && loop.end > loop.start) {
+      src.loop = true
+      src.loopStart = loop.start
+      src.loopEnd = Math.min(loop.end, buffer.duration)
+    }
+    const amp = ctx.createGain()
+    if (fadeIn) {
+      amp.gain.setValueAtTime(0, ctx.currentTime)
+      amp.gain.setTargetAtTime(1, ctx.currentTime, PCM_SWAP_FADE)
+    }
+    src.connect(amp).connect(ctx.destination)
     src.onended = () => {
       this.previewSources.delete(src)
-      src.disconnect()
+      if (this.pcmPreview?.src === src) this.pcmPreview = null
+      amp.disconnect()
     }
     this.previewSources.add(src)
-    src.start(0, Math.max(0, Math.min(offsetSeconds, buffer.duration)))
+    this.pcmPreview = { src, amp, startedAt: ctx.currentTime, offset, loop: src.loop ? { start: src.loopStart, end: src.loopEnd } : undefined }
+    src.start(0, offset)
   }
 
   /** Precise AudioContext time captured at the moment the txSeq clock

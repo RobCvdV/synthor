@@ -48,7 +48,7 @@ function estimateFreqRendered(samples: Float32Array, sampleRate: number, skip = 
 
 describe('generated sample → WAV → wave module', () => {
   const SR = 44100
-  const FRAMES = 11025 // 0.25 s — WAVEFORM_MAX_LENGTH_SECONDS
+  const FRAMES = 11025 // 0.25 s, so a cycle only by its declared length
   const src = generateWaveform('sine', FRAMES)
 
   it('round-trips through the WAV encoder with only 16-bit quantization', () => {
@@ -63,7 +63,7 @@ describe('generated sample → WAV → wave module', () => {
   })
 
   it('renders through the wave module at the note frequency', async () => {
-    const meta: SampleMeta = { hash: 'genhash', channels: 1, sampleRate: SR, frames: FRAMES }
+    const meta: SampleMeta = { hash: 'genhash', channels: 1, sampleRate: SR, frames: FRAMES, cycleLength: FRAMES }
     const inst: ModularInstrument = {
       id: 'i1', kind: 'modular', name: 'Test',
       modules: {

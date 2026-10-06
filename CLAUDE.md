@@ -40,6 +40,7 @@ Chains are ordered; each hop is verified. Skipping the tail is how features half
 | Save / load / project format | `persist/serialize.ts`: bump `CURRENT_SCHEMA_VERSION` **and** add the `migrate` case |
 | Instrument files / instrument library | `domain/instrumentBundle.ts` (collect + insert with fresh ids) → `persist/instrumentFile.ts` (`.synthinst`, migrated like songs) → `persist/instrumentLibrary.ts` (`instruments/<id>/`) → `ui/instrumentActions.ts` → `ui/library/` dialogs. Song instruments keep `library` (category, tags, the library id they came from); bundles strip it and files/library items carry it as metadata, so set it again when inserting |
 | Sample library | `persist/sampleLibrary.ts` (`samples/<id>/sample.json` + the original audio file) → `ui/sampleActions.ts` → `ui/SampleToolbar.tsx`. Song samples keep `library` like instruments do (shared `LibraryInfo`, `patchLibraryInfo`); instrument bundles strip it from their samples. Both libraries share `domain/library.ts` and the `ui/library/` dialogs through a `LibrarySource` |
+| Sample editor process (slider, heard while tuning) | pure DSP in `audio/sampleEdit.ts` / `audio/sampleProcess.ts` → a `LIVE_PROCESSES` entry in `ui/sampleEditor/liveProcesses.ts` → its `PROCESS_CHOICES` option in `EditorToolbar`. The panel, preview swap and audition come for free |
 | Sample import / edit / storage | `audio/sampleLoader.ts`, `audio/sampleEdit.ts` (pure edits + resampling), `audio/cycle.ts` (pitch detection, single cycles), `persist/sampleStorage.ts` (OPFS) |
 | Something should change audibly without a recompile | a `paramRefs` ref, not `compileGraph` |
 
@@ -51,6 +52,7 @@ Chains are ordered; each hop is verified. Skipping the tail is how features half
 - **Voice slots are pre-allocated** per instrument (max concurrent tracks in any pattern); tracks in non-overlapping pattern windows share slots. Mute refs are per slot: `tracker:{instId}:ts:{si}:mute`.
 - **docStore** — Immer `mutate` recipes with undo; `mutateSilent` persists without triggering recompiles (slider drags). Only the `Doc` autosaves (OPFS `song.json`).
 - **appStore** — persisted UI/performance state (localStorage): playMode, view, cursor, selected instrument/sample, **octave** (the single global keyboard range), and **mutedTrackNumbers/soloedTrackNumbers keyed by 1-based Track #**, not track id — so a mute applies to that position in every pattern.
+- **Sample audition** (`state/sampleAudition`) — while a live process is tuned, the tuned audio stands in for the sample everywhere: `ui/auditionSync` uploads each version under its own VFS key and `useEngine` compiles `withAudition(doc)`; the sample view's note keys play it via `host.playPcmNote`. Ending it forces a full VFS resync (the stored audio may have been pruned meanwhile).
 - **`KeyboardPlayer`** (`audio/keyboardPlayer.ts`) — the one PC-keyboard note player: kit resolution + held-key tracking. `useAppKeys` owns the global keydown/keyup listeners; views play through it.
 
 ## Rules that prevent recurring mistakes

@@ -5,6 +5,8 @@ import { buildArrangement, resolveStep, type StepRef } from '../engine/arrangeme
 import { buildPlaybackData, mapPatternTracksToSlots, slicePlaybackData, type PlaybackData } from '../player/playbackData'
 import { buildTxSeqData } from '../player/txSeqData'
 import { syncSamplesToVfs } from '../audio/vfsLoader'
+import { withAudition } from '../engine/audition'
+import { syncAudition } from './auditionSync'
 import { computeSlotLayouts } from '../engine/voiceSlotLayout'
 import { liveGraphOptions } from '../player/liveSlot'
 import { liveVoiceCount } from '../domain/types'
@@ -78,6 +80,23 @@ export function useEngine(): AudioHost {
   useEffect(() => {
     let frame = 0
 
+    // A sample being tuned in the editor plays everywhere in its tuned form.
+    const audition = syncAudition(host, (ended) => {
+      // Swapped out, the stored audio may have been pruned from the VFS: load it again.
+      if (ended) lastVfsKeysRef.current = ''
+      schedule()
+    })
+    /** The doc as the engine plays it. */
+    const auditionL1Sums = () => {
+      const o = audition.override()
+      return o ? { ...l1SumsRef.current, [o.key]: audition.l1() ?? 0 } : l1SumsRef.current
+    }
+    const engineDoc = () => withAudition(useDocStore.getState().doc, audition.override())
+    const loadedHashes = () => {
+      const o = audition.override()
+      return o ? new Set([...vfsLoadedRef.current, o.key]) : vfsLoadedRef.current
+    }
+
     const liveOptions = () => {
       const { freePlay, selectedInstrumentId } = useAppStore.getState()
       return liveGraphOptions(freePlay, selectedInstrumentId)
@@ -85,7 +104,8 @@ export function useEngine(): AudioHost {
 
     /** Compute a structural hash over parts of the doc that require a recompile. */
     function structuralKey(): string {
-      const { doc } = useDocStore.getState()
+      const doc = engineDoc()
+      const loaded = loadedHashes()
       const parts: string[] = []
 
       // Live voices: which instrument and how many.
@@ -141,7 +161,7 @@ export function useEngine(): AudioHost {
 
       // Samples.
       for (const s of Object.values(doc.entities.samples)) {
-        parts.push(`samp:${s.hash}:${s.cycleLength ?? ''}:${vfsLoadedRef.current.has(s.hash) ? 'in' : 'out'}`)
+        parts.push(`samp:${s.hash}:${s.cycleLength ?? ''}:${loaded.has(s.hash) ? 'in' : 'out'}`)
       }
 
       // Sections.
@@ -233,11 +253,11 @@ export function useEngine(): AudioHost {
       frame = 0
       if (!host.isReady) return
 
-      const { doc } = useDocStore.getState()
+      const doc = engineDoc()
       const slug = useProjectStore.getState().slug
 
       // Sync samples to VFS.
-      const samples = Object.values(doc.entities.samples)
+      const samples = Object.values(useDocStore.getState().doc.entities.samples)
       const keys = samples.map((s) => s.hash).sort().join(',')
       if (keys !== lastVfsKeysRef.current) {
         lastVfsKeysRef.current = keys
@@ -317,8 +337,8 @@ export function useEngine(): AudioHost {
             playing: playing ? 1 : 0,
             startRow,
             playEpoch,
-            vfsLoadedHashes: vfsLoadedRef.current,
-            l1Sums: l1SumsRef.current,
+            vfsLoadedHashes: loadedHashes(),
+            l1Sums: auditionL1Sums(),
             midiCcValues: useMidiStore.getState().ccValues,
             paramRefs: host.paramRefs,
             ccBindings: host.ccBindings,
@@ -456,6 +476,7 @@ export function useEngine(): AudioHost {
       unsubDoc()
       unsubTransport()
       unsubApp()
+      audition.dispose()
     }
   }, [host])
 

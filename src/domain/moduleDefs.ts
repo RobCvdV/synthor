@@ -56,8 +56,8 @@ export const LFO_WAVEFORMS = ['sine', 'triangle', 'saw', 'square', 'pulse'] as c
 export const FILTER_MODES = ['lowpass', 'highpass', 'bandpass'] as const
 /** Mix combine modes. */
 export const MIX_MODES = ['add', 'multiply'] as const
-/** Max sample length usable as a single-cycle waveform. One full sample = one cycle. */
-export const WAVEFORM_MAX_LENGTH_SECONDS = 0.25
+/** Longest sample taken for one waveform cycle when it doesn't declare its cycle length. */
+export const MAX_CYCLE_FRAMES = 4096
 /** Wave module cycle sizes: auto (whole sample when it is a single cycle, else 2048-frame wavetable frames), the whole sample, or frames of a fixed size. */
 export const CYCLE_SIZE_CHOICES = ['auto', 'whole', '256', '512', '1024', '2048', '4096'] as const
 /** Longest wavetable: 256 frames of 4096. Wavetables are whole multiples of 256 frames. */

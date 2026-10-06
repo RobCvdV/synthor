@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { PcmData } from '../../audio/sampleEdit'
 import {
-  copySelection, cutSelection, fadeSelection, gainSelection, normalizeSelection, pasteClip, removeDcSelection,
-  repitchSelection, replaceSelection, reverseSelection, silenceSelection, snapSelection, trimSelection,
+  copySelection, cutSelection, normalizeSelection, pasteClip, removeDcSelection,
+  replaceSelection, reverseSelection, silenceSelection, snapSelection, trimSelection,
 } from './editCommands'
 
 const pcm = (...v: number[]): PcmData => [new Float32Array(v)]
@@ -35,15 +35,12 @@ describe('editCommands', () => {
 
   it('reverses, scales and fades only the selection', () => {
     expect(values(reverseSelection(base)!.pcm)).toEqual([1, 3, 2, 4, 5])
-    const quiet = { ...base, pcm: pcm(0.5, 0.5, 0.25, 0.5, 0.5) }
-    expect(values(gainSelection(quiet, 50)!.pcm)).toEqual([0.5, 0.25, 0.125, 0.5, 0.5])
-    expect(values(fadeSelection(base, 0, 100)!.pcm)[1]).toBe(0)
   })
 
   it('does nothing without a selection', () => {
     const none = { ...base, sel: null }
-    expect([copySelection(none), cutSelection(none), replaceSelection(none, pcm(1)), reverseSelection(none),
-      gainSelection(none, 50), fadeSelection(none, 0, 100)]).toEqual([null, null, null, null, null, null])
+    expect([copySelection(none), cutSelection(none), replaceSelection(none, pcm(1)), reverseSelection(none)])
+      .toEqual([null, null, null, null])
   })
 })
 
@@ -61,13 +58,6 @@ describe('processing commands', () => {
     expect(rounded(normalizeSelection(base).pcm)).toEqual([0.1, 0.5, 1, 0.1])
     expect(rounded(normalizeSelection({ ...base, sel: null }).pcm)).toEqual([0.25, 0.5, 1, 0.25])
     expect(rounded(removeDcSelection(base).pcm)).toEqual([0.1, -0.1, 0.1, 0.1])
-  })
-
-  it('keeps the repitched range selected', () => {
-    const long = { pcm: [new Float32Array(100)], sel: { start: 10, end: 50 }, cursor: 10 }
-    const up = repitchSelection(long, 12)
-    expect(up.pcm[0].length).toBe(80)
-    expect(up.sel).toEqual({ start: 10, end: 30 })
   })
 
   it('snaps the selection to rising zero crossings', () => {

@@ -1,21 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AudioHost } from '../../audio/host'
 import { drawLine, framesOf, type PcmData } from '../../audio/sampleEdit'
-import { fitsWavetable, waveUse } from '../../domain/sampleChoices'
+import { fitsWavetable, holdsCycles, waveUse } from '../../domain/sampleChoices'
 import type { Id } from '../../domain/types'
 import { useAppStore } from '../../state/appStore'
 import { useDocStore } from '../../state/docStore'
+import { useSampleAudition } from '../../state/sampleAudition'
 import { useSampleClipboard } from '../../state/sampleClipboard'
 import { formatDuration } from '../format'
 import { isEditableTarget } from '../keymap'
 import { sampleDialogOpenRef } from '../sampleDialogRef'
 import {
-  copySelection, cutSelection, fadeSelection, gainSelection, normalizeSelection, pasteClip, removeDcSelection,
-  repitchSelection, replaceSelection, reverseSelection, silenceSelection, snapSelection, targetRange, trimSelection,
+  copySelection, cutSelection, normalizeSelection, pasteClip, removeDcSelection,
+  replaceSelection, reverseSelection, silenceSelection, snapSelection, targetRange, trimSelection,
   type EditResult,
 } from './editCommands'
-import { EditorToolbar, type EditDialogKind, type EditorActions, type ProcessKind } from './EditorToolbar'
-import { EditDialog } from './SampleEditDialog'
+import { EditorToolbar, type EditorActions, type ProcessKind } from './EditorToolbar'
+import { initialValues, isLiveProcess, LIVE_PROCESSES, processedSel, processRange, type LiveProcessKind } from './liveProcesses'
+import { ProcessPanel } from './ProcessPanel'
 import { MakeCycleDialog } from './MakeCycleDialog'
 import { SaveAsDialog } from './SampleSaveAsDialog'
 import { fitToLength, pointerDown, pointerMove, pointerUp, type Drag, type Sel } from './selectionGestures'
@@ -48,13 +50,14 @@ export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: 
 
   const [cursor, setCursor] = useState<number | null>(null)
   const [sel, setSel] = useState<Sel | null>(null)
-  const [dialog, setDialog] = useState<EditDialogKind | null>(null)
   const [saveAsOpen, setSaveAsOpen] = useState(false)
   const [cycleRange, setCycleRange] = useState<Sel | null>(null)
   const [drawing, setDrawing] = useState(false)
   /** The audio being drawn on; committed as one edit when the stroke ends. */
   const [draft, setDraft] = useState<PcmData | null>(null)
   const stroke = useRef<{ data: PcmData; lane: number; frame: number; value: number } | null>(null)
+  /** A live process being tuned over `range`; its result is shown and played until Done or Cancel. */
+  const [proc, setProc] = useState<{ kind: LiveProcessKind; source: PcmData; range: Sel; values: Record<string, number> } | null>(null)
   const clip = useSampleClipboard((st) => st.pb)
 
   const waveRef = useRef<HTMLDivElement>(null)
@@ -64,15 +67,46 @@ export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: 
   const { fit } = view
   const laneCount = pcm?.length ?? 0
   const lanes = useMemo(() => laneLayout(height, laneCount), [height, laneCount])
-  useWaveformCanvas(canvasRef, { pcm: draft ?? pcm, width, height, lanes, px: view.px, scroll: view.scroll, sel, cursor })
+  const procCtx = useMemo(() => ({ sampleRate: meta?.sampleRate ?? 44100, cycleLength: entity?.cycleLength }), [meta?.sampleRate, entity?.cycleLength])
+  const processed = useMemo(
+    () => proc && LIVE_PROCESSES[proc.kind].apply(proc.source, proc.range, proc.values, procCtx),
+    [proc, procCtx],
+  )
+  /** Frames the process adds to (or takes from) its range. */
+  const grown = processed && proc ? framesOf(processed) - framesOf(proc.source) : 0
+  const shownSel = proc ? processedSel(sel, proc.range, grown) : sel
+  useWaveformCanvas(canvasRef, { pcm: draft ?? processed ?? pcm, width, height, lanes, px: view.px, scroll: view.scroll, sel: shownSel, cursor })
 
   // Handlers read the latest values without re-subscribing.
-  const live = useRef({ pcm, meta, sel, cursor, busy, dialog, view, cycleRange, drawing, lanes })
-  live.current = { pcm, meta, sel, cursor, busy, dialog, view, cycleRange, drawing, lanes }
+  const live = useRef({ pcm, meta, sel, cursor, busy, view, cycleRange, drawing, lanes, proc, processed })
+  live.current = { pcm, meta, sel, cursor, busy, view, cycleRange, drawing, lanes, proc, processed }
   const drag = useRef<Drag | null>(null)
 
-  useEffect(() => { sampleDialogOpenRef.current = dialog !== null || cycleRange !== null }, [dialog, cycleRange])
+  useEffect(() => { sampleDialogOpenRef.current = cycleRange !== null }, [cycleRange])
   useEffect(() => () => host.stopSamplePreviews(), [host])
+
+  // Tuning is heard straight away: a playing preview carries on with the new result, and
+  // instruments and note keys play the tuned sample until Done or Cancel.
+  useEffect(() => {
+    const m = live.current.meta
+    if (processed && m) host.replacePcmPreview(processed, m.sampleRate)
+    const audition = useSampleAudition.getState()
+    if (processed && proc && m && entity && processed !== proc.source) {
+      audition.setAudition({ sampleId: entity.id, hash: entity.hash, data: processed, original: proc.source, sampleRate: m.sampleRate })
+    } else if (audition.audition?.sampleId === sampleId) {
+      audition.clearAudition()
+    }
+    // Keyed on the result only: a new entity hash (after Done) must not re-publish it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [host, processed])
+  useEffect(() => () => {
+    if (useSampleAudition.getState().audition?.sampleId === sampleId) useSampleAudition.getState().clearAudition()
+  }, [sampleId])
+
+  // The audio changed underneath (undo, reload): the tuned result no longer applies.
+  useEffect(() => {
+    if (proc && pcm !== proc.source) setProc(null)
+  }, [pcm, proc])
 
   // A shorter sample (edit, undo, relink) must not leave the cursor or selection past its end.
   useEffect(() => {
@@ -109,7 +143,8 @@ export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: 
   }
 
   const play = useCallback(() => {
-    const { pcm: data, meta: m, sel: sl, cursor: c } = live.current
+    const { pcm: original, processed: tuned, meta: m, sel: sl, cursor: c } = live.current
+    const data = tuned ?? original
     if (!data || !m) return
     host.stopSamplePreviews()
     void host.playPcmPreview(data, m.sampleRate, (sl ? sl.start : c ?? 0) / m.sampleRate)
@@ -156,12 +191,14 @@ export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: 
     process: (kind: ProcessKind) => {
       const st = editState()
       if (!st) return
-      if (kind === 'pitch') setDialog('pitch')
-      else apply({ trim: trimSelection, silence: silenceSelection, normalize: normalizeSelection, removeDc: removeDcSelection }[kind](st))
+      if (isLiveProcess(kind)) {
+        setDrawing(false)
+        const def = LIVE_PROCESSES[kind]
+        setProc({ kind: def.kind, source: st.pcm, range: processRange(def, st), values: initialValues(def) })
+      } else apply({ trim: trimSelection, silence: silenceSelection, normalize: normalizeSelection, removeDc: removeDcSelection }[kind](st))
     },
     toggleDraw: () => setDrawing((d) => !d),
     makeCycle: () => { const st = editState(); if (st) setCycleRange(targetRange(st)) },
-    openDialog: setDialog,
     saveAs: () => setSaveAsOpen(true),
     exportFile: () => void sample.exportFile(),
     zoomOut: () => view.zoomBy(0.5, zoomFocus()),
@@ -178,6 +215,24 @@ export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: 
     void host.playPcmPreview(data, m.sampleRate)
   }
 
+  const loopProcessed = () => {
+    const { processed: data, meta: m, proc: p } = live.current
+    if (!data || !m || !p) return
+    host.stopSamplePreviews()
+    const end = p.range.end + framesOf(data) - framesOf(p.source)
+    const loop = { start: p.range.start / m.sampleRate, end: end / m.sampleRate }
+    void host.playPcmPreview(data, m.sampleRate, loop.start, loop)
+  }
+
+  const finishProcess = useCallback((keep: boolean) => {
+    const { processed: data, proc: p } = live.current
+    if (!p) return
+    host.stopSamplePreviews()
+    if (!keep || !data || data === p.source) return setProc(null)
+    setSel(processedSel(live.current.sel, p.range, framesOf(data) - framesOf(p.source)))
+    void commit(data).finally(() => setProc(null))
+  }, [host, commit])
+
   const saveAs = async (name: string, data?: PcmData, cycleLength?: number) => {
     const created = await sample.saveAs(name, data, cycleLength)
     if (!created) return
@@ -189,12 +244,15 @@ export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: 
   // Capture phase, so Space and Cmd+C/X/V win over the app-wide handlers.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (live.current.dialog || live.current.cycleRange || isEditableTarget(e.target)) return
+      if (live.current.cycleRange || isEditableTarget(e.target)) return
       const mod = e.metaKey || e.ctrlKey
+      const processing = live.current.proc !== null
       const handler =
         e.code === 'Space' && !mod && !e.altKey ? play
-          : mod && !e.altKey && !e.shiftKey ? { KeyC: copy, KeyX: cut, KeyV: () => paste('overwrite') }[e.code as 'KeyC']
-            : undefined
+          : processing && e.code === 'Escape' ? () => finishProcess(false)
+            : processing && e.code === 'Enter' && !mod && !(e.target instanceof HTMLButtonElement) ? () => finishProcess(true)
+              : mod && !e.altKey && !e.shiftKey && !processing ? { KeyC: copy, KeyX: cut, KeyV: () => paste('overwrite') }[e.code as 'KeyC']
+                : undefined
       if (!handler) return
       e.preventDefault()
       e.stopPropagation()
@@ -202,7 +260,7 @@ export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: 
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [play, copy, cut, paste])
+  }, [play, copy, cut, paste, finishProcess])
 
   // ── Pointer gestures on the waveform ──────────────────────────────────────
   // Presses anywhere in the wave box count, measured from the waveform's left edge: the axis and the
@@ -223,8 +281,8 @@ export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: 
   }
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    const { pcm: data, busy: isBusy, drawing: isDrawing, lanes: laneList } = live.current
-    if (!data || isBusy) return
+    const { pcm: data, busy: isBusy, drawing: isDrawing, lanes: laneList, proc: p } = live.current
+    if (!data || isBusy || p) return
     if (isDrawing) {
       const lane = laneAt(laneList, pointerY(e))
       const frame = Math.min(frames - 1, frameOf(pointerX(e)))
@@ -269,7 +327,15 @@ export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: 
 
   return (
     <div className={s.editor}>
-      <EditorToolbar ready={!missing && !busy} hasSel={sel !== null} hasClip={clip !== null} drawing={drawing} actions={actions} />
+      <EditorToolbar ready={!missing && !busy} hasSel={sel !== null} hasClip={clip !== null} drawing={drawing}
+        processing={proc !== null} cycles={!!meta && holdsCycles({ frames: meta.frames, cycleLength: entity?.cycleLength })} actions={actions} />
+
+      {proc && (
+        <ProcessPanel def={LIVE_PROCESSES[proc.kind]} values={proc.values} ctx={procCtx}
+          target={LIVE_PROCESSES[proc.kind].atCursor ? 'at cursor' : sel ? 'selection' : 'whole sample'} busy={busy}
+          onChange={(key, v) => setProc((p) => p && { ...p, values: { ...p.values, [key]: v } })}
+          onLoop={loopProcessed} onDone={() => finishProcess(true)} onCancel={() => finishProcess(false)} />
+      )}
 
       {meta && entity && (
         <div className={s.info}>
@@ -295,13 +361,6 @@ export function SampleEditor({ host, slug, sampleId, onClose, onSwitchSample }: 
 
       <WaveScrollbar width={width} frames={frames} visible={visibleFrames(width, view.px)}
         scroll={view.scroll} onScroll={view.setScroll} />
-
-      {dialog && (sel || dialog === 'pitch') && (
-        <EditDialog kind={dialog} onClose={() => setDialog(null)}
-          onApplyVolume={(pct) => { const st = editState(); if (st) apply(gainSelection(st, pct)) }}
-          onApplyFade={(from, to) => { const st = editState(); if (st) apply(fadeSelection(st, from, to)) }}
-          onApplyPitch={(semis) => { const st = editState(); if (st) apply(repitchSelection(st, semis)) }} />
-      )}
 
       {cycleRange && pcm && meta && entity && (
         <MakeCycleDialog pcm={pcm} range={cycleRange} sampleRate={meta.sampleRate} defaultName={entity.name}

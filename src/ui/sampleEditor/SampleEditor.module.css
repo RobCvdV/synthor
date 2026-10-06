@@ -62,3 +62,18 @@
 .cycleAxis { stroke: #2a3644; stroke-width: 1; vector-effect: non-scaling-stroke; }
 .cycleLine { fill: none; stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .drawing { cursor: cell; }
+
+.processPanel {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 6px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  font-size: 12px;
+}
+.processParam { display: inline-flex; align-items: center; gap: 6px; }
+.processSlider { width: 180px; }
+.processNumber { width: 64px; font-variant-numeric: tabular-nums; }
+.processInfo { min-width: 72px; color: var(--muted); font-variant-numeric: tabular-nums; }

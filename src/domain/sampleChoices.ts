@@ -1,13 +1,22 @@
-import { CYCLE_SIZE_CHOICES, WAVEFORM_MAX_LENGTH_SECONDS, WAVETABLE_GRAIN, WAVETABLE_MAX_FRAMES } from './moduleDefs'
+import { CYCLE_SIZE_CHOICES, MAX_CYCLE_FRAMES, WAVETABLE_GRAIN, WAVETABLE_MAX_FRAMES } from './moduleDefs'
 import { midiToFreq, samplePlaybackRate } from './notes'
 import type { Id, ModuleType, SampleEntity } from './types'
 
-/** Whether a sample is short enough to serve as one waveform cycle. */
-export function fitsWaveform(sample: { frames: number; sampleRate: number }): boolean {
-  return sample.frames / sample.sampleRate <= WAVEFORM_MAX_LENGTH_SECONDS
+type CycleSample = { frames: number; cycleLength?: number }
+
+/**
+ * Whether a sample is one waveform cycle: its declared cycle length covers it, or, undeclared,
+ * it is no longer than a cycle can be. Short one-shots past that limit stay one-shots.
+ */
+export function fitsWaveform(sample: CycleSample): boolean {
+  // Tolerates the rounding a resampled cycle picks up.
+  return sample.cycleLength ? sample.frames < sample.cycleLength + 1 : sample.frames <= MAX_CYCLE_FRAMES
 }
 
-type CycleSample = { frames: number; sampleRate: number; cycleLength?: number }
+/** A single cycle or a wavetable: its length is resolution, so the note sets its pitch. */
+export function holdsCycles(sample: CycleSample): boolean {
+  return !!sample.cycleLength || fitsWaveform(sample)
+}
 
 /** Whether the wave module can play a sample: a single cycle, or a wavetable of whole frames. */
 export function fitsWavetable(sample: CycleSample): boolean {
@@ -47,7 +56,7 @@ export function defaultSampleId(moduleType: ModuleType, samples: Record<Id, Samp
  * How a key previews a sample: a single cycle loops at the note's frequency (while the key is
  * held), anything longer plays once, pitched relative to C-4.
  */
-export function samplePreviewPlan(sample: { frames: number; sampleRate: number }, midi: number): { rate: number; loop: boolean } {
+export function samplePreviewPlan(sample: CycleSample & { sampleRate: number }, midi: number): { rate: number; loop: boolean } {
   return fitsWaveform(sample)
     ? { rate: midiToFreq(midi) * sample.frames / sample.sampleRate, loop: true }
     : { rate: samplePlaybackRate(midi), loop: false }

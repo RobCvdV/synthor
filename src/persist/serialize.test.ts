@@ -257,6 +257,26 @@ describe('migration v14→v15 — sample cycle length', () => {
   })
 })
 
+describe('migration v15→v16 — single cycles', () => {
+  it('keeps samples a wave module plays as one cycle; other short samples stay one-shots', () => {
+    const doc = createDefaultDoc()
+    const cycle = newSampleEntity('Long cycle', 'h1', 'c.wav', 44100, 1, 8000)
+    const hit = newSampleEntity('Hat', 'h2', 'hat.wav', 44100, 1, 8000)
+    const small = newSampleEntity('AKWF', 'h3', 'a.wav', 44100, 1, 600)
+    for (const smp of [cycle, hit, small]) doc.entities.samples[smp.id] = smp
+    const inst = newModularInstrument('Synth')
+    inst.modules.w = { id: 'w', type: 'wave', params: {}, pos: { x: 0, y: 0 }, sampleId: cycle.id }
+    inst.modules.w2 = { id: 'w2', type: 'wave', params: {}, pos: { x: 0, y: 0 }, sampleId: small.id }
+    doc.entities.instruments[inst.id] = inst
+    const result = migrate(JSON.parse(JSON.stringify({ schemaVersion: 15, meta: META, doc })))
+    expect(result.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
+    const samples = result.doc.entities.samples
+    expect(samples[cycle.id].cycleLength).toBe(8000)
+    expect(samples[hit.id].cycleLength).toBeUndefined()
+    expect(samples[small.id].cycleLength).toBeUndefined()
+  })
+})
+
 describe('migration v5→v6', () => {
   it('strips effect/effectValue from cells', () => {
     const v5 = {
