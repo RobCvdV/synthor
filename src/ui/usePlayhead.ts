@@ -13,12 +13,44 @@ export function currentArrangement(): ArrangementItem[] {
   return buildArrangement(doc, playMode, currentStep)
 }
 
+/** Arrangement-global row of `localRow` in the current step. */
+function globalRow(localRow: number): number {
+  const { doc } = useDocStore.getState()
+  return startRowFor(doc, currentArrangement(), useAppStore.getState().currentStep, localRow)
+}
+
 /** Global start row for Space (from the cursor in the current step) or Ctrl+Space (from the top). */
 export function playStartRow(fromTop: boolean): number {
   if (fromTop) return 0
-  const { doc } = useDocStore.getState()
-  const { currentStep, trackerCursor } = useAppStore.getState()
-  return startRowFor(doc, currentArrangement(), currentStep, trackerCursor.row)
+  return globalRow(useAppStore.getState().trackerCursor.row)
+}
+
+/** Loops rows r0..r1 of the current step, or clears the loop; a running playback restarts inside it. */
+export function setLoopRows(rows: { r0: number; r1: number } | null): void {
+  const t = useTransportStore.getState()
+  const loop = rows && { start: globalRow(rows.r0), end: globalRow(rows.r1) }
+  const { playing, currentRow } = t
+  t.setLoop(loop)
+  if (!playing) return
+  const next = useTransportStore.getState().loop
+  t.toggle(0)
+  t.toggle(0, next && (currentRow < next.start || currentRow > next.end) ? next.start : currentRow)
+}
+
+/** Rows of the current step inside the loop, as local rows; null without a loop there. */
+export function useLoopRows(): { r0: number; r1: number } | null {
+  const loop = useTransportStore((s) => s.loop)
+  const arrangement = useArrangement()
+  const doc = useDocStore((s) => s.doc)
+  const currentStep = useAppStore((s) => s.currentStep)
+  return useMemo(() => {
+    if (!loop) return null
+    const offset = startRowFor(doc, arrangement, currentStep, 0)
+    const length = doc.entities.patterns[doc.patternId]?.length ?? 0
+    const r0 = Math.max(0, loop.start - offset)
+    const r1 = Math.min(length - 1, loop.end - offset)
+    return r0 <= r1 ? { r0, r1 } : null
+  }, [loop, arrangement, doc, currentStep])
 }
 
 /**

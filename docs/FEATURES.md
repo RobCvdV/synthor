@@ -94,16 +94,12 @@ per-track delay + groove patterns.
 These are small, self-contained improvements that add up to a smoother
 editing experience.
 
-- **Pattern-loop during editing** — loop a subsection (e.g. rows 0-15)
-  while editing, without changing the full pattern. Transport-only.
 - **Track delay** — per-track offset in milliseconds for groove (shifts
   one track slightly ahead or behind the rest).
 - **Undo history panel** — show the undo stack so you can see what you're
   undoing and jump to a specific state.
 - **Dark/light theme** — CSS custom properties; the tracker look benefits
   from a dark background with bright text (like every classic tracker).
-- **Ghost channels** — faintly show the previous/next pattern's notes in
-  the grid while editing, for context across pattern boundaries.
 
 ---
 

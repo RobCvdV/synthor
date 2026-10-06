@@ -10,11 +10,19 @@ function resetStore() {
     startTime: 0,
     startRow: 0,
     playEpoch: 0,
+    loop: null,
   })
 }
 
 describe('transportStore', () => {
   beforeEach(resetStore)
+
+  it('stores a loop with its ends in order, and clears it', () => {
+    useTransportStore.getState().setLoop({ start: 12, end: 4 })
+    expect(useTransportStore.getState().loop).toEqual({ start: 4, end: 12 })
+    useTransportStore.getState().setLoop(null)
+    expect(useTransportStore.getState().loop).toBeNull()
+  })
 
   /* ---- play / stop ---- */
 

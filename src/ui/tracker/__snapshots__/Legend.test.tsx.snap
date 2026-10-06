@@ -438,6 +438,16 @@ exports[`Legend > lists the tracker shortcuts by group 1`] = `
         class="legend-row"
       >
         <kbd>
+          ⌥ L
+        </kbd>
+        <span>
+          loop selected rows (no selection: off)
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
           Esc
         </kbd>
         <span>

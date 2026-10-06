@@ -1,13 +1,15 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
-import type { Doc, Id, Pattern, Track } from '../../domain/types'
+import type { Cell, Doc, Id, Pattern, Track } from '../../domain/types'
+import { neighbourSteps } from '../../engine/arrangement'
 import type { Instrument } from '../../domain/types'
 import { midiToName } from '../../domain/notes'
 import { effInletNames, isBuiltinLaneType, LANE_DEFS, readableLaneLabel, valueHex } from '../../domain/effects'
 import { useDocStore } from '../../state/docStore'
 import { MAX_EDIT_STEP, useAppStore } from '../../state/appStore'
+import { useTransportStore } from '../../state/transportStore'
 import { EditableLabel } from '../components/EditableLabel'
 import { InstrumentSelect } from '../components/InstrumentSelect'
-import { usePlayheadRow } from '../usePlayhead'
+import { setLoopRows, useLoopRows, usePlayheadRow } from '../usePlayhead'
 import { clipboardLabel, scrollTopFor, selectionMasks, type Selection } from './trackerNav'
 import type { ColumnMask } from '../../state/docStoreTypes'
 
@@ -63,6 +65,8 @@ const PatternHead = memo(function PatternHead({ patternId, patternName, patternL
   const rectClipboard = useDocStore((s) => s.rectClipboard)
   const trackClipboard = useDocStore((s) => s.trackClipboard)
   const clip = clipboardLabel(rectClipboard, trackClipboard)
+  const loop = useLoopRows()
+  const loopOn = useTransportStore((s) => s.loop !== null)
 
   return (
     <div className="pattern-head">
@@ -93,6 +97,12 @@ const PatternHead = memo(function PatternHead({ patternId, patternName, patternL
         title={editMode ? 'Editing: keys write into the grid (⌘E: play only)' : 'Play only: note keys just play (⌘E: edit)'}>
         {editMode ? 'Edit' : 'Play only'}
       </button>
+      {loopOn && (
+        <button className="follow-btn on loop-btn" onClick={() => setLoopRows(null)}
+          title="Playback loops these rows (⌥L with a selection) — click or ⌥L without one to stop looping">
+          {loop ? `Loop ${pad2(loop.r0)}–${pad2(loop.r1)}` : 'Loop (other pattern)'} ×
+        </button>
+      )}
       <span className={'clip-ind' + (clip ? ' full' : '')}
         title={clip ? `⌘V pastes: ${clip}` : 'Nothing copied — ⌘C copies the selection, or the track without one'}>
         Clip: {clip ?? 'empty'}
@@ -100,6 +110,8 @@ const PatternHead = memo(function PatternHead({ patternId, patternName, patternL
     </div>
   )
 })
+
+const pad2 = (n: number) => n.toString().padStart(2, '0')
 
 // ── TrackerHeader ────────────────────────────────────────────────────────────
 
@@ -212,7 +224,7 @@ function cellPropsEqual(a: CellProps, b: CellProps): boolean {
 
 interface RowProps {
   row: number; tracks: Track[]
-  isBeat: boolean; isPlayhead: boolean
+  isBeat: boolean; isPlayhead: boolean; inLoop: boolean
   isCursorRow: boolean; cursorTrack: number; cursorCol: number; cursorLaneIndex: number | null
   /** Per track index, the selected columns on this row; null when the row is outside the selection. */
   selMasks: (ColumnMask | undefined)[] | null
@@ -223,12 +235,12 @@ interface RowProps {
 }
 
 const TrackerRowImpl = memo(function TrackerRowImpl({
-  row, tracks, isBeat, isPlayhead, isCursorRow, cursorTrack, cursorCol, cursorLaneIndex,
+  row, tracks, isBeat, isPlayhead, inLoop, isCursorRow, cursorTrack, cursorCol, cursorLaneIndex,
   selMasks, mutedTracks, volEntry, laneEntry, onCellClick, onCellDrag,
 }: RowProps) {
   return (
     <div data-row={row} className={'grid-row' + (isPlayhead ? ' playhead' : '') + (isBeat ? ' beat' : '')}>
-      <span className="cell rownum">{row.toString().padStart(2, '0')}</span>
+      <span className={'cell rownum' + (inLoop ? ' in-loop' : '')}>{pad2(row)}</span>
       {tracks.map((t, ti) => {
         const cell = t.cells[row]
         const note = cell?.note ?? null
@@ -278,6 +290,42 @@ const TrackerRowImpl = memo(function TrackerRowImpl({
   )
 })
 
+// ── GhostRows ────────────────────────────────────────────────────────────────
+
+/** Rows of the neighbouring song steps shown at each pattern edge. */
+const GHOST_ROWS = 4
+
+interface GhostRowsProps {
+  /** Neighbour pattern rows: [row number, cells by current track index]. */
+  rows: { row: number; cells: (Cell | undefined)[] }[]
+  widths: number[]
+  label: string
+  edge: 'before' | 'after'
+}
+
+/** Dimmed, read-only rows from the previous / next song step, for context at the pattern edges. */
+const GhostRows = memo(function GhostRows({ rows, widths, label, edge }: GhostRowsProps) {
+  return (
+    <div className={'ghost-rows ' + edge} title={label}>
+      {rows.map(({ row, cells }) => (
+        <div key={row} className="grid-row ghost">
+          <span className="cell rownum">{pad2(row)}</span>
+          {widths.map((width, ti) => {
+            const c = cells[ti]
+            const note = c?.hold ? '|' : c?.noteOff ? '===' : c?.note != null ? midiToName(c.note) : '···'
+            return (
+              <span key={ti} className="cell" style={{ width }}>
+                <span className="cell-note">{note}</span>
+                <span className="cell-vol">{valueHex(c?.volume ?? null)}</span>
+              </span>
+            )
+          })}
+        </div>
+      ))}
+    </div>
+  )
+})
+
 // ── TrackerGrid ──────────────────────────────────────────────────────────────
 
 export function TrackerGrid({ doc, pattern, cursor, muted, soloed, selection, volumeEntry, laneEntry, onCellClick, onCellDrag }: Props) {
@@ -289,6 +337,28 @@ export function TrackerGrid({ doc, pattern, cursor, muted, soloed, selection, vo
   const playhead = usePlayheadRow()
   const gridRef = useRef<HTMLDivElement>(null)
   const followPaused = useGridScroll(gridRef, cursor.row, playhead)
+  const loopRows = useLoopRows()
+  const currentStep = useAppStore((s) => s.currentStep)
+  const ghosts = useMemo(() => {
+    const { prev, next } = neighbourSteps(doc, currentStep)
+    const widths = tracks.map((t) => trackCellWidth(t?.effectLanes.length ?? 0))
+    const rowsOf = (patternId: Id, from: number, to: number) => {
+      const p = doc.entities.patterns[patternId]
+      if (!p) return []
+      const out = []
+      for (let r = Math.max(0, from); r < Math.min(p.length, to); r++) {
+        out.push({ row: r, cells: tracks.map((_, ti) => doc.entities.tracks[p.trackIds[ti]]?.cells[r]) })
+      }
+      return out
+    }
+    const prevPat = prev && doc.entities.patterns[prev.patternId]
+    const nextPat = next && doc.entities.patterns[next.patternId]
+    return {
+      widths,
+      before: prevPat ? { rows: rowsOf(prevPat.id, prevPat.length - GHOST_ROWS, prevPat.length), label: `End of the previous step: ${prevPat.name}` } : null,
+      after: nextPat ? { rows: rowsOf(nextPat.id, 0, GHOST_ROWS), label: `Start of the next step: ${nextPat.name}` } : null,
+    }
+  }, [doc, currentStep, tracks])
   const editMode = useAppStore((s) => s.editMode)
 
   // Masks indexed by track, so rows can look them up directly.
@@ -313,6 +383,7 @@ export function TrackerGrid({ doc, pattern, cursor, muted, soloed, selection, vo
       <div className="grid-scroll" ref={gridRef}>
         <TrackerHeader tracks={tracks} instruments={instruments} inletOptions={getInletOptions}
           muted={muted} soloed={soloed} />
+        {ghosts.before && <GhostRows rows={ghosts.before.rows} widths={ghosts.widths} label={ghosts.before.label} edge="before" />}
 
         {Array.from({ length: pattern.length }, (_, row) => {
           // Cursor/selection props only reach the rows they affect, so a cursor move re-renders two rows.
@@ -322,6 +393,7 @@ export function TrackerGrid({ doc, pattern, cursor, muted, soloed, selection, vo
               key={row}
               row={row} tracks={tracks}
               isBeat={row % 4 === 0} isPlayhead={row === playhead}
+              inLoop={loopRows !== null && row >= loopRows.r0 && row <= loopRows.r1}
               isCursorRow={onCursor} cursorTrack={onCursor ? cursor.track : -1}
               cursorCol={onCursor ? cursor.col : -1} cursorLaneIndex={onCursor ? cursor.laneIndex : null}
               selMasks={selectionCoversRow(selection, row) ? selMasks : null}
@@ -332,6 +404,7 @@ export function TrackerGrid({ doc, pattern, cursor, muted, soloed, selection, vo
             />
           )
         })}
+        {ghosts.after && <GhostRows rows={ghosts.after.rows} widths={ghosts.widths} label={ghosts.after.label} edge="after" />}
       </div>
     </div>
   )

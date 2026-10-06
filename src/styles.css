@@ -705,6 +705,11 @@ body {
   -webkit-user-select: none;
 }
 .cell.rownum { width: 40px; color: var(--muted); display: block; }
+.grid-row.ghost { opacity: 0.32; pointer-events: none; }
+.ghost-rows.before { border-bottom: 1px dashed var(--line); }
+.ghost-rows.after { border-top: 1px dashed var(--line); }
+.cell.rownum.in-loop { color: var(--play); box-shadow: inset 2px 0 0 var(--play); }
+.follow-btn.loop-btn { color: var(--play); border-color: var(--play); }
 .cell.cursor { background: var(--cursor); border-radius: 3px; }
 .sub-selected { background: rgba(79, 209, 197, 0.16); }
 .cell.muted { opacity: 0.4; }

@@ -72,6 +72,7 @@ const GROUPS: Group[] = [
       { keys: 'Ctrl Space', label: 'play from top' },
       { keys: 'Tab', label: 'cycle song / section / pattern' },
       { keys: 'Ctrl F', label: 'follow playhead on / off' },
+      { keys: '⌥ L', label: 'loop selected rows (no selection: off)' },
       { keys: 'Esc', label: 'panic (silence everything)' },
       { keys: 'F1 … F12', label: 'mute track 1 … 12' },
       { keys: '⇧ F1 … F12', label: 'solo track 1 … 12' },

@@ -68,3 +68,24 @@ describe('TrackerGrid render cost', () => {
     expect(midiToName).toHaveBeenCalledTimes(2)
   })
 })
+
+describe('TrackerGrid ghost rows', () => {
+  beforeEach(() => resetStores())
+
+  it('shows the next song step\'s first rows after the pattern, and none before the first step', () => {
+    const store = useDocStore.getState()
+    const sectionId = store.doc.sectionIds[0]
+    const p1 = store.doc.patternId
+    const p2 = store.addPattern('Next')
+    store.setCellNote(useDocStore.getState().doc.entities.patterns[p2].trackIds[0], 0, 72)
+    store.addPatternToSection(sectionId, p2)
+    store.setCurrentPattern(p1)
+    const doc = useDocStore.getState().doc
+    const { container } = renderGrid(doc)
+    expect(container.querySelector('.ghost-rows.before')).toBeNull()
+    const after = container.querySelectorAll('.ghost-rows.after .grid-row')
+    expect(after).toHaveLength(4)
+    expect(after[0].querySelector('.cell-note')?.textContent).toBe('N72')
+  })
+})
+

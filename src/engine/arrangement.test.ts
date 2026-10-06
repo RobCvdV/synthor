@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  buildArrangement, itemIndexAt, resolveStep, startRowFor, type ArrangementItem,
+  buildArrangement, itemIndexAt, neighbourSteps, resolveStep, startRowFor, type ArrangementItem,
 } from '../engine/arrangement'
 import { newTrack, newSection, newModularInstrument, createMasterChannel } from '../domain/factory'
 import { MASTER_CHANNEL_ID } from '../domain/types'
@@ -289,5 +289,19 @@ describe('section steps', () => {
     expect(itemIndexAt(doc, arr, 50)).toBe(2)
     expect(itemIndexAt(doc, arr, 104 + 17)).toBe(1)
     expect(itemIndexAt(doc, [], 5)).toBe(-1)
+  })
+})
+
+describe('neighbourSteps', () => {
+  it('finds the song steps around the current one, across section borders', () => {
+    const { prev, next } = neighbourSteps(sharedDoc('p1'), { sectionId: 'A', step: 2 })
+    expect(prev).toMatchObject({ patternId: 'p2', sectionId: 'A', step: 1 })
+    expect(next).toMatchObject({ patternId: 'p2', sectionId: 'B', step: 0 })
+  })
+
+  it('has no neighbour past the ends, and none for a pattern outside the song', () => {
+    expect(neighbourSteps(sharedDoc('p1'), { sectionId: 'A', step: 0 }).prev).toBeNull()
+    expect(neighbourSteps(sharedDoc('p3'), null).next).toBeNull()
+    expect(neighbourSteps(sharedDoc('p9'), null)).toEqual({ prev: null, next: null })
   })
 })

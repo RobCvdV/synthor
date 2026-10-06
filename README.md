@@ -104,6 +104,7 @@ The in-app Legend (tracker view, right side) is authoritative; the essentials:
 | `Del / ⌫` | Clear cell / the selected columns |
 | `Shift ↑↓ / ←→` | Select rows in the cursor column / widen over columns and tracks |
 | `Alt 0 … 9` | Edit step — rows the cursor advances after an entry (also −/+ in the pattern header) |
+| `Alt L` | Loop the selected rows while playing; without a selection, stop looping |
 | `Ctrl F` | Follow the playhead while playing (also the Follow button) |
 | `Ctrl =` , `Ctrl , / .` | Add track / move track |
 | `Ctrl C / X / V / D / ⌫` | Copy / cut / paste / duplicate / delete track |

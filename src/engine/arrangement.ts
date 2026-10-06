@@ -114,3 +114,11 @@ export function startRowFor(doc: Doc, arrangement: readonly ArrangementItem[], c
     ?? arrangement.find((a) => a.patternId === doc.patternId)
   return (item?.startRow ?? 0) + localRow
 }
+
+/** The song steps right before and after the current step, for showing context at pattern edges. */
+export function neighbourSteps(doc: Doc, current: StepRef | null): { prev: ArrangementItem | null; next: ArrangementItem | null } {
+  const step = resolveStep(doc, current)
+  const song = step ? flattenSteps(doc, doc.sectionIds) : []
+  const i = song.findIndex((a) => a.sectionId === step?.sectionId && a.step === step?.step)
+  return { prev: i > 0 ? song[i - 1] : null, next: i >= 0 && i < song.length - 1 ? song[i + 1] : null }
+}

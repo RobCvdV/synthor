@@ -34,6 +34,11 @@
   Copy / cut / delete / paste and transpose act on the selected columns only.
 - **Clipboard indicator** in the pattern header ("Clip: 8 rows · vol");
   copying a track or a selection replaces the other, so ⌘V pastes what it says.
+- **Loop range** (Alt+L on a selection): playback loops just those rows, in
+  any play mode; header shows "Loop 08–15 ×". Only the looped rows are
+  uploaded to txSeq (`slicePlaybackData`), so no native change.
+- **Ghost rows**: the previous / next song step's edge rows show dimmed above
+  and below the pattern.
 - **Mouse**: drag to select; clicking a note / vol / lane sub-column moves the
   cursor into that column.
 
@@ -165,7 +170,7 @@ The shortlist:
 - **MIDI recording** — step-record and live-record (live playback exists).
 - **NNA** — new-note actions for monophonic behavior.
 - **Groove / swing** — per-row timing offsets.
-- **Pattern-loop during editing**, **track delay**, **undo panel**,
+- **Track delay**, **undo panel**,
   **clipboard indicator**, **theme**, **new pattern from selection**,
   **ghost channels**, **per-track panning in the grid**.
 

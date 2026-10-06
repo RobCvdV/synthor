@@ -7,6 +7,7 @@ import { askRange } from '../../state/dialogStore'
 import { useDocStore } from '../../state/docStore'
 import { valueHex } from '../../domain/effects'
 import { codeToSemitone, keyToHex } from '../keymap'
+import { setLoopRows } from '../usePlayhead'
 import {
   cursorColumn, dragSelection, enterHexDigit, extendSelection, interpolationTarget, moveLeft, moveRight, selectionBounds, selectionMasks, type CellPos, snapRow, stepRow, type Selection,
 } from './trackerNav'
@@ -236,6 +237,11 @@ export function useTrackerKeys(host: AudioHost, keyboardPlayer: KeyboardPlayer):
     if (e.altKey && !e.ctrlKey && !e.metaKey) {
       const digit = /^Digit(\d)$/.exec(e.code)
       if (digit) { e.preventDefault(); useAppStore.getState().setEditStep(Number(digit[1])); return }
+      if (e.code === 'KeyL') {
+        e.preventDefault()
+        setLoopRows(sel ? { r0: selectionBounds(sel).r0, r1: selectionBounds(sel).r1 } : null)
+        return
+      }
       if (e.code === 'ArrowUp') { moveTo(snapRow(cur, 4, -1, len)); return }
       if (e.code === 'ArrowDown') { moveTo(snapRow(cur, 4, 1, len)); return }
     }

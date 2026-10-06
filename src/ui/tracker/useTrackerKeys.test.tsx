@@ -5,6 +5,7 @@ import { useTrackerKeys } from './useTrackerKeys'
 import { resetStores, stubHost } from '../test/testUtils'
 import { useAppStore } from '../../state/appStore'
 import { useDocStore } from '../../state/docStore'
+import { useTransportStore } from '../../state/transportStore'
 import type { KeyboardPlayer } from '../../audio/keyboardPlayer'
 
 const player = { noteOn: vi.fn(), noteOffNote: vi.fn() } as unknown as KeyboardPlayer
@@ -165,5 +166,21 @@ describe('useTrackerKeys', () => {
     expect(result.current.selection).toMatchObject({ startCol: 1, endCol: 1 })
     press('Delete')
     expect([1, 2].map((r) => [cell(r).note, cell(r).volume])).toEqual([[60, null], [60, null]])
+  })
+
+  it('loops the selected rows with Alt+L, restarting playback inside the loop; Alt+L alone clears it', () => {
+    const { press } = setup()
+    press('ArrowDown', { shiftKey: true })
+    press('ArrowDown', { shiftKey: true })
+    act(() => useTransportStore.setState({ playing: true, currentRow: 20, playEpoch: 1 }))
+    press('KeyL', { altKey: true })
+    const t = useTransportStore.getState()
+    expect(t.loop).toEqual({ start: 1, end: 3 })
+    expect(t.playing).toBe(true)
+    expect(t.playEpoch).toBe(2)
+    expect(t.startRow).toBe(1)
+    press('ArrowDown')
+    press('KeyL', { altKey: true })
+    expect(useTransportStore.getState().loop).toBeNull()
   })
 })

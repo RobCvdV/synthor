@@ -41,6 +41,7 @@ export function resetStores(): void {
     startRow: 0,
     playEpoch: 0,
     currentRow: 0,
+    loop: null,
   })
   useAudioStore.setState({ status: 'idle', playbackStarted: false })
   useProjectStore.setState({
