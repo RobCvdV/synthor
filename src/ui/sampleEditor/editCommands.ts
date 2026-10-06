@@ -1,6 +1,6 @@
 import {
-  copyRange, cutRange, fadeRange, framesOf, gainRange, insertAt, nearestZeroCrossing, normalizeRange, pasteAt,
-  removeDcRange, repitchRange, replaceRange, reverseRange, silenceRange, trimToRange,
+  copyRange, cutRange, framesOf, insertAt, nearestZeroCrossing, normalizeRange, pasteAt,
+  removeDcRange, replaceRange, reverseRange, silenceRange, trimToRange,
   type PcmData,
 } from '../../audio/sampleEdit'
 import type { Sel } from './selectionGestures'
@@ -42,16 +42,6 @@ export function reverseSelection(s: EditState): EditResult | null {
   return s.sel ? { ...s, pcm: reverseRange(s.pcm, s.sel.start, s.sel.end) } : null
 }
 
-/** Scales the selection by `percent` (100 = unchanged). */
-export function gainSelection(s: EditState, percent: number): EditResult | null {
-  return s.sel ? { ...s, pcm: gainRange(s.pcm, s.sel.start, s.sel.end, percent / 100) } : null
-}
-
-/** Ramps the selection's level from `fromPercent` to `toPercent`. */
-export function fadeSelection(s: EditState, fromPercent: number, toPercent: number): EditResult | null {
-  return s.sel ? { ...s, pcm: fadeRange(s.pcm, s.sel.start, s.sel.end, fromPercent / 100, toPercent / 100) } : null
-}
-
 /** The selection, or the whole sample without one. */
 export function targetRange({ pcm, sel }: EditState): Sel {
   return sel ?? { start: 0, end: framesOf(pcm) }
@@ -77,14 +67,6 @@ export function normalizeSelection(s: EditState): EditResult {
 export function removeDcSelection(s: EditState): EditResult {
   const r = targetRange(s)
   return { ...s, pcm: removeDcRange(s.pcm, r.start, r.end) }
-}
-
-/** Repitches the selection (or the whole sample) by resampling; the result stays selected. */
-export function repitchSelection(s: EditState, semitones: number): EditResult {
-  const r = targetRange(s)
-  const out = repitchRange(s.pcm, r.start, r.end, semitones)
-  const end = r.end + framesOf(out) - framesOf(s.pcm)
-  return { pcm: out, cursor: s.cursor === null ? null : Math.min(s.cursor, framesOf(out)), sel: s.sel && { start: r.start, end } }
 }
 
 /** Moves both selection edges to their nearest rising zero crossings. */

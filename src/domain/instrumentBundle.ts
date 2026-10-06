@@ -13,7 +13,8 @@ export interface InstrumentBundle {
   samples: Record<Id, SampleEntity>
 }
 
-function referencedSampleIds(inst: Instrument): Id[] {
+/** Samples an instrument plays directly (drum kit slots, sample modules). */
+export function referencedSampleIds(inst: Instrument): Id[] {
   if (inst.kind === 'drumkit') return inst.slots.flatMap((s) => (s.sampleId ? [s.sampleId] : []))
   return Object.values(inst.modules).flatMap((m) => (m.sampleId ? [m.sampleId] : []))
 }

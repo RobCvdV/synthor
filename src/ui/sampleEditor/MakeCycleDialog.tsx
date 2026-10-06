@@ -30,7 +30,7 @@ export function MakeCycleDialog({ pcm, range, sampleRate, defaultName, busy, onP
   const estimate = useMemo(() => detectPeriodIn(pcm, range.start, range.end, sampleRate), [pcm, range, sampleRate])
   const selected = range.end - range.start
   // A cycle-sized selection is meant as the cycle itself; detection is for longer stretches of sound.
-  const [useDetected, setUseDetected] = useState(estimate !== null && !fitsWaveform({ frames: selected, sampleRate }))
+  const [useDetected, setUseDetected] = useState(estimate !== null && !fitsWaveform({ frames: selected }))
   const [average, setAverage] = useState(true)
   const [length, setLength] = useState<number>(DEFAULT_CYCLE_LENGTH)
   const [frames, setFrames] = useState(1)

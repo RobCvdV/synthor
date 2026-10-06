@@ -5,10 +5,10 @@ import { compileModular } from './modular'
 import type { SampleMeta } from './instruments'
 import { DEFAULT_EFFECT_SETTINGS, MASTER_CHANNEL_ID, type ModularInstrument } from '../domain/types'
 
-/** 0.25 s at 44.1 kHz — the maximum eligible waveform length. */
-const META_SHORT: SampleMeta = { hash: 'wavehash', channels: 1, sampleRate: 44100, frames: 11025 }
-const META_SHORT_2: SampleMeta = { hash: 'wavehash2', channels: 1, sampleRate: 44100, frames: 11025 }
-/** 1 s — too long to be a single-cycle waveform, must be filtered out. */
+/** A 0.25 s single cycle, declared as such. */
+const META_SHORT: SampleMeta = { hash: 'wavehash', channels: 1, sampleRate: 44100, frames: 11025, cycleLength: 11025 }
+const META_SHORT_2: SampleMeta = { hash: 'wavehash2', channels: 1, sampleRate: 44100, frames: 11025, cycleLength: 11025 }
+/** 1 s, undeclared — no single cycle, must be filtered out. */
 const META_LONG: SampleMeta = { hash: 'longhash', channels: 1, sampleRate: 44100, frames: 44100 }
 
 /** A minimal patch: note → wave.freq, wave.out → output.inL. */

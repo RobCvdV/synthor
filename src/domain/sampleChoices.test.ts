@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { newSampleEntity } from './factory'
 import {
-  cycleLength, defaultSampleId, fitsWaveform, fitsWavetable, sampleChoices, samplePreviewPlan, sortSamples, waveUse,
+  cycleLength, defaultSampleId, fitsWaveform, fitsWavetable, holdsCycles, sampleChoices, samplePreviewPlan, sortSamples, waveUse,
   wavetableFrameCount,
 } from './sampleChoices'
-import { CYCLE_SIZE_CHOICES, WAVEFORM_MAX_LENGTH_SECONDS, structuralParamsKey } from './moduleDefs'
+import { CYCLE_SIZE_CHOICES, MAX_CYCLE_FRAMES, structuralParamsKey } from './moduleDefs'
 
 const rate = 48000
 const cycle = newSampleEntity('cycle', 'h1', 'cycle.wav', rate, 1, 256)
@@ -21,8 +21,19 @@ describe('sampleChoices', () => {
     expect(sampleChoices('conv', [cycle, loop])).toEqual([cycle, loop])
   })
 
-  it('accepts a sample exactly at the length limit', () => {
-    expect(fitsWaveform({ frames: WAVEFORM_MAX_LENGTH_SECONDS * rate, sampleRate: rate })).toBe(true)
+  it('takes undeclared samples up to the limit for a cycle, and declared ones by their cycle length', () => {
+    expect(fitsWaveform({ frames: MAX_CYCLE_FRAMES })).toBe(true)
+    // A short one-shot (0.1 s) is no cycle.
+    expect(fitsWaveform({ frames: 4800 })).toBe(false)
+    expect(fitsWaveform({ frames: 8192, cycleLength: 8192 })).toBe(true)
+    expect(fitsWaveform({ frames: 2048.4, cycleLength: 2048 })).toBe(true)
+    expect(fitsWaveform({ frames: 4096, cycleLength: 2048 })).toBe(false)
+  })
+
+  it('tells cycle material, whose length is resolution, from ordinary samples', () => {
+    expect(holdsCycles({ frames: 600 })).toBe(true)
+    expect(holdsCycles({ frames: 64 * 2048, cycleLength: 2048 })).toBe(true)
+    expect(holdsCycles({ frames: 4800 })).toBe(false)
   })
 })
 
@@ -47,6 +58,9 @@ describe('samplePreviewPlan', () => {
     expect(plan.loop).toBe(true)
     expect(plan.rate * 48000 / 2048).toBeCloseTo(440)
   })
+  it('plays a short one-shot past the cycle limit once', () => {
+    expect(samplePreviewPlan({ frames: 4800, sampleRate: 48000 }, 60)).toEqual({ rate: 1, loop: false })
+  })
   it('plays longer samples once, C-4 at the natural rate', () => {
     expect(samplePreviewPlan({ frames: 48000, sampleRate: 48000 }, 60)).toEqual({ rate: 1, loop: false })
     expect(samplePreviewPlan({ frames: 48000, sampleRate: 48000 }, 72).rate).toBeCloseTo(2)
@@ -57,20 +71,20 @@ describe('wavetables', () => {
   const choice = (c: (typeof CYCLE_SIZE_CHOICES)[number]) => CYCLE_SIZE_CHOICES.indexOf(c)
 
   it('accepts single cycles, whole multiples of 256 frames, and samples with a known cycle length', () => {
-    expect(fitsWavetable({ frames: 2048, sampleRate: 48000 })).toBe(true)
-    expect(fitsWavetable({ frames: 64 * 2048, sampleRate: 48000 })).toBe(true)
-    expect(fitsWavetable({ frames: 48000, sampleRate: 48000 })).toBe(false)
-    expect(fitsWavetable({ frames: 71347, sampleRate: 48000, cycleLength: 2229.1 })).toBe(true)
-    expect(fitsWavetable({ frames: 257 * 4096, sampleRate: 48000 })).toBe(false)
+    expect(fitsWavetable({ frames: 2048 })).toBe(true)
+    expect(fitsWavetable({ frames: 64 * 2048 })).toBe(true)
+    expect(fitsWavetable({ frames: 48000 })).toBe(false)
+    expect(fitsWavetable({ frames: 71347, cycleLength: 2229.1 })).toBe(true)
+    expect(fitsWavetable({ frames: 257 * 4096 })).toBe(false)
   })
 
   it('picks the cycle length: auto uses the stored one, else whole for a single cycle, else 2048', () => {
-    expect(cycleLength({ frames: 2048, sampleRate: 48000 }, choice('auto'))).toBe(2048)
-    expect(cycleLength({ frames: 16384, sampleRate: 48000 }, choice('auto'))).toBe(2048)
-    expect(cycleLength({ frames: 16384, sampleRate: 48000, cycleLength: 512 }, choice('auto'))).toBe(512)
-    expect(cycleLength({ frames: 16384, sampleRate: 48000, cycleLength: 512 }, choice('whole'))).toBe(16384)
-    expect(cycleLength({ frames: 16384, sampleRate: 48000 }, choice('256'))).toBe(256)
-    expect(cycleLength({ frames: 100, sampleRate: 48000 }, choice('4096'))).toBe(100)
+    expect(cycleLength({ frames: 2048 }, choice('auto'))).toBe(2048)
+    expect(cycleLength({ frames: 16384 }, choice('auto'))).toBe(2048)
+    expect(cycleLength({ frames: 16384, cycleLength: 512 }, choice('auto'))).toBe(512)
+    expect(cycleLength({ frames: 16384, cycleLength: 512 }, choice('whole'))).toBe(16384)
+    expect(cycleLength({ frames: 16384 }, choice('256'))).toBe(256)
+    expect(cycleLength({ frames: 100 }, choice('4096'))).toBe(100)
   })
 
   it('counts frames, tolerating resampling rounding', () => {
@@ -80,9 +94,9 @@ describe('wavetables', () => {
   })
 
   it('describes the use for the editor', () => {
-    expect(waveUse({ frames: 2048, sampleRate: 48000 })).toBe('single cycle')
-    expect(waveUse({ frames: 16384, sampleRate: 48000, cycleLength: 512 })).toBe('wavetable: 32 frames of 512')
-    expect(waveUse({ frames: 48001, sampleRate: 48000 })).toMatch(/not usable/)
+    expect(waveUse({ frames: 2048 })).toBe('single cycle')
+    expect(waveUse({ frames: 16384, cycleLength: 512 })).toBe('wavetable: 32 frames of 512')
+    expect(waveUse({ frames: 48001 })).toMatch(/not usable/)
   })
 
   it('keys the params the graph is compiled from', () => {

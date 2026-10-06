@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useDocStore } from '../state/docStore'
+import { useSampleAudition } from '../state/sampleAudition'
 import { useProjectStore } from '../state/projectStore'
 import { useAppStore } from '../state/appStore'
 import { loadAudioFile } from '../audio/sampleLoader'
@@ -35,6 +36,12 @@ const sampleLibrarySource = sampleLibrary()
  * rate (same convention as the sample module). Preview goes straight
  * through Web Audio — no Elementary graph involved.
  */
+/** The tuned audio of `sampleId`, while it is being edited. */
+const auditionOf = (sampleId: string) => {
+  const a = useSampleAudition.getState().audition
+  return a?.sampleId === sampleId ? a : null
+}
+
 export function SampleLibraryView({ host }: Props) {
   const sampleMap = useDocStore((s) => s.doc.entities.samples)
   const samples = Object.values(sampleMap)
@@ -119,9 +126,11 @@ export function SampleLibraryView({ host }: Props) {
     }
   }, [slug, host, replaceSampleAsset])
 
-  /** One-shot preview via plain Web Audio (host.ctx → destination). */
+  /** One-shot preview via plain Web Audio (host.ctx → destination); a sample being tuned plays tuned. */
   const playSample = useCallback(
     async (sample: SampleEntity, rate = 1, loopKey?: string) => {
+      const audition = auditionOf(sample.id)
+      if (audition) return host.playPcmNote(audition.data, audition.sampleRate, rate, loopKey)
       const raw = await readSampleAsset(slug, sample.hash).catch(() => null)
       if (!raw) return
       await host.playSamplePreview(sample.hash, raw, rate, loopKey)
@@ -156,7 +165,10 @@ export function SampleLibraryView({ host }: Props) {
       const sample = targetId ? useDocStore.getState().doc.entities.samples[targetId] : undefined
       if (!sample) return
       e.preventDefault()
+      // Tuning never turns a one-shot into a cycle or back: the stored sample decides; a tuned cycle keeps its pitch.
       const plan = samplePreviewPlan(sample, useAppStore.getState().octave * 12 + semi)
+      const tunedFrames = auditionOf(sample.id)?.data[0].length
+      if (tunedFrames && plan.loop) plan.rate *= tunedFrames / sample.frames
       if (!plan.loop) return void playSample(sample, plan.rate)
       const code = e.code
       heldKeys.current.add(code)
@@ -184,6 +196,14 @@ export function SampleLibraryView({ host }: Props) {
       window.removeEventListener('blur', onBlur)
     }
   }, [onKeyDown, host])
+
+  // Held notes follow the tuning, and fall back to the stored sample on Cancel.
+  useEffect(() => useSampleAudition.subscribe(({ audition }, prev) => {
+    const a = audition ?? prev.audition
+    if (!a || audition === prev.audition) return
+    const cancelled = !audition && useDocStore.getState().doc.entities.samples[a.sampleId]?.hash === a.hash
+    host.replaceHeldPreviews(cancelled ? a.original : a.data, a.sampleRate)
+  }), [host])
 
   // Cut any ringing preview when leaving the view.
   useEffect(() => () => host.stopSamplePreviews(), [host])

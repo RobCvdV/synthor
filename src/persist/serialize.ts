@@ -13,12 +13,13 @@
 import { DEFAULT_LIVE_VOICES, type Doc, type ModuleType, type SampleEntity } from '../domain/types'
 import { nextEffName } from '../domain/factory'
 import { defaultParams, MODULE_DEFS } from '../domain/moduleDefs'
-import { fitsWaveform, sortSamples } from '../domain/sampleChoices'
+import { sortSamples } from '../domain/sampleChoices'
+import { MAX_CYCLE_FRAMES } from '../domain/moduleDefs'
 
 /**
  * Bump when the on-disk shape changes; add a matching `migrate` case.
  */
-export const CURRENT_SCHEMA_VERSION = 15
+export const CURRENT_SCHEMA_VERSION = 16
 
 export interface SongMeta {
   name: string
@@ -115,6 +116,9 @@ export function migrate(raw: unknown): SongFile {
 
   // v14→v15: samples may carry `cycleLength` (wavetables). No data conversion, same reason.
 
+  // v15→v16: single cycles are told apart by `cycleLength` or a short length, not by ≤ 0.25 s.
+  if (version < 16) raw = upgradeV15toV16(raw)
+
   // v1→v1 migration: when the stereo output was added (commit b3917fc), the
   // output module's inlet changed from 'in' to 'inL'. Old modular instruments
   // with connections targeting 'in' would silently produce silence because
@@ -189,6 +193,9 @@ function upgradeV11toV12(raw: any): any {
   return { ...raw, schemaVersion: 12, doc: { ...doc, entities: { ...doc.entities, instruments } } }
 }
 
+/** Before v16, any sample up to 0.25 s counted as a single cycle. */
+const wasWaveformSized = (s: { frames: number; sampleRate: number }) => s.frames / s.sampleRate <= 0.25
+
 /**
  * v12→v13: `params.sampleIndex` (a position in the name-sorted sample list, filtered to
  * waveform-sized samples for `wave`) becomes `sampleId`. A missing index meant 0.
@@ -204,7 +211,7 @@ function upgradeV12toV13(raw: any): any {
     const { sampleIndex, ...params } = isRecord(m.params) ? m.params : {} as Record<string, unknown>
     const idx = typeof sampleIndex === 'number' ? Math.round(sampleIndex) : 0
     // v12 wave pickers listed single cycles only; later wavetable support must not shift the index.
-    const choices = m.type === 'wave' ? sorted.filter(fitsWaveform) : sorted
+    const choices = m.type === 'wave' ? sorted.filter(wasWaveformSized) : sorted
     const sampleId = choices[idx]?.id
     return { ...m, params, ...(sampleId ? { sampleId } : {}) }
   }
@@ -225,6 +232,27 @@ function upgradeV12toV13(raw: any): any {
   const instruments = mapValues(doc.entities.instruments, convertInst)
   const mixChannels = mapValues(doc.entities.mixChannels, convertChannel)
   return { ...raw, schemaVersion: 13, doc: { ...doc, entities: { ...doc.entities, instruments, mixChannels } } }
+}
+
+/**
+ * v15→v16: samples longer than MAX_CYCLE_FRAMES only count as single cycles with a `cycleLength`.
+ * The ones a wave module already plays as one keep doing so.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function upgradeV15toV16(raw: any): any {
+  const doc = raw.doc
+  if (!doc || !isRecord(doc.entities) || !isRecord(doc.entities.samples)) return raw
+  const waveSampleIds = new Set<unknown>()
+  for (const inst of isRecord(doc.entities.instruments) ? Object.values(doc.entities.instruments) : []) {
+    if (!isRecord(inst) || inst.kind !== 'modular' || !isRecord(inst.modules)) continue
+    for (const m of Object.values(inst.modules)) if (isRecord(m) && m.type === 'wave') waveSampleIds.add(m.sampleId)
+  }
+  const samples = Object.fromEntries(Object.entries(doc.entities.samples).map(([id, smp]) => {
+    const s = smp as SampleEntity
+    const cycle = waveSampleIds.has(id) && !s.cycleLength && s.frames > MAX_CYCLE_FRAMES && wasWaveformSized(s)
+    return [id, cycle ? { ...s, cycleLength: s.frames } : s]
+  }))
+  return { ...raw, schemaVersion: 16, doc: { ...doc, entities: { ...doc.entities, samples } } }
 }
 
 /** v1→v2: initialise the samples entity map for old files. */
