@@ -598,6 +598,11 @@ body {
   color: #e06060; cursor: pointer; margin-left: 4px;
 }
 .panic-btn:hover { background: #4a1818; color: #f44; }
+.update-btn {
+  font-size: 12px; padding: 0 8px; line-height: 20px; border-radius: 3px; cursor: pointer;
+  border: 1px solid var(--accent); background: rgba(79, 209, 197, 0.12); color: var(--accent);
+}
+.update-btn:hover { background: rgba(79, 209, 197, 0.25); }
 .bpm-tap.flash { color: var(--accent); }
 
 /* MIDI indicator in the toolbar */

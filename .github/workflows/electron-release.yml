@@ -108,10 +108,14 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: electron-${{ matrix.platform }}
+          # The latest*.yml feeds, blockmaps and the mac zip are what the app's auto-updater reads.
           path: |
             release/*.AppImage
             release/*.dmg
+            release/*.zip
             release/*.exe
+            release/*.blockmap
+            release/latest*.yml
           if-no-files-found: error
 
   release:
@@ -129,6 +133,13 @@ jobs:
 
       - name: List release files
         run: ls -la release-artifacts
+
+      # Every platform's update feed must ship, or that platform's installs stop updating.
+      - name: Check update feeds
+        run: |
+          for f in latest.yml latest-mac.yml latest-linux.yml; do
+            test -f "release-artifacts/$f" || { echo "::error::missing $f"; exit 1; }
+          done
 
       - name: Create release
         uses: softprops/action-gh-release@v3

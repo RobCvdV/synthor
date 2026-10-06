@@ -13,6 +13,7 @@ import { createSettingsFile, type SettingsFile } from './appSettings.js'
 import { createLibraryFs } from './libraryFs.js'
 import { buildMenuTemplate } from './appMenu.js'
 import { createOpenFileQueue, songPathsFromArgv } from './openFiles.js'
+import { checkForUpdatesInteractive, installUpdate, pendingUpdate, setupUpdater } from './updater.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -91,6 +92,24 @@ function createWindow(): void {
   }
 }
 
+const SAVE_BEFORE_QUIT_TIMEOUT_MS = 5000
+
+/** Has the renderer save the song before quitting into an update; gives up after a few seconds. */
+function saveBeforeQuit(): Promise<void> {
+  const win = mainWindow
+  if (!win || win.isDestroyed()) return Promise.resolve()
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer)
+      ipcMain.removeListener('app:saved', done)
+      resolve()
+    }
+    const timer = setTimeout(done, SAVE_BEFORE_QUIT_TIMEOUT_MS)
+    ipcMain.once('app:saved', done)
+    win.webContents.send('app:save-before-quit')
+  })
+}
+
 /** Storage, settings and library IPC for the renderer (see preload.cts). */
 function registerIpc(settingsFile: SettingsFile): void {
   const { settings } = settingsFile
@@ -120,6 +139,8 @@ function registerIpc(settingsFile: SettingsFile): void {
   })
 
   ipcMain.handle('library:reveal', () => shell.openPath(libraryPath))
+  ipcMain.handle('update:pending', () => pendingUpdate())
+  ipcMain.handle('update:install', () => installUpdate(() => mainWindow, saveBeforeQuit))
   ipcMain.handle('files:take', () => openFiles.take())
 }
 
@@ -148,8 +169,9 @@ void app.whenReady().then(() => {
   Menu.setApplicationMenu(Menu.buildFromTemplate(buildMenuTemplate(process.platform, (command) => {
     if (mainWindow) mainWindow.webContents.send('menu:command', command)
     else createWindow()
-  })))
+  }, () => void checkForUpdatesInteractive(() => mainWindow, saveBeforeQuit))))
   createWindow()
+  setupUpdater(() => mainWindow)
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

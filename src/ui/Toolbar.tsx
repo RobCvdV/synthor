@@ -4,6 +4,7 @@ import type { AudioStatus } from '../state/audioStore'
 import type { Instrument } from '../domain/types'
 import { FreePlayToggle } from './FreePlayToggle'
 import { TempoControl } from './TempoControl'
+import { UpdateButton } from './UpdateButton'
 import { InstrumentSelect } from './components/InstrumentSelect'
 import { EditableLabel } from './components/EditableLabel'
 import { Button } from './components/Button'
@@ -100,6 +101,8 @@ export const Toolbar = memo(function Toolbar({
         <Button onClick={onOctaveDown}>oct −</Button>
         <Button onClick={onOctaveUp}>oct +</Button>
       </span>
+
+      <UpdateButton />
 
       {/* Global panic */}
       <button

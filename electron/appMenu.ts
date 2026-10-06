@@ -4,10 +4,16 @@ import type { MenuItemConstructorOptions } from 'electron'
 /** Keep in sync with `AppCommand` in `src/persist/electronBridge.ts`. */
 export type AppCommand = 'newSong' | 'openSong' | 'save' | 'saveAs' | 'importSong' | 'exportSong' | 'revealLibrary'
 
-export function buildMenuTemplate(platform: NodeJS.Platform, send: (command: AppCommand) => void): MenuItemConstructorOptions[] {
+export function buildMenuTemplate(
+  platform: NodeJS.Platform,
+  send: (command: AppCommand) => void,
+  checkForUpdates: () => void,
+): MenuItemConstructorOptions[] {
   const isMac = platform === 'darwin'
   const item = (label: string, command: AppCommand, accelerator?: string): MenuItemConstructorOptions =>
     ({ label, accelerator, click: () => send(command) })
+
+  const updates: MenuItemConstructorOptions = { label: 'Check for Updates…', click: checkForUpdates }
 
   const file: MenuItemConstructorOptions = {
     label: 'File',
@@ -27,7 +33,10 @@ export function buildMenuTemplate(platform: NodeJS.Platform, send: (command: App
   }
 
   return [
-    ...(isMac ? [{ label: 'Synthor', submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'quit' }] } as MenuItemConstructorOptions] : []),
+    ...(isMac ? [{
+      label: 'Synthor',
+      submenu: [{ role: 'about' }, updates, { type: 'separator' }, { role: 'quit' }],
+    } as MenuItemConstructorOptions] : []),
     file,
     { label: 'Edit', submenu: [{ role: 'undo' }, { role: 'redo' }] },
     {
@@ -39,5 +48,6 @@ export function buildMenuTemplate(platform: NodeJS.Platform, send: (command: App
       ],
     },
     { label: 'Window', submenu: [{ role: 'minimize' }, { role: 'zoom' }, ...(isMac ? [{ type: 'separator' } as const, { role: 'front' } as const] : [])] },
+    ...(isMac ? [] : [{ label: 'Help', submenu: [updates] }]),
   ]
 }
