@@ -25,6 +25,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # The logo's tracker row shows the version (0.1.5 → C-0 01 05); re-renders every icon.
+      - name: Stamp the version into the logo
+        run: node scripts/stamp-version.mjs "$GITHUB_REF_NAME"
+
       - name: Build project
         run: npm run build
 

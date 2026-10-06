@@ -47,6 +47,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # The logo's tracker row shows the version (0.1.5 → C-0 01 05); re-renders every icon.
+      - name: Stamp the version into the logo
+        shell: bash
+        run: node scripts/stamp-version.mjs "$GITHUB_REF_NAME"
+
       # Our own keychain instead of CSC_LINK: electron-builder passes the .p12
       # password to set-key-partition-list, which needs the keychain password.
       - name: Import Developer ID certificate

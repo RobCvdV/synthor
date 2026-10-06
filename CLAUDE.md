@@ -87,7 +87,7 @@ Chains are ordered; each hop is verified. Skipping the tail is how features half
 - The File menu (`electron/appMenu.ts`) only sends a command (`menu:command`); `ui/appCommands.ts` runs it, and on the web ⌘S / ⇧⌘S / ⌘O reach the same function through `useAppKeys`. The `AppCommand` list lives in both `appMenu.ts` and `persist/electronBridge.ts`; change both together.
 - Songs opened from the OS (double-click, "Open With", command line, a second launch) are queued in main (`electron/openFiles.ts`) until `SongCommandHost` takes them after the startup song loads; a single-instance lock routes second launches to the running app.
 - `SYNTHOR_USER_DATA=<dir>` runs Electron on an isolated profile (put a `settings.json` there with `libraryPath` to redirect the library too).
-- Deploys: push a `deploy-vx.y.z` tag → web deploy (FTP) + Electron release (GitHub Releases) workflows.
+- Deploys: push a `deploy-vx.y.z` tag → web deploy (FTP) + Electron release (GitHub Releases) workflows. Both first run `scripts/stamp-version.mjs`, which writes the version into the logo's last row (`C-<major> <minor> <patch>`, the `v-*` digit slots in `public/favicon.svg`) and re-renders every PNG/ICNS icon from it. The logo's text is outlines (Menlo), so rendering needs no fonts — don't put `<text>` back.
 - Auto-update (`electron/updater.ts`, electron-updater) reads the `latest*.yml` feeds of the latest GitHub release; the release workflow must keep uploading them with the blockmaps and the mac `.zip` (macOS updates from the zip, and only Developer ID-signed builds). Artifact names must not contain spaces. Installing waits for the renderer's save (`onSaveBeforeQuit`).
 
 ## Testing — required on every code change
