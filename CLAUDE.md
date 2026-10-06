@@ -88,6 +88,7 @@ Chains are ordered; each hop is verified. Skipping the tail is how features half
 - Songs opened from the OS (double-click, "Open With", command line, a second launch) are queued in main (`electron/openFiles.ts`) until `SongCommandHost` takes them after the startup song loads; a single-instance lock routes second launches to the running app.
 - `SYNTHOR_USER_DATA=<dir>` runs Electron on an isolated profile (put a `settings.json` there with `libraryPath` to redirect the library too).
 - Deploys: push a `deploy-vx.y.z` tag → web deploy (FTP) + Electron release (GitHub Releases) workflows.
+- Auto-update (`electron/updater.ts`, electron-updater) reads the `latest*.yml` feeds of the latest GitHub release; the release workflow must keep uploading them with the blockmaps and the mac `.zip` (macOS updates from the zip, and only Developer ID-signed builds). Artifact names must not contain spaces. Installing waits for the renderer's save (`onSaveBeforeQuit`).
 
 ## Testing — required on every code change
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { Autosaver } from '../persist/autosave'
+import { electronApi } from '../persist/electronBridge'
 import { requestPersistentStorage } from '../persist/opfsBackend'
 import { hasStorage } from '../persist/storage'
 import { saveCurrentSong } from '../persist/saveCurrent'
@@ -56,6 +57,8 @@ export function useAutosave(): void {
     }
     window.addEventListener('beforeunload', flush)
     document.addEventListener('visibilitychange', onVisibility)
+    // Installing an update quits the app: it waits for this save.
+    const unsubQuit = electronApi()?.onSaveBeforeQuit(() => saver.flush())
 
     return () => {
       unsubDoc()
@@ -63,6 +66,7 @@ export function useAutosave(): void {
       unsubTransport()
       window.removeEventListener('beforeunload', flush)
       document.removeEventListener('visibilitychange', onVisibility)
+      unsubQuit?.()
       saver.dispose()
     }
   }, [])

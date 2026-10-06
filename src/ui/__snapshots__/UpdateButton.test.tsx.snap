@@ -1,0 +1,3 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`UpdateButton > shows an update downloaded before or after it mounted, and installs on click 1`] = `"<button class="update-btn" title="A new version is downloaded — restart to install it">⬆ Update v0.1.5</button>"`;
