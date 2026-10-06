@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildPlaybackData } from '../player/playbackData'
+import { buildPlaybackData, slicePlaybackData } from '../player/playbackData'
 import { newModularInstrument, newDrumKitInstrument, newTrack } from '../domain/factory'
 import type { Doc, Id, Pattern, Track } from '../domain/types'
 import { MASTER_CHANNEL_ID } from '../domain/types'
@@ -268,5 +268,29 @@ describe('buildPlaybackData', () => {
       { patternId: p2.id, startRow: 16 },
     ])
     expect(data.totalRows).toBe(48)
+  })
+})
+
+describe('slicePlaybackData', () => {
+  it('keeps rows start..end of every channel and records the offset', () => {
+    const inst = newSynth('Bass')
+    const track = newTrack(inst.id, 8)
+    setNote(track, 4, 60)
+    const pattern: Pattern = { id: 'pat_1', name: 'P1', length: 8, trackIds: [track.id] }
+    const doc = makeDoc({ [inst.id]: inst }, { [track.id]: track }, { [pattern.id]: pattern })
+    const data = buildPlaybackData(doc, [{ patternId: pattern.id, startRow: 0 }])
+
+    const loop = slicePlaybackData(data, 4, 6)!
+    expect(loop.totalRows).toBe(3)
+    expect(loop.rowOffset).toBe(4)
+    expect(loop.slots[0].signals[REGULAR_CH.gate]).toEqual([1, 0, 0])
+    expect(loop.slots[0].signals.every((sig) => sig.length === 3)).toBe(true)
+  })
+
+  it('rejects a range outside the data', () => {
+    const data = { slots: [], totalRows: 8, arrangement: [] }
+    expect(slicePlaybackData(data, 4, 8)).toBeNull()
+    expect(slicePlaybackData(data, -1, 2)).toBeNull()
+    expect(slicePlaybackData(data, 5, 4)).toBeNull()
   })
 })

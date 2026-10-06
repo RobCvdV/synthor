@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import { settingsStorage } from '../persist/settingsStorage'
 import type { Doc, Id, Pattern } from '../domain/types'
+import type { StepRef } from '../engine/arrangement'
 
 export type PlayMode = 'song' | 'section' | 'pattern'
 export const PLAY_MODES: PlayMode[] = ['song', 'section', 'pattern']
@@ -65,6 +66,15 @@ interface AppState {
   /** On: the current instrument gets its own live voices. Off: live notes
    *  play through the tracker slots (no extra DSP). */
   freePlay: boolean
+  /** Rows the cursor advances after an entry; 0 stays put. */
+  editStep: number
+  /** Keep the playhead row in view while playing. */
+  followPlayhead: boolean
+  /** Off: the tracker grid is read-only and note keys just play. */
+  editMode: boolean
+  /** The section step being edited — tells repeats of one pattern apart. Resolve it with
+   *  `resolveStep`, since it can go stale. */
+  currentStep: StepRef | null
 
   setPlayMode: (mode: PlayMode) => void
   cyclePlayMode: () => void
@@ -76,7 +86,13 @@ interface AppState {
   toggleMute: (trackNumber: number) => void
   toggleSolo: (trackNumber: number) => void
   setFreePlay: (on: boolean) => void
+  setEditStep: (step: number) => void
+  setFollowPlayhead: (on: boolean) => void
+  setEditMode: (on: boolean) => void
+  setCurrentStep: (step: StepRef | null) => void
 }
+
+export const MAX_EDIT_STEP = 16
 
 /** The persisted subset of AppState — a key missing here doesn't persist. */
 export function partializeAppState(state: AppState) {
@@ -90,6 +106,10 @@ export function partializeAppState(state: AppState) {
     mutedTrackNumbers: state.mutedTrackNumbers,
     soloedTrackNumbers: state.soloedTrackNumbers,
     freePlay: state.freePlay,
+    editStep: state.editStep,
+    followPlayhead: state.followPlayhead,
+    editMode: state.editMode,
+    currentStep: state.currentStep,
   }
 }
 
@@ -105,6 +125,10 @@ export const useAppStore = create<AppState>()(
       mutedTrackNumbers: {},
       soloedTrackNumbers: {},
       freePlay: true,
+      editStep: 1,
+      followPlayhead: true,
+      editMode: true,
+      currentStep: null,
 
       setPlayMode: (playMode) => set({ playMode }),
       cyclePlayMode: () => set((s) => {
@@ -123,6 +147,11 @@ export const useAppStore = create<AppState>()(
         soloedTrackNumbers: { ...s.soloedTrackNumbers, [trackNumber]: !s.soloedTrackNumbers[trackNumber] },
       })),
       setFreePlay: (freePlay) => set({ freePlay }),
+      setEditStep: (step) => set({ editStep: Math.max(0, Math.min(MAX_EDIT_STEP, Math.round(step))) }),
+      setFollowPlayhead: (followPlayhead) => set({ followPlayhead }),
+      setEditMode: (editMode) => set({ editMode }),
+      setCurrentStep: (step) => set((s) =>
+        s.currentStep?.sectionId === step?.sectionId && s.currentStep?.step === step?.step ? {} : { currentStep: step }),
     }),
     {
       name: 'synthor-app-state',

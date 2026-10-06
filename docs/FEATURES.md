@@ -11,42 +11,9 @@
 
 ## Tier 1 — High impact, low effort
 
-### Interpolation
-
-Select a range of cells in one column, run "interpolate" → linear fill between
-the first and last value. Classic for volume fades, pitch bends, and effect
-ramps. Would work across note, volume, and effect columns. Should probably affect only one lane to keep unrelated values untouched.
-
-**Prerequisites:** Rectangular selection (partially done, need lane specific selection).
-**Classic lineage:** Impulse Tracker "interpolate" function.
-
----
+_Nothing open right now._
 
 ## Tier 2 — Medium effort, big feel
-
-### Block transpose (larger jumps)
-
-Select a region of notes, transpose by N semitones. `Cmd±` already transposes
-a track or selection by ±1 semitone. A quick dialog or key combo `Cmd+shift+±`
-for larger jumps (e.g., ±12 for octave).
-
-**Prerequisites:** Rectangular selection (done).
-**Classic lineage:** All trackers; Impulse Tracker had Alt+F1..F12 for preset
-transpose amounts.
-
----
-
-### Follow mode
-
-A toggle that keeps the playhead row visible during playback — the grid
-auto-scrolls so you always see where the music is. Navigating away from the
-playhead temporarily disables follow (like a modern IDE's "auto-scroll from
-source" toggle).
-
-**Prerequisites:** None — purely a UI scroll behavior.
-**Classic lineage:** FastTracker 2, Renoise, most tracker-inspired DAWs.
-
----
 
 ### Render to WAV
 
@@ -127,20 +94,12 @@ per-track delay + groove patterns.
 These are small, self-contained improvements that add up to a smoother
 editing experience.
 
-- **Pattern-loop during editing** — loop a subsection (e.g. rows 0-15)
-  while editing, without changing the full pattern. Transport-only.
 - **Track delay** — per-track offset in milliseconds for groove (shifts
   one track slightly ahead or behind the rest).
 - **Undo history panel** — show the undo stack so you can see what you're
   undoing and jump to a specific state.
-- **Clipboard indicator** — show when a track or rect is on the clipboard;
-  reduces confusion when paste does nothing.
 - **Dark/light theme** — CSS custom properties; the tracker look benefits
   from a dark background with bright text (like every classic tracker).
-- **"New pattern from selection"** — select a region, promote it to a new
-  pattern.
-- **Ghost channels** — faintly show the previous/next pattern's notes in
-  the grid while editing, for context across pattern boundaries.
 
 ---
 

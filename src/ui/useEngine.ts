@@ -1,8 +1,8 @@
 import { useEffect, useRef } from 'react'
 import { AudioHost, OUTPUT_WARMUP_MS } from '../audio/host'
 import { compileGraph } from '../engine/compile'
-import { buildArrangement } from '../engine/arrangement'
-import { buildPlaybackData, mapPatternTracksToSlots, type PlaybackData } from '../player/playbackData'
+import { buildArrangement, resolveStep, type StepRef } from '../engine/arrangement'
+import { buildPlaybackData, mapPatternTracksToSlots, slicePlaybackData, type PlaybackData } from '../player/playbackData'
 import { buildTxSeqData } from '../player/txSeqData'
 import { syncSamplesToVfs } from '../audio/vfsLoader'
 import { computeSlotLayouts } from '../engine/voiceSlotLayout'
@@ -72,6 +72,8 @@ export function useEngine(): AudioHost {
   const txSeqNodeRef = useRef<unknown>(null)
   const setTxSeqRef = useRef<((props: Record<string, unknown>) => Promise<unknown>) | null>(null)
   const txSeqUploadRevRef = useRef(0)
+  /** Global row of the node's row 0 — non-zero while a loop slice is playing. */
+  const rowOffsetRef = useRef(0)
 
   useEffect(() => {
     let frame = 0
@@ -200,12 +202,15 @@ export function useEngine(): AudioHost {
       await host.updateVfs({ [dataKey]: packed })
 
       const rowsPerSec = rowHz(t.bpm, t.linesPerBeat)
+      const offset = data.rowOffset ?? 0
+      // A start outside the loop starts at its top.
+      const nodeStart = t.startRow - offset >= 0 && t.startRow - offset < data.totalRows ? t.startRow - offset : 0
       const cmd = isNewEpoch
         ? {
             type: 'play',
             sessionId: epoch,
             rowsPerSec,
-            startRow: t.startRow,
+            startRow: nodeStart,
             totalRows: data.totalRows,
             dataPath: dataKey,
           }
@@ -218,6 +223,7 @@ export function useEngine(): AudioHost {
           }
 
       await setTxSeq({ cmd, dataPath: dataKey })
+      rowOffsetRef.current = offset
 
       // Safe now: the node holds the new data; drop superseded uploads.
       void host.pruneVfs()
@@ -285,16 +291,18 @@ export function useEngine(): AudioHost {
 
       const doRecompile = () => {
         const { bpm, linesPerBeat, playing, startRow, playEpoch } = useTransportStore.getState()
-        const playMode = useAppStore.getState().playMode
+        const { playMode, currentStep } = useAppStore.getState()
 
         const arrangement = playMode !== 'pattern'
-          ? buildArrangement(doc, playMode)
+          ? buildArrangement(doc, playMode, currentStep)
           : undefined
         const effectiveArrangement = arrangement && arrangement.length > 1 ? arrangement : undefined
 
         const arr = effectiveArrangement ?? [{ patternId: doc.patternId, startRow: 0 }]
         const live = liveOptions()
-        const playbackData = buildPlaybackData(doc, arr, live.ensureSlotInstId)
+        const fullData = buildPlaybackData(doc, arr, live.ensureSlotInstId)
+        const { loop } = useTransportStore.getState()
+        const playbackData = (loop && slicePlaybackData(fullData, loop.start, loop.end)) || fullData
 
         const currentKey = structuralKey()
         const needRecompile = currentKey !== lastStructuralKeyRef.current
@@ -394,13 +402,23 @@ export function useEngine(): AudioHost {
 
     // ── mute/solo + live routing subscription ──────────────────────────
     const unsubApp = useAppStore.subscribe((state, prev) => {
-      if (state.freePlay !== prev.freePlay || state.selectedInstrumentId !== prev.selectedInstrumentId) {
+      if (state.freePlay !== prev.freePlay || state.selectedInstrumentId !== prev.selectedInstrumentId ||
+          state.playMode !== prev.playMode || playedSectionChanged(state.currentStep, prev.currentStep)) {
         schedule()
       }
+      // Loop rows are arrangement-global; another mode means another arrangement.
+      if (state.playMode !== prev.playMode) useTransportStore.getState().setLoop(null)
       if (state.mutedTrackNumbers === prev.mutedTrackNumbers &&
           state.soloedTrackNumbers === prev.soloedTrackNumbers) return
       applyMuteRefs()
     })
+
+    /** Section mode plays the current step's section; a step move within it changes nothing. */
+    function playedSectionChanged(next: StepRef | null, prev: StepRef | null): boolean {
+      if (next === prev || useAppStore.getState().playMode !== 'section') return false
+      const { doc } = useDocStore.getState()
+      return resolveStep(doc, next)?.sectionId !== resolveStep(doc, prev)?.sectionId
+    }
 
     host.onReady = () => {
       const core = host.core
@@ -424,7 +442,7 @@ export function useEngine(): AudioHost {
           // playing check: a late in-flight event must not repaint the row
           // after stop() has reset it.
           if (t.playing && e.sessionId === t.playEpoch && typeof e.row === 'number') {
-            t.setCurrentRow(e.row)
+            t.setCurrentRow(e.row + rowOffsetRef.current)
           }
         })
       }

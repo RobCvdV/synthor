@@ -17,10 +17,22 @@ export interface TextRequest {
   validate?: (value: string) => string | null
 }
 
-type Answer = boolean | string | null
+export interface RangeRequest {
+  kind: 'range'
+  message: string
+  /** Prefilled hex values; empty when the cell has none. */
+  start: string
+  end: string
+  confirmLabel?: string
+}
+
+export interface RangeAnswer { start: number; end: number }
+
+type Request = ConfirmRequest | TextRequest | RangeRequest
+type Answer = boolean | string | RangeAnswer | null
 
 interface DialogState {
-  request: ConfirmRequest | TextRequest | null
+  request: Request | null
   resolve: ((answer: Answer) => void) | null
   answer: (answer: Answer) => void
 }
@@ -35,7 +47,7 @@ export const useDialogStore = create<DialogState>((set, get) => ({
   },
 }))
 
-function ask(request: ConfirmRequest | TextRequest): Promise<Answer> {
+function ask(request: Request): Promise<Answer> {
   useDialogStore.getState().resolve?.(null)
   return new Promise((resolve) => useDialogStore.setState({ request, resolve }))
 }
@@ -48,4 +60,9 @@ export function askConfirm(request: Omit<ConfirmRequest, 'kind'>): Promise<boole
 /** Async replacement for `window.prompt`; resolves null when cancelled. */
 export function askText(request: Omit<TextRequest, 'kind'>): Promise<string | null> {
   return ask({ kind: 'text', ...request }).then((a) => (typeof a === 'string' ? a : null))
+}
+
+/** Asks for a start and end value (hex 00–FF, as 0..1); resolves null when cancelled. */
+export function askRange(request: Omit<RangeRequest, 'kind'>): Promise<RangeAnswer | null> {
+  return ask({ kind: 'range', ...request }).then((a) => (a !== null && typeof a === 'object' ? a : null))
 }

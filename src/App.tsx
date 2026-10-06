@@ -4,7 +4,7 @@ import { useTransportStore } from './state/transportStore'
 import { useAppStore } from './state/appStore'
 import { useEngine } from './ui/useEngine'
 import { useAutosave } from './ui/useAutosave'
-import { usePatternSync } from './ui/usePlayhead'
+import { playStartRow, usePatternSync } from './ui/usePlayhead'
 import { Toolbar } from './ui/Toolbar'
 import { TrackerGrid } from './ui/tracker/TrackerGrid'
 import { useTrackerKeys } from './ui/tracker/useTrackerKeys'
@@ -79,7 +79,7 @@ export default function App() {
         playbackStarted={playbackStarted}
         onTogglePlay={() => {
           void host.start()
-          toggle(host.currentTime, useAppStore.getState().trackerCursor.row)
+          toggle(host.currentTime, playStartRow(false))
         }}
         playMode={playMode}
         onSetPlayMode={setPlayMode}
@@ -118,6 +118,7 @@ export default function App() {
               volumeEntry={trackerKeys.volumeEntry}
               laneEntry={trackerKeys.laneEntry}
               onCellClick={trackerKeys.onCellClick}
+              onCellDrag={trackerKeys.onCellDrag}
             />
           </main>
           <TrackerRightPane doc={doc} />

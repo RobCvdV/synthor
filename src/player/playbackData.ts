@@ -41,6 +41,20 @@ export interface PlaybackData {
   totalRows: number
   /** Arrangement items for section/song mode (pattern windows). */
   arrangement: ArrangementItem[]
+  /** Global row of row 0 when this is a loop slice; the node's rows are relative to it. */
+  rowOffset?: number
+}
+
+/** Rows start..end (inclusive, global) of `data`, so the sequencer loops just them. Null when the range
+ *  doesn't fit. */
+export function slicePlaybackData(data: PlaybackData, start: number, end: number): PlaybackData | null {
+  if (start < 0 || end < start || end >= data.totalRows) return null
+  return {
+    ...data,
+    slots: data.slots.map((slot) => ({ ...slot, signals: slot.signals.map((sig) => sig.slice(start, end + 1)) })),
+    totalRows: end - start + 1,
+    rowOffset: start,
+  }
 }
 
 /** Default values for effect channels (used when a track doesn't have a

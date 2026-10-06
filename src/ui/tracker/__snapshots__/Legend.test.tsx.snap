@@ -1,0 +1,567 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Legend > lists the tracker shortcuts by group 1`] = `
+<div>
+  <div
+    class="legend"
+  >
+    <p
+      class="legend-note"
+    >
+      ⌘ also works as Ctrl, except ⌘ ↑/↓ and ⌘ (⇧) −/= (Ctrl has its own meaning there).
+    </p>
+    <div
+      class="legend-section"
+    >
+      <h4>
+        Notes & values
+      </h4>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          Z … M
+        </kbd>
+        <span>
+          notes (lower octave)
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          Q … U
+        </kbd>
+        <span>
+          notes (upper octave)
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          S D G H J …
+        </kbd>
+        <span>
+          sharps (lower)
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          2 3 5 6 7 …
+        </kbd>
+        <span>
+          sharps (upper)
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          − / =
+        </kbd>
+        <span>
+          octave down / up
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          \\
+        </kbd>
+        <span>
+          hold (continue note, shows |)
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          0-9, A-F
+        </kbd>
+        <span>
+          hex value in vol / lane column
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          [ / ]
+        </kbd>
+        <span>
+          volume down / up
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          Del / ⌫
+        </kbd>
+        <span>
+          clear cell, or the selected columns
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          ⌥ 0 … 9
+        </kbd>
+        <span>
+          edit step (rows to advance)
+        </span>
+      </div>
+    </div>
+    <div
+      class="legend-section"
+    >
+      <h4>
+        Cursor & selection
+      </h4>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          ↑ ↓
+        </kbd>
+        <span>
+          move row
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          ← →
+        </kbd>
+        <span>
+          note ↔ vol ↔ lanes ↔ next track
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          ⌥ ↑ / ↓
+        </kbd>
+        <span>
+          jump 4 rows (snap to grid)
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          ⌘ ↑ / ↓
+        </kbd>
+        <span>
+          jump 8 rows (snap to grid)
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          Home / End
+        </kbd>
+        <span>
+          top / bottom
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          ⇧ ↑ ↓
+        </kbd>
+        <span>
+          select rows (in the cursor column)
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          ⇧ ← →
+        </kbd>
+        <span>
+          widen selection over columns / tracks
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          Click
+        </kbd>
+        <span>
+          move cursor into that column
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          ⇧ Click
+        </kbd>
+        <span>
+          extend selection
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          Drag
+        </kbd>
+        <span>
+          select rows and columns
+        </span>
+      </div>
+    </div>
+    <div
+      class="legend-section"
+    >
+      <h4>
+        Edit
+      </h4>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          ⌘ E
+        </kbd>
+        <span>
+          edit on / off (off: note keys only play)
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          ⌘ C / X / V
+        </kbd>
+        <span>
+          copy / cut / paste selected columns (else track)
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          ⌘ ⇧ V
+        </kbd>
+        <span>
+          paste only the column at cursor
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          ⌘ I
+        </kbd>
+        <span>
+          interpolate selection (vol / lane at cursor)
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          ⌘ − / =
+        </kbd>
+        <span>
+          transpose selection (else track) ±1
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          ⌘ ⇧ − / =
+        </kbd>
+        <span>
+          transpose ±1 octave
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          ⌘Z / ⇧⌘Z
+        </kbd>
+        <span>
+          undo / redo
+        </span>
+      </div>
+    </div>
+    <div
+      class="legend-section"
+    >
+      <h4>
+        Tracks & lanes
+      </h4>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          Ctrl =
+        </kbd>
+        <span>
+          add track to the right
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          ⌘ D
+        </kbd>
+        <span>
+          duplicate track
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          Ctrl ⌫
+        </kbd>
+        <span>
+          delete track
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          Ctrl , / .
+        </kbd>
+        <span>
+          move track left / right
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          Ctrl ↑ / ↓
+        </kbd>
+        <span>
+          rotate track rows up / down
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          Ctrl L
+        </kbd>
+        <span>
+          add effect lane
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          Ctrl K
+        </kbd>
+        <span>
+          remove last effect lane
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          Track header
+        </kbd>
+        <span>
+          instrument, + lane, × remove lane
+        </span>
+      </div>
+    </div>
+    <div
+      class="legend-section"
+    >
+      <h4>
+        Playback
+      </h4>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          Space
+        </kbd>
+        <span>
+          play / stop (from cursor)
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          Ctrl Space
+        </kbd>
+        <span>
+          play from top
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          Tab
+        </kbd>
+        <span>
+          cycle song / section / pattern
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          Ctrl F
+        </kbd>
+        <span>
+          follow playhead on / off
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          ⌥ L
+        </kbd>
+        <span>
+          loop selected rows (no selection: off)
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          Esc
+        </kbd>
+        <span>
+          panic (silence everything)
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          F1 … F12
+        </kbd>
+        <span>
+          mute track 1 … 12
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          ⇧ F1 … F12
+        </kbd>
+        <span>
+          solo track 1 … 12
+        </span>
+      </div>
+    </div>
+    <div
+      class="legend-section"
+    >
+      <h4>
+        Pattern & song
+      </h4>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          Ctrl N
+        </kbd>
+        <span>
+          new pattern from selection
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          Click step
+        </kbd>
+        <span>
+          make it the current step
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          ⧉ on a step
+        </kbd>
+        <span>
+          make unique (own copy of a repeat)
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          Double-click
+        </kbd>
+        <span>
+          rename pattern (header)
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          rows − / +
+        </kbd>
+        <span>
+          pattern length (⇧ ±4)
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          step − / +
+        </kbd>
+        <span>
+          edit step
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          ⌘S / ⇧⌘S
+        </kbd>
+        <span>
+          save / save as
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          ⌘O
+        </kbd>
+        <span>
+          open song
+        </span>
+      </div>
+    </div>
+  </div>
+</div>
+`;

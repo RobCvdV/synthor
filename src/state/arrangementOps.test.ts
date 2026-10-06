@@ -70,3 +70,54 @@ describe('arrangementOps', () => {
     expect(doc().entities.sections[sec].patternIds).toEqual(idsBefore)
   })
 })
+
+describe('arrangementOps — make unique / pattern from rows', () => {
+  beforeEach(() => resetStore())
+
+  it('makeStepUnique swaps one step to a deep copy and shows it, as one undo step', () => {
+    const store = useDocStore.getState()
+    const sid = doc().sectionIds[0]
+    const orig = doc().patternId
+    store.addPatternToSection(sid, orig)
+    const tid = pattern().trackIds[0]
+    store.setCellNote(tid, 0, 60)
+
+    const copy = useDocStore.getState().makeStepUnique(sid, 1)!
+    expect(doc().entities.sections[sid].patternIds).toEqual([orig, copy])
+    expect(doc().patternId).toBe(copy)
+    const copyTrack = doc().entities.tracks[doc().entities.patterns[copy].trackIds[0]]
+    expect(copyTrack.id).not.toBe(tid)
+    expect(copyTrack.cells[0].note).toBe(60)
+
+    useDocStore.getState().setCellNote(copyTrack.id, 0, 72)
+    expect(doc().entities.tracks[tid].cells[0].note).toBe(60)
+
+    useDocStore.getState().undo()
+    useDocStore.getState().undo()
+    expect(doc().entities.sections[sid].patternIds).toEqual([orig, orig])
+  })
+
+  it('makeStepUnique ignores a missing step', () => {
+    expect(useDocStore.getState().makeStepUnique(doc().sectionIds[0], 9)).toBeNull()
+  })
+
+  it('patternFromRows makes a current pattern of the selected rows and tracks', () => {
+    const store = useDocStore.getState()
+    const [t0] = pattern().trackIds
+    store.setCellNote(t0, 4, 64)
+    store.addEffectLane(t0, 'panning')
+
+    const id = useDocStore.getState().patternFromRows([t0], 4, 7)!
+    const p = doc().entities.patterns[id]
+    expect(doc().patternId).toBe(id)
+    expect(p.length).toBe(4)
+    expect(p.trackIds).toHaveLength(1)
+    const track = doc().entities.tracks[p.trackIds[0]]
+    expect(track.cells.map((c) => c.note)).toEqual([64, null, null, null])
+    expect(track.effectLanes.map((l) => l.type)).toEqual(['panning'])
+  })
+
+  it('patternFromRows rejects unknown tracks', () => {
+    expect(useDocStore.getState().patternFromRows(['nope'], 0, 3)).toBeNull()
+  })
+})

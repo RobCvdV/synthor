@@ -28,6 +28,10 @@ export function resetStores(): void {
     mutedTrackNumbers: {},
     soloedTrackNumbers: {},
     freePlay: true,
+    editStep: 1,
+    followPlayhead: true,
+    editMode: true,
+    currentStep: null,
   })
   useTransportStore.setState({
     playing: false,
@@ -37,6 +41,7 @@ export function resetStores(): void {
     startRow: 0,
     playEpoch: 0,
     currentRow: 0,
+    loop: null,
   })
   useAudioStore.setState({ status: 'idle', playbackStarted: false })
   useProjectStore.setState({

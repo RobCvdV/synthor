@@ -101,12 +101,21 @@ The in-app Legend (tracker view, right side) is authoritative; the essentials:
 | `\` | Hold — continue the note across rows (shows `\|`) |
 | `[ / ]` | Volume adjust on current cell |
 | `0-9, A-F` | Hex entry (volume column, effect lanes) |
-| `Del / ⌫` | Clear cell / selection |
+| `Del / ⌫` | Clear cell / the selected columns |
+| `Shift ↑↓ / ←→` | Select rows in the cursor column / widen over columns and tracks |
+| `Alt 0 … 9` | Edit step — rows the cursor advances after an entry (also −/+ in the pattern header) |
+| `Alt L` | Loop the selected rows while playing; without a selection, stop looping |
+| `Ctrl F` | Follow the playhead while playing (also the Follow button) |
 | `Ctrl =` , `Ctrl , / .` | Add track / move track |
 | `Ctrl C / X / V / D / ⌫` | Copy / cut / paste / duplicate / delete track |
 | `Ctrl ↑↓` | Shift track notes up / down |
 | `Ctrl L / K` | Add / remove effect lane |
-| `Cmd/Ctrl − / =` | Transpose track or selection ±1 semitone |
+| `Cmd/Ctrl E` | Edit mode on / off — off, note keys only play and the grid is read-only |
+| `Cmd/Ctrl ⇧ V` | Paste only the column under the cursor (note, volume or that effect lane) |
+| `Cmd/Ctrl I` | Interpolate the selected rows of the volume / lane column under the cursor |
+| `Cmd − / =` | Transpose track or selection ±1 semitone (Cmd only — Ctrl = adds a track) |
+| `Cmd ⇧ − / =` | Transpose ±1 octave |
+| `Ctrl N` | New pattern from the selection |
 | `F1 … F12` / `⇧F1 … F12` | Mute / solo Track # (global, persists) |
 
 ## Known limitations

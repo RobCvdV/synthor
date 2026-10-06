@@ -161,3 +161,134 @@ describe('trackOps — rectangular clipboard', () => {
     expect(store.past.length).toBeGreaterThanOrEqual(pastBefore)
   })
 })
+
+describe('trackOps — single-column paste', () => {
+  beforeEach(() => resetStore())
+
+  const cell = (tid: string, row: number) => doc().entities.tracks[tid].cells[row]
+
+  /** Source rows 0–1 hold note, volume and a panning value; the target rows 8–9 hold other values. */
+  function setup() {
+    const store = useDocStore.getState()
+    const tid = firstTrackId()
+    store.addEffectLane(tid, 'panning')
+    store.addEffectLane(tid, 'staccato')
+    const [pan, stac] = doc().entities.tracks[tid].effectLanes.map((l) => l.id)
+    store.setCellNote(tid, 0, 60)
+    store.setCellHold(tid, 1, true)
+    store.setCellVolume(tid, 0, 0.5)
+    store.setCellEffectLane(tid, 0, pan, 0.25)
+    store.setCellEffectLane(tid, 0, stac, 0.75)
+    store.setCellNote(tid, 8, 70)
+    store.setCellVolume(tid, 8, 1)
+    store.setCellEffectLane(tid, 8, pan, 1)
+    store.setCellEffectLane(tid, 8, stac, 1)
+    store.copyRect(trackIds(), 0, 1, 0, 0)
+    return { tid, pan, stac }
+  }
+
+  it('pastes only the notes (with hold)', () => {
+    const { tid, pan } = setup()
+    useDocStore.getState().pasteRectColumn(trackIds(), 8, 0, { kind: 'note' })
+    expect(cell(tid, 8).note).toBe(60)
+    expect(cell(tid, 9).hold).toBe(true)
+    expect(cell(tid, 8).volume).toBe(1)
+    expect(cell(tid, 8).effectLanes[pan]).toBe(1)
+  })
+
+  it('pastes only the volume, including empty values, as one undo step', () => {
+    const { tid } = setup()
+    useDocStore.getState().setCellVolume(tid, 9, 0.1)
+    const pastBefore = useDocStore.getState().past.length
+    useDocStore.getState().pasteRectColumn(trackIds(), 8, 0, { kind: 'volume' })
+    expect(cell(tid, 8).volume).toBe(0.5)
+    expect(cell(tid, 9).volume).toBeNull()
+    expect(cell(tid, 8).note).toBe(70)
+    expect(useDocStore.getState().past.length).toBe(pastBefore + 1)
+  })
+
+  it('pastes only the lane under the cursor', () => {
+    const { tid, pan, stac } = setup()
+    useDocStore.getState().pasteRectColumn(trackIds(), 8, 0, { kind: 'lane', laneId: stac })
+    expect(cell(tid, 8).effectLanes[stac]).toBe(0.75)
+    expect(cell(tid, 8).effectLanes[pan]).toBe(1)
+    expect(cell(tid, 8).note).toBe(70)
+  })
+
+  it('maps a lane to a same-type lane on another track, without creating lanes', () => {
+    const { pan } = setup()
+    const store = useDocStore.getState()
+    store.addTrack(1, firstInstId())
+    const target = trackIds()[1]
+    store.addEffectLane(target, 'vibratoRate')
+    store.addEffectLane(target, 'panning')
+    const [vib, targetPan] = doc().entities.tracks[target].effectLanes.map((l) => l.id)
+    store.pasteRectColumn(trackIds(), 0, 1, { kind: 'lane', laneId: targetPan })
+    expect(cell(target, 0).effectLanes[targetPan]).toBe(0.25)
+    expect(cell(target, 0).effectLanes[vib]).toBeNull()
+    expect(doc().entities.tracks[target].effectLanes).toHaveLength(2)
+    expect(cell(target, 0).effectLanes[pan]).toBeUndefined()
+  })
+
+  it('falls back to the lane in the same position when no type matches', () => {
+    setup()
+    const store = useDocStore.getState()
+    store.addTrack(1, firstInstId())
+    const target = trackIds()[1]
+    store.addEffectLane(target, 'vibratoRate')
+    store.addEffectLane(target, 'tremoloRate')
+    const trm = doc().entities.tracks[target].effectLanes[1].id
+    store.pasteRectColumn(trackIds(), 0, 1, { kind: 'lane', laneId: trm })
+    expect(cell(target, 0).effectLanes[trm]).toBe(0.75)
+  })
+
+  it('does nothing without a clipboard or for an unknown lane', () => {
+    const before = doc()
+    useDocStore.getState().pasteRectColumn(trackIds(), 0, 0, { kind: 'note' })
+    expect(doc()).toBe(before)
+    setup()
+    const after = doc()
+    useDocStore.getState().pasteRectColumn(trackIds(), 0, 0, { kind: 'lane', laneId: 'nope' })
+    expect(doc()).toBe(after)
+  })
+})
+
+describe('trackOps — column-limited clipboard', () => {
+  beforeEach(() => resetStore())
+
+  const volOnly = [{ note: false, volume: true, laneIds: [] }]
+  const cell = (row: number) => doc().entities.tracks[firstTrackId()].cells[row]
+
+  it('copies and pastes only the masked columns', () => {
+    const store = useDocStore.getState()
+    const tid = firstTrackId()
+    store.setCellNote(tid, 0, 60)
+    store.setCellVolume(tid, 0, 0.5)
+    store.setCellNote(tid, 8, 70)
+    store.copyRect([tid], 0, 0, 0, 0, volOnly)
+    useDocStore.getState().pasteRect([tid], 8, 0)
+    expect(cell(8).volume).toBe(0.5)
+    expect(cell(8).note).toBe(70)
+  })
+
+  it('clears and cuts only the masked columns, as one undo step', () => {
+    const store = useDocStore.getState()
+    const tid = firstTrackId()
+    store.setCellNote(tid, 0, 60)
+    store.setCellVolume(tid, 0, 0.5)
+    const pastBefore = useDocStore.getState().past.length
+    useDocStore.getState().cutRect([tid], 0, 1, 0, 0, volOnly)
+    expect(cell(0).volume).toBeNull()
+    expect(cell(0).note).toBe(60)
+    expect(useDocStore.getState().past.length).toBe(pastBefore + 1)
+  })
+
+  it('keeps only the latest clipboard, rect or track', () => {
+    const tid = firstTrackId()
+    useDocStore.getState().copyRect([tid], 0, 1, 0, 0)
+    useDocStore.getState().copyTrack(tid)
+    expect(useDocStore.getState().rectClipboard).toBeNull()
+    useDocStore.getState().copyRect([tid], 0, 1, 0, 0)
+    expect(useDocStore.getState().trackClipboard).toBeNull()
+  })
+})

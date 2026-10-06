@@ -10,6 +10,35 @@ export interface ArrangementItem {
   patternId: Id
   /** Global row offset within the flattened arrangement. */
   startRow: number
+  /** The section step this item plays; absent in pattern mode. */
+  sectionId?: Id
+  step?: number
+}
+
+/** One step of a section: a pattern reference by position, so repeats stay distinct. */
+export interface StepRef {
+  sectionId: Id
+  step: number
+}
+
+/**
+ * The section step showing the current pattern: `hint` when it still points at it, else the
+ * pattern's position in the hinted section, else its first use in any section. Null when no
+ * section uses the pattern.
+ */
+export function resolveStep(doc: Doc, hint: StepRef | null): StepRef | null {
+  const pid = doc.patternId
+  const hinted = hint && doc.sectionIds.includes(hint.sectionId) ? doc.entities.sections[hint.sectionId] : undefined
+  if (hint && hinted) {
+    if (hinted.patternIds[hint.step] === pid) return hint
+    const idx = hinted.patternIds.indexOf(pid)
+    if (idx >= 0) return { sectionId: hint.sectionId, step: idx }
+  }
+  for (const sid of doc.sectionIds) {
+    const idx = doc.entities.sections[sid]?.patternIds.indexOf(pid) ?? -1
+    if (idx >= 0) return { sectionId: sid, step: idx }
+  }
+  return null
 }
 
 /**
@@ -19,12 +48,13 @@ export interface ArrangementItem {
 export function buildArrangement(
   doc: Doc,
   playMode: 'pattern' | 'section' | 'song',
+  current: StepRef | null = null,
 ): ArrangementItem[] {
   switch (playMode) {
     case 'pattern':
       return buildForPattern(doc)
     case 'section':
-      return buildForSection(doc)
+      return buildForSection(doc, current)
     case 'song':
       return buildForSong(doc)
   }
@@ -35,43 +65,60 @@ function buildForPattern(doc: Doc): ArrangementItem[] {
   return [{ patternId: doc.patternId, startRow: 0 }]
 }
 
-function buildForSection(doc: Doc): ArrangementItem[] {
-  // Find the section that contains the current pattern.
-  const secId = doc.sectionIds.find((sid) => {
-    const sec = doc.entities.sections[sid]
-    return sec?.patternIds.includes(doc.patternId)
-  })
-  if (secId) {
-    const section = doc.entities.sections[secId]
-    if (section) return flattenPatterns(doc, section.patternIds)
-  }
+function buildForSection(doc: Doc, current: StepRef | null): ArrangementItem[] {
+  // The current step's section — never derived from the pattern alone, which playback changes.
+  const step = resolveStep(doc, current)
+  const items = step ? flattenSteps(doc, [step.sectionId]) : []
   // Current pattern not in any section — fall back to single-pattern.
-  return buildForPattern(doc)
+  return items.length > 0 ? items : buildForPattern(doc)
 }
 
 function buildForSong(doc: Doc): ArrangementItem[] {
-  const allPatternIds: Id[] = []
-  for (const sid of doc.sectionIds) {
-    const sec = doc.entities.sections[sid]
-    if (!sec) continue
-    for (const pid of sec.patternIds) {
-      allPatternIds.push(pid)
-    }
-  }
-  if (allPatternIds.length === 0) return buildForPattern(doc)
-  return flattenPatterns(doc, allPatternIds)
+  const items = flattenSteps(doc, doc.sectionIds)
+  return items.length > 0 ? items : buildForPattern(doc)
 }
 
-/** Convert a list of pattern ids into arrangement items with cumulative offsets.
- *  Skips patterns that no longer exist (stale references). */
-function flattenPatterns(doc: Doc, patternIds: Id[]): ArrangementItem[] {
+/** Every step of the given sections, with cumulative offsets. Skips stale pattern references. */
+function flattenSteps(doc: Doc, sectionIds: Id[]): ArrangementItem[] {
   const items: ArrangementItem[] = []
   let offset = 0
-  for (const pid of patternIds) {
-    const pat = doc.entities.patterns[pid]
-    if (!pat) continue // stale reference
-    items.push({ patternId: pid, startRow: offset })
-    offset += pat.length
+  for (const sectionId of sectionIds) {
+    const sec = doc.entities.sections[sectionId]
+    if (!sec) continue
+    sec.patternIds.forEach((pid, step) => {
+      const pat = doc.entities.patterns[pid]
+      if (!pat) return
+      items.push({ patternId: pid, startRow: offset, sectionId, step })
+      offset += pat.length
+    })
   }
   return items
+}
+
+/** Total rows of an arrangement. */
+export function arrangementLength(doc: Doc, arrangement: readonly ArrangementItem[]): number {
+  return arrangement.reduce((sum, a) => sum + (doc.entities.patterns[a.patternId]?.length ?? 0), 0)
+}
+
+/** Index of the item playing global row `row` (wrapped to the arrangement), or -1. */
+export function itemIndexAt(doc: Doc, arrangement: readonly ArrangementItem[], row: number): number {
+  const total = arrangementLength(doc, arrangement)
+  if (total <= 0) return -1
+  const wrapped = ((row % total) + total) % total
+  return arrangement.findIndex((a) => wrapped >= a.startRow && wrapped < a.startRow + (doc.entities.patterns[a.patternId]?.length ?? 0))
+}
+
+/** Global row to start playing `localRow` of the current step (or the current pattern's first use). */
+export function startRowFor(doc: Doc, arrangement: readonly ArrangementItem[], current: StepRef | null, localRow: number): number {
+  const item = (current && arrangement.find((a) => a.sectionId === current.sectionId && a.step === current.step && a.patternId === doc.patternId))
+    ?? arrangement.find((a) => a.patternId === doc.patternId)
+  return (item?.startRow ?? 0) + localRow
+}
+
+/** The song steps right before and after the current step, for showing context at pattern edges. */
+export function neighbourSteps(doc: Doc, current: StepRef | null): { prev: ArrangementItem | null; next: ArrangementItem | null } {
+  const step = resolveStep(doc, current)
+  const song = step ? flattenSteps(doc, doc.sectionIds) : []
+  const i = song.findIndex((a) => a.sectionId === step?.sectionId && a.step === step?.step)
+  return { prev: i > 0 ? song[i - 1] : null, next: i >= 0 && i < song.length - 1 ? song[i + 1] : null }
 }

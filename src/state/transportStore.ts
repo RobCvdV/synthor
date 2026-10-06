@@ -6,6 +6,8 @@ import { create } from 'zustand'
  *
  * Play mode lives in appStore so it persists across sessions.
  */
+export interface LoopRange { start: number; end: number }
+
 interface TransportState {
   playing: boolean
   bpm: number
@@ -19,11 +21,14 @@ interface TransportState {
   playEpoch: number
   /** Current global row reported by the scheduler (for UI playhead). */
   currentRow: number
+  /** Global rows (inclusive) playback loops over, or null for the whole arrangement. */
+  loop: LoopRange | null
 
   play: (atTime: number, startRow?: number) => void
   stop: () => void
   toggle: (atTime: number, startRow?: number) => void
   setBpm: (bpm: number) => void
+  setLoop: (loop: LoopRange | null) => void
   setCurrentRow: (row: number) => void
 }
 
@@ -35,6 +40,7 @@ export const useTransportStore = create<TransportState>((set) => ({
   startRow: 0,
   playEpoch: 0,
   currentRow: 0,
+  loop: null,
 
   play: (atTime, startRow = 0) => set((s) => ({
     playing: true,
@@ -52,6 +58,7 @@ export const useTransportStore = create<TransportState>((set) => ({
     currentRow: s.playing ? 0 : startRow,
   })),
   setBpm: (bpm) => set({ bpm }),
+  setLoop: (loop) => set({ loop: loop && { start: Math.min(loop.start, loop.end), end: Math.max(loop.start, loop.end) } }),
   setCurrentRow: (currentRow) => set((s) => {
     if (currentRow === s.currentRow) return {}
     return { currentRow }
