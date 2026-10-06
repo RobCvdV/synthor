@@ -8,7 +8,7 @@ import { useDocStore } from '../../state/docStore'
 import { valueHex } from '../../domain/effects'
 import { codeToSemitone, keyToHex } from '../keymap'
 import {
-  cursorColumn, dragSelection, enterHexDigit, extendSelection, interpolationTarget, moveLeft, moveRight, selectionBounds, snapRow, stepRow, type Selection,
+  cursorColumn, dragSelection, enterHexDigit, extendSelection, interpolationTarget, moveLeft, moveRight, selectionBounds, selectionMasks, type CellPos, snapRow, stepRow, type Selection,
 } from './trackerNav'
 
 export interface TrackerKeys {
@@ -18,8 +18,8 @@ export interface TrackerKeys {
   laneEntry: number | null
   /** `col` is the clicked sub-column (0 note, 1 volume, 2+ lanes), when known. */
   onCellClick: (row: number, track: number, shiftKey: boolean, col?: number) => void
-  /** The mouse entered a cell; extends the selection while a drag is on. */
-  onCellDrag: (row: number, track: number) => void
+  /** The mouse is over a cell (and sub-column, when known); extends the selection while a drag is on. */
+  onCellDrag: (row: number, track: number, col?: number) => void
   /** Tracker editing keys; App's global listener calls it in the tracker view. */
   handleKeyDown: (e: KeyboardEvent) => void
 }
@@ -64,7 +64,7 @@ export function useTrackerKeys(host: AudioHost, keyboardPlayer: KeyboardPlayer):
   const setLaneEntry = useCallback((v: number | null) => { laneEntryRef.current = v; setLaneEntryState(v) }, [])
   const clearEntry = useCallback(() => { setVolumeEntry(null); setLaneEntry(null) }, [setVolumeEntry, setLaneEntry])
 
-  const dragAnchorRef = useRef<{ row: number; track: number } | null>(null)
+  const dragAnchorRef = useRef<CellPos | null>(null)
   useEffect(() => {
     const endDrag = () => { dragAnchorRef.current = null }
     window.addEventListener('mouseup', endDrag)
@@ -76,16 +76,18 @@ export function useTrackerKeys(host: AudioHost, keyboardPlayer: KeyboardPlayer):
     const cur = getCursor()
     const next = { ...cur, row, track, ...columnOn(track, col ?? cur.col) }
     setSelection(shiftKey ? extendSelection(selectionRef.current, cur, next) : null)
-    if (!shiftKey) dragAnchorRef.current = { row, track }
+    if (!shiftKey) dragAnchorRef.current = { row, track, col: next.col }
     setCursor(next)
   }, [clearEntry, setSelection])
 
-  const onCellDrag = useCallback((row: number, track: number) => {
+  const onCellDrag = useCallback((row: number, track: number, col?: number) => {
     const anchor = dragAnchorRef.current
     if (!anchor) return
     const cur = getCursor()
-    setSelection(dragSelection(anchor, row, track))
-    setCursor({ ...cur, row, track, ...columnOn(track, cur.col) })
+    const next = { ...cur, row, track, ...columnOn(track, col ?? cur.col) }
+    if (next.row === cur.row && next.track === cur.track && next.col === cur.col) return
+    setSelection(dragSelection(anchor, next))
+    setCursor(next)
   }, [setSelection])
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
@@ -99,6 +101,7 @@ export function useTrackerKeys(host: AudioHost, keyboardPlayer: KeyboardPlayer):
     const sel = selectionRef.current
     const noMods = !e.ctrlKey && !e.metaKey && !e.altKey
     const cellAt = (tid: string, row: number) => useDocStore.getState().doc.entities.tracks[tid]?.cells[row]
+    const masksOf = (s: Selection) => selectionMasks(s, ids.map((id) => store.doc.entities.tracks[id]))
 
     /** Cursor moves extend the selection with Shift and drop it otherwise. */
     const moveTo = (next: TrackerCursor) => {
@@ -126,7 +129,7 @@ export function useTrackerKeys(host: AudioHost, keyboardPlayer: KeyboardPlayer):
         }
         case 'KeyC':
           e.preventDefault()
-          if (sel) store.copyRect(ids, sel.startRow, sel.endRow, sel.startTrack, sel.endTrack)
+          if (sel) store.copyRect(ids, sel.startRow, sel.endRow, sel.startTrack, sel.endTrack, masksOf(sel))
           else if (trackId) store.copyTrack(trackId)
           return
         case 'KeyV':
@@ -139,7 +142,7 @@ export function useTrackerKeys(host: AudioHost, keyboardPlayer: KeyboardPlayer):
           return
         case 'KeyX':
           e.preventDefault()
-          if (sel) { store.cutRect(ids, sel.startRow, sel.endRow, sel.startTrack, sel.endTrack); setSelection(null) }
+          if (sel) { store.cutRect(ids, sel.startRow, sel.endRow, sel.startTrack, sel.endTrack, masksOf(sel)); setSelection(null) }
           else if (trackId) { store.copyTrack(trackId); store.removeTrack(trackId); focusTrack(cur.track) }
           return
         case 'KeyD':
@@ -172,8 +175,10 @@ export function useTrackerKeys(host: AudioHost, keyboardPlayer: KeyboardPlayer):
           e.preventDefault()
           if (!editing) return
           const step = (e.code === 'Equal' ? 1 : -1) * (e.shiftKey ? 12 : 1)
-          const { r0, r1, t0, t1 } = sel ? selectionBounds(sel) : { r0: 0, r1: len - 1, t0: cur.track, t1: cur.track }
-          store.transposeRows(ids.slice(t0, t1 + 1), r0, r1, step)
+          if (sel) {
+            const { r0, r1, t0 } = selectionBounds(sel)
+            store.transposeRows(masksOf(sel).flatMap((m, i) => (m.note && ids[t0 + i] ? [ids[t0 + i]] : [])), r0, r1, step)
+          } else if (trackId) store.transposeRows([trackId], 0, len - 1, step)
           return
         }
       }
@@ -267,17 +272,7 @@ export function useTrackerKeys(host: AudioHost, keyboardPlayer: KeyboardPlayer):
     if (e.code === 'Delete' || e.code === 'Backspace') {
       e.preventDefault()
       if (sel) {
-        const { r0, r1, t0, t1 } = selectionBounds(sel)
-        for (let ti = t0; ti <= t1; ti++) {
-          const tid = ids[ti]
-          if (!tid) continue
-          const lanes = useDocStore.getState().doc.entities.tracks[tid]?.effectLanes ?? []
-          for (let r = r0; r <= r1; r++) {
-            store.setCellNote(tid, r, null)
-            store.setCellVolume(tid, r, null)
-            for (const lane of lanes) store.setCellEffectLane(tid, r, lane.id, null)
-          }
-        }
+        store.clearRect(ids, sel.startRow, sel.endRow, sel.startTrack, sel.endTrack, masksOf(sel))
         setSelection(null)
       } else if (trackId) {
         const track = store.doc.entities.tracks[trackId]

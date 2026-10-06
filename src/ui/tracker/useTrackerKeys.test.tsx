@@ -52,7 +52,7 @@ describe('useTrackerKeys', () => {
     const { result, press } = setup()
     press('ArrowDown', { shiftKey: true })
     press('ArrowDown', { shiftKey: true })
-    expect(result.current.selection).toEqual({ startRow: 1, startTrack: 0, endRow: 3, endTrack: 0 })
+    expect(result.current.selection).toEqual({ startRow: 1, startTrack: 0, startCol: 0, endRow: 3, endTrack: 0, endCol: 0 })
     for (const row of [1, 2, 3]) useDocStore.getState().setCellNote(trackId(), row, 60)
     press('Delete')
     expect([1, 2, 3].map((r) => cell(r).note)).toEqual([null, null, null])
@@ -72,7 +72,7 @@ describe('useTrackerKeys', () => {
     const { result } = setup()
     act(() => result.current.onCellClick(4, 0, true))
     expect(cursor()).toMatchObject({ row: 4, track: 0 })
-    expect(result.current.selection).toEqual({ startRow: 1, startTrack: 0, endRow: 4, endTrack: 0 })
+    expect(result.current.selection).toEqual({ startRow: 1, startTrack: 0, startCol: 0, endRow: 4, endTrack: 0, endCol: 0 })
   })
 
   it('advances by the edit step, and stays put at step 0', () => {
@@ -108,7 +108,7 @@ describe('useTrackerKeys', () => {
     const { result } = setup()
     act(() => result.current.onCellClick(2, 0, false))
     act(() => result.current.onCellDrag(6, 0))
-    expect(result.current.selection).toEqual({ startRow: 2, startTrack: 0, endRow: 6, endTrack: 0 })
+    expect(result.current.selection).toEqual({ startRow: 2, startTrack: 0, startCol: 0, endRow: 6, endTrack: 0, endCol: 0 })
     expect(cursor().row).toBe(6)
     act(() => result.current.onCellDrag(2, 0))
     expect(result.current.selection).toBeNull()
@@ -155,5 +155,15 @@ describe('useTrackerKeys', () => {
     expect(doc.entities.patterns[doc.patternId].length).toBe(3)
     expect(result.current.selection).toBeNull()
     expect(cursor()).toEqual({ row: 0, track: 0, col: 0, laneIndex: null })
+  })
+
+  it('selecting in the volume column clears only volumes', () => {
+    const { result, press } = setup()
+    useAppStore.setState({ trackerCursor: { row: 1, track: 0, col: 1, laneIndex: null } })
+    for (const row of [1, 2]) { useDocStore.getState().setCellNote(trackId(), row, 60); useDocStore.getState().setCellVolume(trackId(), row, 0.5) }
+    press('ArrowDown', { shiftKey: true })
+    expect(result.current.selection).toMatchObject({ startCol: 1, endCol: 1 })
+    press('Delete')
+    expect([1, 2].map((r) => [cell(r).note, cell(r).volume])).toEqual([[60, null], [60, null]])
   })
 })

@@ -101,7 +101,8 @@ The in-app Legend (tracker view, right side) is authoritative; the essentials:
 | `\` | Hold — continue the note across rows (shows `\|`) |
 | `[ / ]` | Volume adjust on current cell |
 | `0-9, A-F` | Hex entry (volume column, effect lanes) |
-| `Del / ⌫` | Clear cell / selection |
+| `Del / ⌫` | Clear cell / the selected columns |
+| `Shift ↑↓ / ←→` | Select rows in the cursor column / widen over columns and tracks |
 | `Alt 0 … 9` | Edit step — rows the cursor advances after an entry (also −/+ in the pattern header) |
 | `Ctrl F` | Follow the playhead while playing (also the Follow button) |
 | `Ctrl =` , `Ctrl , / .` | Add track / move track |

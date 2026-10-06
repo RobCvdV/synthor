@@ -100,8 +100,6 @@ editing experience.
   one track slightly ahead or behind the rest).
 - **Undo history panel** — show the undo stack so you can see what you're
   undoing and jump to a specific state.
-- **Clipboard indicator** — show when a track or rect is on the clipboard;
-  reduces confusion when paste does nothing.
 - **Dark/light theme** — CSS custom properties; the tracker look benefits
   from a dark background with bright text (like every classic tracker).
 - **Ghost channels** — faintly show the previous/next pattern's notes in

@@ -103,7 +103,7 @@ exports[`Legend > lists the tracker shortcuts by group 1`] = `
           Del / ⌫
         </kbd>
         <span>
-          clear cell, or the selection
+          clear cell, or the selected columns
         </span>
       </div>
       <div
@@ -177,10 +177,20 @@ exports[`Legend > lists the tracker shortcuts by group 1`] = `
         class="legend-row"
       >
         <kbd>
-          ⇧ arrows
+          ⇧ ↑ ↓
         </kbd>
         <span>
-          select region
+          select rows (in the cursor column)
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          ⇧ ← →
+        </kbd>
+        <span>
+          widen selection over columns / tracks
         </span>
       </div>
       <div
@@ -210,7 +220,7 @@ exports[`Legend > lists the tracker shortcuts by group 1`] = `
           Drag
         </kbd>
         <span>
-          select region
+          select rows and columns
         </span>
       </div>
     </div>
@@ -237,7 +247,7 @@ exports[`Legend > lists the tracker shortcuts by group 1`] = `
           ⌘ C / X / V
         </kbd>
         <span>
-          copy / cut / paste (selection, else track)
+          copy / cut / paste selected columns (else track)
         </span>
       </div>
       <div

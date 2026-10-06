@@ -20,6 +20,15 @@ export interface RectClipboard {
   /** Effect lane definitions per source track column, so pasting into
    *  a different track/pattern auto-creates matching lanes. */
   trackLanes: EffectLaneDef[][]
+  /** Per source track, the columns that were copied; absent means whole cells. */
+  columns?: ColumnMask[]
+}
+
+/** The columns of one track that a selection covers. */
+export interface ColumnMask {
+  note: boolean
+  volume: boolean
+  laneIds: Id[]
 }
 
 /** One tracker column, for single-column edits. */

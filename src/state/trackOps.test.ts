@@ -252,3 +252,43 @@ describe('trackOps — single-column paste', () => {
     expect(doc()).toBe(after)
   })
 })
+
+describe('trackOps — column-limited clipboard', () => {
+  beforeEach(() => resetStore())
+
+  const volOnly = [{ note: false, volume: true, laneIds: [] }]
+  const cell = (row: number) => doc().entities.tracks[firstTrackId()].cells[row]
+
+  it('copies and pastes only the masked columns', () => {
+    const store = useDocStore.getState()
+    const tid = firstTrackId()
+    store.setCellNote(tid, 0, 60)
+    store.setCellVolume(tid, 0, 0.5)
+    store.setCellNote(tid, 8, 70)
+    store.copyRect([tid], 0, 0, 0, 0, volOnly)
+    useDocStore.getState().pasteRect([tid], 8, 0)
+    expect(cell(8).volume).toBe(0.5)
+    expect(cell(8).note).toBe(70)
+  })
+
+  it('clears and cuts only the masked columns, as one undo step', () => {
+    const store = useDocStore.getState()
+    const tid = firstTrackId()
+    store.setCellNote(tid, 0, 60)
+    store.setCellVolume(tid, 0, 0.5)
+    const pastBefore = useDocStore.getState().past.length
+    useDocStore.getState().cutRect([tid], 0, 1, 0, 0, volOnly)
+    expect(cell(0).volume).toBeNull()
+    expect(cell(0).note).toBe(60)
+    expect(useDocStore.getState().past.length).toBe(pastBefore + 1)
+  })
+
+  it('keeps only the latest clipboard, rect or track', () => {
+    const tid = firstTrackId()
+    useDocStore.getState().copyRect([tid], 0, 1, 0, 0)
+    useDocStore.getState().copyTrack(tid)
+    expect(useDocStore.getState().rectClipboard).toBeNull()
+    useDocStore.getState().copyRect([tid], 0, 1, 0, 0)
+    expect(useDocStore.getState().trackClipboard).toBeNull()
+  })
+})

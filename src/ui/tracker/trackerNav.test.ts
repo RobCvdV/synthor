@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { newTrack } from '../../domain/factory'
 import type { TrackerCursor } from '../../state/appStore'
-import { cursorColumn, dragSelection, enterHexDigit, extendSelection, interpolationTarget, moveLeft, moveRight, scrollTopFor, selectionBounds, snapRow, stepRow } from './trackerNav'
+import { clipboardLabel, cursorColumn, dragSelection, enterHexDigit, extendSelection, selectionMasks, interpolationTarget, moveLeft, moveRight, scrollTopFor, selectionBounds, snapRow, stepRow } from './trackerNav'
 
 const at = (row: number, track = 0, col = 0, laneIndex: number | null = null): TrackerCursor => ({ row, track, col, laneIndex })
 
@@ -45,10 +45,10 @@ describe('trackerNav', () => {
   })
 
   it('starts a selection at the old cursor and extends an existing one', () => {
-    const sel = extendSelection(null, at(2, 0), at(5, 1))
-    expect(sel).toEqual({ startRow: 2, startTrack: 0, endRow: 5, endTrack: 1 })
-    expect(extendSelection(sel, at(5, 1), at(1, 0))).toEqual({ startRow: 2, startTrack: 0, endRow: 1, endTrack: 0 })
-    expect(selectionBounds({ startRow: 5, startTrack: 2, endRow: 1, endTrack: 0 })).toEqual({ r0: 1, r1: 5, t0: 0, t1: 2 })
+    const sel = extendSelection(null, at(2, 0, 1), at(5, 1))
+    expect(sel).toEqual({ startRow: 2, startTrack: 0, startCol: 1, endRow: 5, endTrack: 1, endCol: 0 })
+    expect(extendSelection(sel, at(5, 1), at(1, 0, 2, 0))).toEqual({ startRow: 2, startTrack: 0, startCol: 1, endRow: 1, endTrack: 0, endCol: 2 })
+    expect(selectionBounds({ startRow: 5, startTrack: 2, startCol: 0, endRow: 1, endTrack: 0, endCol: 0 })).toEqual({ r0: 1, r1: 5, t0: 0, t1: 2 })
   })
 
   it('enters a byte as two hex digits', () => {
@@ -67,7 +67,7 @@ describe('interpolationTarget', () => {
     t.cells[6].effectLanes.pan = 1
     return t
   }
-  const sel = { startRow: 6, startTrack: 0, endRow: 2, endTrack: 1 }
+  const sel = { startRow: 6, startTrack: 0, startCol: 1, endRow: 2, endTrack: 1, endCol: 1 }
 
   it('targets the volume column with its existing values', () => {
     expect(interpolationTarget(track(), at(2, 0, 1), sel)).toEqual({ r0: 2, r1: 6, laneId: null, label: 'Volume', start: 0.25, end: null })
@@ -103,11 +103,35 @@ describe('cursorColumn', () => {
 
 describe('dragSelection', () => {
   it('spans from the anchor to the hovered cell, in any direction', () => {
-    expect(dragSelection({ row: 4, track: 1 }, 2, 0)).toEqual({ startRow: 4, startTrack: 1, endRow: 2, endTrack: 0 })
+    expect(dragSelection({ row: 4, track: 1, col: 1 }, { row: 2, track: 0, col: 0 }))
+      .toEqual({ startRow: 4, startTrack: 1, startCol: 1, endRow: 2, endTrack: 0, endCol: 0 })
   })
 
-  it('is null back on the anchor cell', () => {
-    expect(dragSelection({ row: 4, track: 1 }, 4, 1)).toBeNull()
+  it('selects a second column on the same cell, and is null back on the anchor column', () => {
+    expect(dragSelection({ row: 4, track: 1, col: 0 }, { row: 4, track: 1, col: 1 })).not.toBeNull()
+    expect(dragSelection({ row: 4, track: 1, col: 0 }, { row: 4, track: 1, col: 0 })).toBeNull()
+  })
+})
+
+describe('selectionMasks', () => {
+  const withLanes = (n: number) => ({ ...newTrack('inst', 4), effectLanes: Array.from({ length: n }, (_, i) => ({ id: `l${i}`, type: 'panning' })) })
+  const tracks = [withLanes(2), withLanes(0), withLanes(1)]
+  const sel = (startTrack: number, startCol: number, endTrack: number, endCol: number) =>
+    ({ startRow: 0, startTrack, startCol, endRow: 3, endTrack, endCol })
+
+  it('covers a column range within one track', () => {
+    expect(selectionMasks(sel(0, 1, 0, 2), tracks)).toEqual([{ note: false, volume: true, laneIds: ['l0'] }])
+    expect(selectionMasks(sel(0, 3, 0, 3), tracks)).toEqual([{ note: false, volume: false, laneIds: ['l1'] }])
+  })
+
+  it('runs left to right across tracks, in either drag direction', () => {
+    const expected = [
+      { note: false, volume: false, laneIds: ['l1'] },
+      { note: true, volume: true, laneIds: [] },
+      { note: true, volume: true, laneIds: [] },
+    ]
+    expect(selectionMasks(sel(0, 3, 2, 1), tracks)).toEqual(expected)
+    expect(selectionMasks(sel(2, 1, 0, 3), tracks)).toEqual(expected)
   })
 })
 
@@ -128,5 +152,23 @@ describe('scrollTopFor', () => {
     expect(scrollTopFor(400, 20, view(0), 'center')).toBe(240)
     expect(scrollTopFor(20, 20, view(50), 'center')).toBe(0)
     expect(scrollTopFor(400, 20, view(240), 'center')).toBeNull()
+  })
+})
+
+describe('clipboardLabel', () => {
+  const cells = (tracks: number, rows: number) => Array.from({ length: tracks }, () => Array.from({ length: rows }, () => newTrack('i', 1).cells[0]))
+
+  it('describes a copied selection by rows, tracks and columns', () => {
+    expect(clipboardLabel({ cells: cells(1, 8), trackLanes: [[]] }, null)).toBe('8 rows')
+    expect(clipboardLabel({ cells: cells(1, 1), trackLanes: [[{ id: 'p', type: 'panning' }]], columns: [{ note: false, volume: true, laneIds: ['p'] }] }, null))
+      .toBe('1 row · vol, Panning')
+    expect(clipboardLabel({ cells: cells(2, 4), trackLanes: [[], []], columns: [{ note: false, volume: true, laneIds: [] }, { note: true, volume: true, laneIds: [] }] }, null))
+      .toBe('4 rows · 2 tracks (some columns)')
+  })
+
+  it('describes a copied track, or nothing', () => {
+    const instrument = { name: 'Bass' } as never
+    expect(clipboardLabel(null, { instrument, cells: [], effectLanes: [] })).toBe('track · Bass')
+    expect(clipboardLabel(null, null)).toBeNull()
   })
 })

@@ -684,6 +684,8 @@ body {
 }
 .follow-btn:hover { border-color: var(--accent); }
 .follow-btn.on { color: var(--accent); border-color: var(--accent); }
+.clip-ind { margin-left: auto; font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.clip-ind.full { color: var(--fg); }
 .follow-btn.on.paused { color: var(--fg); border-style: dashed; }
 
 /* ---- Tracker grid ------------------------------------------------------- */
@@ -704,8 +706,7 @@ body {
 }
 .cell.rownum { width: 40px; color: var(--muted); display: block; }
 .cell.cursor { background: var(--cursor); border-radius: 3px; }
-.cell.selected { background: rgba(79, 209, 197, 0.12); }
-.cell.cursor.selected { background: var(--cursor); }
+.sub-selected { background: rgba(79, 209, 197, 0.16); }
 .cell.muted { opacity: 0.4; }
 
 .cell-note { width: 48px; flex: none; }

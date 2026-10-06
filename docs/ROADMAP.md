@@ -29,6 +29,11 @@
 - **Make unique** (⧉ on a repeated step in Arrange): that step gets its own
   copy; repeats show a "N×" badge. **New pattern from selection** (Ctrl+N).
   **Octave transpose** (Cmd+Shift+−/=); transposing is one undo step.
+- **Column selection**: a selection covers columns left to right (note → vol
+  → lanes → next track); Shift+↑↓ stays in the cursor column, Shift+←→ widens.
+  Copy / cut / delete / paste and transpose act on the selected columns only.
+- **Clipboard indicator** in the pattern header ("Clip: 8 rows · vol");
+  copying a track or a selection replaces the other, so ⌘V pastes what it says.
 - **Mouse**: drag to select; clicking a note / vol / lane sub-column moves the
   cursor into that column.
 

@@ -8,7 +8,8 @@ import { MAX_EDIT_STEP, useAppStore } from '../../state/appStore'
 import { EditableLabel } from '../components/EditableLabel'
 import { InstrumentSelect } from '../components/InstrumentSelect'
 import { usePlayheadRow } from '../usePlayhead'
-import { scrollTopFor, type Selection } from './trackerNav'
+import { clipboardLabel, scrollTopFor, selectionMasks, type Selection } from './trackerNav'
+import type { ColumnMask } from '../../state/docStoreTypes'
 
 export interface Cursor {
   row: number
@@ -32,7 +33,7 @@ interface Props {
 }
 
 type CellClick = (row: number, track: number, shiftKey: boolean, col?: number) => void
-type CellDrag = (row: number, track: number) => void
+type CellDrag = (row: number, track: number, col?: number) => void
 
 /** Subtle dark backgrounds for lane color-coding. */
 const LANE_COLORS = [
@@ -42,15 +43,6 @@ const LANE_COLORS = [
 
 function laneBg(index: number): string { return LANE_COLORS[index % LANE_COLORS.length] }
 function trackCellWidth(laneCount: number): number { return 82 + laneCount * 22 }
-
-function inSelection(sel: Selection | null, row: number, track: number): boolean {
-  if (!sel) return false
-  const r0 = Math.min(sel.startRow, sel.endRow)
-  const r1 = Math.max(sel.startRow, sel.endRow)
-  const t0 = Math.min(sel.startTrack, sel.endTrack)
-  const t1 = Math.max(sel.startTrack, sel.endTrack)
-  return row >= r0 && row <= r1 && track >= t0 && track <= t1
-}
 
 // ── PatternHead ──────────────────────────────────────────────────────────────
 
@@ -68,6 +60,9 @@ const PatternHead = memo(function PatternHead({ patternId, patternName, patternL
   const setEditMode = useAppStore((s) => s.setEditMode)
   const renamePattern = useDocStore((s) => s.renamePattern)
   const setPatternLength = useDocStore((s) => s.setPatternLength)
+  const rectClipboard = useDocStore((s) => s.rectClipboard)
+  const trackClipboard = useDocStore((s) => s.trackClipboard)
+  const clip = clipboardLabel(rectClipboard, trackClipboard)
 
   return (
     <div className="pattern-head">
@@ -98,6 +93,10 @@ const PatternHead = memo(function PatternHead({ patternId, patternName, patternL
         title={editMode ? 'Editing: keys write into the grid (⌘E: play only)' : 'Play only: note keys just play (⌘E: edit)'}>
         {editMode ? 'Edit' : 'Play only'}
       </button>
+      <span className={'clip-ind' + (clip ? ' full' : '')}
+        title={clip ? `⌘V pastes: ${clip}` : 'Nothing copied — ⌘C copies the selection, or the track without one'}>
+        Clip: {clip ?? 'empty'}
+      </span>
     </div>
   )
 })
@@ -162,9 +161,9 @@ const TrackerHeader = memo(function TrackerHeader({ tracks, instruments, inletOp
 
 interface CellProps {
   noteLabel: string; volLabel: string
-  laneColumns: { id: Id; label: string; active: boolean }[]
+  laneColumns: { id: Id; label: string; active: boolean; sel: boolean }[]
   active: boolean; noteActive: boolean; volActive: boolean
-  sel: boolean; muted: boolean; hold: boolean; noteOff: boolean
+  noteSel: boolean; volSel: boolean; muted: boolean; hold: boolean; noteOff: boolean
   width: number
   row: number; track: number
   onCellClick: CellClick
@@ -172,10 +171,10 @@ interface CellProps {
 }
 
 const TrackerCell = memo(function TrackerCell({
-  noteLabel, volLabel, laneColumns, active, noteActive, volActive, sel, muted, hold, noteOff, width,
+  noteLabel, volLabel, laneColumns, active, noteActive, volActive, noteSel, volSel, muted, hold, noteOff, width,
   row, track, onCellClick, onCellDrag,
 }: CellProps) {
-  const cls = 'cell' + (active ? ' cursor' : '') + (sel ? ' selected' : '') +
+  const cls = 'cell' + (active ? ' cursor' : '') +
     (muted ? ' muted' : '') + (hold ? ' hold' : noteOff ? ' noteoff' : '')
   const onMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.button !== 0) return
@@ -183,14 +182,18 @@ const TrackerCell = memo(function TrackerCell({
     const col = (e.target as HTMLElement).closest<HTMLElement>('[data-col]')?.dataset.col
     onCellClick(row, track, e.shiftKey, col === undefined ? undefined : Number(col))
   }, [row, track, onCellClick])
-  const onMouseEnter = useCallback(() => onCellDrag(row, track), [row, track, onCellDrag])
+  const onMouseOver = useCallback((e: React.MouseEvent) => {
+    const col = (e.target as HTMLElement).closest<HTMLElement>('[data-col]')?.dataset.col
+    onCellDrag(row, track, col === undefined ? undefined : Number(col))
+  }, [row, track, onCellDrag])
+  const sub = (cls: string, isActive: boolean, isSel: boolean) => cls + (isActive ? ' sub-active' : '') + (isSel ? ' sub-selected' : '')
 
   return (
-    <span className={cls} style={{ width }} onMouseDown={onMouseDown} onMouseEnter={onMouseEnter}>
-      <span data-col={0} className={'cell-note' + (noteActive ? ' sub-active' : '')}>{noteLabel}</span>
-      <span data-col={1} className={'cell-vol' + (volActive ? ' sub-active' : '')}>{volLabel}</span>
+    <span className={cls} style={{ width }} onMouseDown={onMouseDown} onMouseOver={onMouseOver}>
+      <span data-col={0} className={sub('cell-note', noteActive, noteSel)}>{noteLabel}</span>
+      <span data-col={1} className={sub('cell-vol', volActive, volSel)}>{volLabel}</span>
       {laneColumns.map((lc, li) => (
-        <span key={lc.id} data-col={2 + li} className={'cell-eff' + (lc.active ? ' sub-active' : '')}>{lc.label}</span>
+        <span key={lc.id} data-col={2 + li} className={sub('cell-eff', lc.active, lc.sel)}>{lc.label}</span>
       ))}
     </span>
   )
@@ -202,7 +205,7 @@ function cellPropsEqual(a: CellProps, b: CellProps): boolean {
   }
   const la = a.laneColumns, lb = b.laneColumns
   return la.length === lb.length &&
-    la.every((c, i) => c.id === lb[i].id && c.label === lb[i].label && c.active === lb[i].active)
+    la.every((c, i) => c.id === lb[i].id && c.label === lb[i].label && c.active === lb[i].active && c.sel === lb[i].sel)
 }
 
 // ── TrackerRow ───────────────────────────────────────────────────────────────
@@ -211,7 +214,8 @@ interface RowProps {
   row: number; tracks: Track[]
   isBeat: boolean; isPlayhead: boolean
   isCursorRow: boolean; cursorTrack: number; cursorCol: number; cursorLaneIndex: number | null
-  sel: Selection | null
+  /** Per track index, the selected columns on this row; null when the row is outside the selection. */
+  selMasks: (ColumnMask | undefined)[] | null
   mutedTracks: Record<number, boolean>
   volEntry: number | null; laneEntry: number | null
   onCellClick: CellClick
@@ -220,7 +224,7 @@ interface RowProps {
 
 const TrackerRowImpl = memo(function TrackerRowImpl({
   row, tracks, isBeat, isPlayhead, isCursorRow, cursorTrack, cursorCol, cursorLaneIndex,
-  sel, mutedTracks, volEntry, laneEntry, onCellClick, onCellDrag,
+  selMasks, mutedTracks, volEntry, laneEntry, onCellClick, onCellDrag,
 }: RowProps) {
   return (
     <div data-row={row} className={'grid-row' + (isPlayhead ? ' playhead' : '') + (isBeat ? ' beat' : '')}>
@@ -233,7 +237,7 @@ const TrackerRowImpl = memo(function TrackerRowImpl({
         const active = isCursorRow && ti === cursorTrack
         const noteActive = active && cursorCol === 0
         const volActive = active && cursorCol === 1
-        const inSel = inSelection(sel, row, ti)
+        const mask = selMasks?.[ti]
         const muted = mutedTracks[ti + 1] === true
 
         let noteLabel: string
@@ -254,6 +258,7 @@ const TrackerRowImpl = memo(function TrackerRowImpl({
             id: lane.id,
             label,
             active: laneActive,
+            sel: mask?.laneIds.includes(lane.id) ?? false,
           }
         })
 
@@ -262,7 +267,7 @@ const TrackerRowImpl = memo(function TrackerRowImpl({
             key={t.id}
             noteLabel={noteLabel} volLabel={volLabel} laneColumns={laneColumns}
             active={active} noteActive={noteActive} volActive={volActive}
-            sel={inSel} muted={muted} hold={hold} noteOff={noteOff}
+            noteSel={mask?.note ?? false} volSel={mask?.volume ?? false} muted={muted} hold={hold} noteOff={noteOff}
             width={trackCellWidth(t.effectLanes.length)}
             row={row} track={ti}
             onCellClick={onCellClick} onCellDrag={onCellDrag}
@@ -285,6 +290,15 @@ export function TrackerGrid({ doc, pattern, cursor, muted, soloed, selection, vo
   const gridRef = useRef<HTMLDivElement>(null)
   const followPaused = useGridScroll(gridRef, cursor.row, playhead)
   const editMode = useAppStore((s) => s.editMode)
+
+  // Masks indexed by track, so rows can look them up directly.
+  const selMasks = useMemo(() => {
+    if (!selection) return null
+    const t0 = Math.min(selection.startTrack, selection.endTrack)
+    const out: (ColumnMask | undefined)[] = []
+    selectionMasks(selection, tracks).forEach((m, i) => { out[t0 + i] = m })
+    return out
+  }, [selection, tracks])
 
   const getInletOptions = useMemo(() => {
     const cache: Record<Id, string[]> = {}
@@ -310,7 +324,7 @@ export function TrackerGrid({ doc, pattern, cursor, muted, soloed, selection, vo
               isBeat={row % 4 === 0} isPlayhead={row === playhead}
               isCursorRow={onCursor} cursorTrack={onCursor ? cursor.track : -1}
               cursorCol={onCursor ? cursor.col : -1} cursorLaneIndex={onCursor ? cursor.laneIndex : null}
-              sel={selectionCoversRow(selection, row) ? selection : null}
+              selMasks={selectionCoversRow(selection, row) ? selMasks : null}
               mutedTracks={muted}
               volEntry={isCursorRow(row, cursor, 1) ? volumeEntry : null}
               laneEntry={isCursorRow(row, cursor) ? laneEntry : null}

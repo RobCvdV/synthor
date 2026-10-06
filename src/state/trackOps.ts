@@ -3,7 +3,7 @@ import type { Cell, EffectLaneDef, Id } from '../domain/types'
 import { cloneInstrument, fitCells, newTrack } from '../domain/factory'
 import { clamp } from './helpers'
 import type { DocState } from './docStore'
-import type { CellColumn } from './docStoreTypes'
+import type { CellColumn, ColumnMask } from './docStoreTypes'
 
 export interface TrackOps {
   addTrack: (atIndex: number, instrumentId: Id) => void
@@ -15,12 +15,25 @@ export interface TrackOps {
   /** Rotate a track's cells one row up or down, wrapping around. */
   shiftTrack: (trackId: Id, dir: 'up' | 'down') => void
 
-  copyRect: (trackIds: Id[], startRow: number, endRow: number, startTrack: number, endTrack: number) => void
-  cutRect: (trackIds: Id[], startRow: number, endRow: number, startTrack: number, endTrack: number) => void
+  /** `masks` (one per track from the first selected one) limits the copy to those columns. */
+  copyRect: (trackIds: Id[], startRow: number, endRow: number, startTrack: number, endTrack: number, masks?: ColumnMask[]) => void
+  cutRect: (trackIds: Id[], startRow: number, endRow: number, startTrack: number, endTrack: number, masks?: ColumnMask[]) => void
+  /** Empties the rows (only the masked columns, when given) as one undo step. */
+  clearRect: (trackIds: Id[], startRow: number, endRow: number, startTrack: number, endTrack: number, masks?: ColumnMask[]) => void
+  /** Writes the copied cells; a column-limited copy writes only those columns. */
   pasteRect: (trackIds: Id[], atRow: number, atTrack: number) => void
   /** Like pasteRect, but writes only `column` and leaves the rest of each cell alone. A lane column
    *  maps to the same-type lane on the other pasted tracks. */
   pasteRectColumn: (trackIds: Id[], atRow: number, atTrack: number, column: CellColumn) => void
+}
+
+const emptyCell = (): Cell => ({ note: null, volume: null, noteOff: false, hold: false, effectLanes: {} })
+
+/** Writes `src` into `cell`: every field, or only the masked columns. */
+function writeCell(cell: Cell, src: Cell, mask: ColumnMask | undefined): void {
+  if (!mask || mask.note) { cell.note = src.note; cell.hold = src.hold ?? false; cell.noteOff = src.noteOff }
+  if (!mask || mask.volume) cell.volume = src.volume
+  for (const id of mask ? mask.laneIds : Object.keys(src.effectLanes)) cell.effectLanes[id] = src.effectLanes[id] ?? null
 }
 
 /** The copied lane that feeds `target`: same lane, else same type, else same position. */
@@ -71,6 +84,7 @@ export function trackOps(
       // Docs are immutable snapshots, so storing the instrument by reference is
       // safe; paste clones it with fresh ids.
       set({
+        rectClipboard: null,
         trackClipboard: {
           instrument: doc.entities.instruments[track.instrumentId],
           cells: track.cells.map((c) => ({ ...c })),
@@ -118,7 +132,7 @@ export function trackOps(
 
     // --- Rectangular clipboard ---
 
-    copyRect: (trackIds, startRow, endRow, startTrack, endTrack) => {
+    copyRect: (trackIds, startRow, endRow, startTrack, endTrack, masks) => {
       const { doc } = get()
       const t0 = Math.max(0, Math.min(startTrack, endTrack))
       const t1 = Math.min(trackIds.length - 1, Math.max(startTrack, endTrack))
@@ -128,35 +142,40 @@ export function trackOps(
       const trackLanes: EffectLaneDef[][] = []
       for (let ti = t0; ti <= t1; ti++) {
         const track = doc.entities.tracks[trackIds[ti]]
+        const mask = masks?.[ti - t0]
         const col: Cell[] = []
         for (let r = r0; r <= r1; r++) {
           const c = track?.cells[r]
-          col.push(c ? { note: c.note, volume: c.volume, noteOff: c.noteOff, hold: c.hold ?? false, effectLanes: { ...c.effectLanes } } : { note: null, volume: null, noteOff: false, hold: false, effectLanes: {} })
+          col.push(c ? { note: c.note, volume: c.volume, noteOff: c.noteOff, hold: c.hold ?? false, effectLanes: { ...c.effectLanes } } : emptyCell())
         }
         cells.push(col)
-        trackLanes.push(track ? [...track.effectLanes] : [])
+        const lanes = track?.effectLanes ?? []
+        trackLanes.push(mask ? lanes.filter((l) => mask.laneIds.includes(l.id)) : [...lanes])
       }
-      set({ rectClipboard: { cells, trackLanes } })
+      // One clipboard at a time, so paste always uses what was copied last.
+      set({ rectClipboard: { cells, trackLanes, ...(masks ? { columns: masks.slice(0, t1 - t0 + 1) } : {}) }, trackClipboard: null })
     },
 
-    cutRect: (trackIds, startRow, endRow, startTrack, endTrack) => {
-      get().copyRect(trackIds, startRow, endRow, startTrack, endTrack)
+    clearRect: (trackIds, startRow, endRow, startTrack, endTrack, masks) =>
       get().mutate((draft) => {
-        const pattern = draft.entities.patterns[draft.patternId]
         const t0 = Math.max(0, Math.min(startTrack, endTrack))
         const t1 = Math.min(trackIds.length - 1, Math.max(startTrack, endTrack))
-        const r0 = Math.max(0, Math.min(startRow, endRow))
-        const r1 = Math.min(pattern.length - 1, Math.max(startRow, endRow))
         for (let ti = t0; ti <= t1; ti++) {
           const track = draft.entities.tracks[trackIds[ti]]
           if (!track) continue
-          for (let r = r0; r <= r1; r++) {
-            if (track.cells[r]) {
-              track.cells[r] = { note: null, volume: null, noteOff: false, hold: false, effectLanes: {} }
-            }
+          const mask = masks?.[ti - t0]
+          for (let r = Math.max(0, Math.min(startRow, endRow)); r <= Math.max(startRow, endRow); r++) {
+            const cell = track.cells[r]
+            if (!cell) continue
+            if (mask) writeCell(cell, emptyCell(), mask)
+            else track.cells[r] = emptyCell()
           }
         }
-      })
+      }),
+
+    cutRect: (trackIds, startRow, endRow, startTrack, endTrack, masks) => {
+      get().copyRect(trackIds, startRow, endRow, startTrack, endTrack, masks)
+      get().clearRect(trackIds, startRow, endRow, startTrack, endTrack, masks)
     },
 
     pasteRect: (trackIds, atRow, atTrack) => {
@@ -170,6 +189,7 @@ export function trackOps(
           const track = draft.entities.tracks[trackIds[targetIdx]]
           if (!track) continue
           const col = clip.cells[ti]
+          const mask = clip.columns?.[ti]
 
           // Auto-create any effect lanes referenced by the pasted cells
           // that don't exist on the target track yet.
@@ -183,7 +203,8 @@ export function trackOps(
           for (let ri = 0; ri < col.length; ri++) {
             const targetRow = atRow + ri
             if (targetRow < 0 || targetRow >= pattern.length) continue
-            track.cells[targetRow] = { ...col[ri] }
+            if (mask) writeCell(track.cells[targetRow], col[ri], mask)
+            else track.cells[targetRow] = { ...col[ri], effectLanes: { ...col[ri].effectLanes } }
           }
         }
       })
