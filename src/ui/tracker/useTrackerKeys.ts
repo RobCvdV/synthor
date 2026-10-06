@@ -171,16 +171,9 @@ export function useTrackerKeys(host: AudioHost, keyboardPlayer: KeyboardPlayer):
         case 'Equal': {
           e.preventDefault()
           if (!editing) return
-          const step = e.code === 'Equal' ? 1 : -1
+          const step = (e.code === 'Equal' ? 1 : -1) * (e.shiftKey ? 12 : 1)
           const { r0, r1, t0, t1 } = sel ? selectionBounds(sel) : { r0: 0, r1: len - 1, t0: cur.track, t1: cur.track }
-          for (let ti = t0; ti <= t1; ti++) {
-            const tid = ids[ti]
-            if (!tid) continue
-            for (let r = r0; r <= r1; r++) {
-              const note = cellAt(tid, r)?.note
-              if (note != null) store.setCellNote(tid, r, note + step)
-            }
-          }
+          store.transposeRows(ids.slice(t0, t1 + 1), r0, r1, step)
           return
         }
       }
@@ -205,6 +198,16 @@ export function useTrackerKeys(host: AudioHost, keyboardPlayer: KeyboardPlayer):
         case 'Comma': e.preventDefault(); store.moveTrack(cur.track, cur.track - 1); focusTrack(cur.track - 1); return
         case 'Period': e.preventDefault(); store.moveTrack(cur.track, cur.track + 1); focusTrack(cur.track + 1); return
         case 'KeyL': e.preventDefault(); if (trackId) store.addEffectLane(trackId, 'panning'); return
+        case 'KeyN': {
+          e.preventDefault()
+          if (!sel) return
+          const { r0, r1, t0, t1 } = selectionBounds(sel)
+          if (store.patternFromRows(ids.slice(t0, t1 + 1), r0, r1)) {
+            setSelection(null)
+            setCursor({ row: 0, track: 0, col: 0, laneIndex: null })
+          }
+          return
+        }
         case 'KeyF': {
           e.preventDefault()
           const app = useAppStore.getState()

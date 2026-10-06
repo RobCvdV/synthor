@@ -26,6 +26,9 @@
   the first section using the visible pattern — playback no longer jumps
   sections. Play from cursor starts at the current step. The Arrange tab
   marks the current step (teal) and the playing section + step (orange, ▶).
+- **Make unique** (⧉ on a repeated step in Arrange): that step gets its own
+  copy; repeats show a "N×" badge. **New pattern from selection** (Ctrl+N).
+  **Octave transpose** (Cmd+Shift+−/=); transposing is one undo step.
 - **Mouse**: drag to select; clicking a note / vol / lane sub-column moves the
   cursor into that column.
 
@@ -153,7 +156,6 @@ Proved the full stack end to end.
 See [FEATURES.md](./FEATURES.md) for detailed descriptions of each candidate.
 The shortlist:
 
-- **Block transpose** — larger transposition jumps (Cmd± ±1 exists).
 - **Render to WAV** — offline bounce via `@elemaudio/offline-renderer`.
 - **MIDI recording** — step-record and live-record (live playback exists).
 - **NNA** — new-note actions for monophonic behavior.

@@ -134,4 +134,26 @@ describe('useTrackerKeys', () => {
     press('KeyE', { ctrlKey: true })
     expect(useAppStore.getState().editMode).toBe(true)
   })
+
+  it('transposes by a semitone with Cmd+-/=, an octave with Shift', () => {
+    const { press } = setup()
+    useDocStore.getState().setCellNote(trackId(), 0, 60)
+    press('Equal', { metaKey: true })
+    expect(cell(0).note).toBe(61)
+    press('Minus', { metaKey: true, shiftKey: true })
+    expect(cell(0).note).toBe(49)
+  })
+
+  it('makes a new pattern from the selection with Ctrl+N', () => {
+    const { result, press } = setup()
+    const before = useDocStore.getState().doc.patternId
+    press('ArrowDown', { shiftKey: true })
+    press('ArrowDown', { shiftKey: true })
+    press('KeyN', { ctrlKey: true })
+    const { doc } = useDocStore.getState()
+    expect(doc.patternId).not.toBe(before)
+    expect(doc.entities.patterns[doc.patternId].length).toBe(3)
+    expect(result.current.selection).toBeNull()
+    expect(cursor()).toEqual({ row: 0, track: 0, col: 0, laneIndex: null })
+  })
 })

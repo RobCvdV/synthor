@@ -11,6 +11,8 @@ export interface TrackerOps {
   removeEffectLane: (trackId: Id, laneId: Id) => void
   setEffectLaneType: (trackId: Id, laneId: Id, newType: string) => void
   setCellEffectLane: (trackId: Id, row: number, laneId: Id, value: number | null) => void
+  /** Shifts every note in rows r0..r1 of the tracks by `semitones` (clamped to MIDI 0..127), as one undo step. */
+  transposeRows: (trackIds: Id[], r0: number, r1: number, semitones: number) => void
   /** Linear fill of rows r0..r1 in one column as one undo step; `laneId` null is the volume column. */
   interpolateColumn: (trackId: Id, r0: number, r1: number, laneId: Id | null, from: number, to: number) => void
 }
@@ -48,6 +50,17 @@ export function trackerOps(get: () => DocState): TrackerOps {
       get().mutate((draft) => {
         const track = draft.entities.tracks[trackId]
         if (track && track.cells[row]) track.cells[row].effectLanes[laneId] = value
+      }),
+
+    transposeRows: (trackIds, r0, r1, semitones) =>
+      get().mutate((draft) => {
+        for (const tid of trackIds) {
+          const cells = draft.entities.tracks[tid]?.cells ?? []
+          for (let r = Math.max(0, r0); r <= r1 && r < cells.length; r++) {
+            const note = cells[r].note
+            if (note !== null) cells[r].note = Math.max(0, Math.min(127, note + semitones))
+          }
+        }
       }),
 
     interpolateColumn: (trackId, r0, r1, laneId, from, to) =>

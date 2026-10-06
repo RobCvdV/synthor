@@ -57,4 +57,14 @@ describe('ArrangeTab', () => {
     expect(view.container.querySelector('.arrange-section')?.classList.contains('playing')).toBe(true)
     expect(steps()[2].querySelector('.arrange-pattern-num')?.textContent).toBe('▶')
   })
+
+  it('offers make-unique on repeated patterns only', () => {
+    const { sectionId, p1, steps } = setup()
+    expect(steps().map((el) => el.querySelector('.arrange-unique-btn') !== null)).toEqual([true, false, true])
+    fireEvent.click(steps()[2].querySelector('.arrange-unique-btn')!)
+    const ids = useDocStore.getState().doc.entities.sections[sectionId].patternIds
+    expect(ids[0]).toBe(p1)
+    expect(ids[2]).not.toBe(p1)
+    expect(useAppStore.getState().currentStep).toEqual({ sectionId, step: 2 })
+  })
 })

@@ -28,10 +28,18 @@ export function ArrangeTab({ doc }: { doc: Doc }) {
   const renamePattern = useDocStore((s) => s.renamePattern)
   const reorderSections = useDocStore((s) => s.reorderSections)
   const reorderPatternsInSection = useDocStore((s) => s.reorderPatternsInSection)
+  const makeStepUnique = useDocStore((s) => s.makeStepUnique)
   const currentStepHint = useAppStore((s) => s.currentStep)
   const setCurrentStep = useAppStore((s) => s.setCurrentStep)
   const current = useMemo(() => resolveStep(doc, currentStepHint), [doc, currentStepHint])
   const playing = usePlayingStep()
+
+  // How often each pattern is used across all sections; repeats get a badge and "make unique".
+  const uses = useMemo(() => {
+    const n: Record<Id, number> = {}
+    for (const sid of doc.sectionIds) for (const pid of doc.entities.sections[sid]?.patternIds ?? []) n[pid] = (n[pid] ?? 0) + 1
+    return n
+  }, [doc.sectionIds, doc.entities.sections])
 
   const selectStep = (sectionId: Id, step: number) => {
     const patId = doc.entities.sections[sectionId]?.patternIds[step]
@@ -460,6 +468,13 @@ export function ArrangeTab({ doc }: { doc: Doc }) {
                         <span className="arrange-pattern-num">{isPlayingStep ? '▶' : pi + 1}</span>
                         <EditableLabel value={pat.name} onCommit={(name) => renamePattern(patId, name)}
                           className="arrange-pattern-name" inputClassName="arrange-name-input" />
+                        {(uses[patId] ?? 0) > 1 && (
+                          <>
+                            <span className="arrange-uses" title={`Used ${uses[patId]}× — editing it changes every use`}>{uses[patId]}×</span>
+                            <button className="arrange-unique-btn" title="Make unique: give this step its own copy"
+                              onClick={(e) => { e.stopPropagation(); if (makeStepUnique(secId, pi)) setCurrentStep({ sectionId: secId, step: pi }) }}>⧉</button>
+                          </>
+                        )}
                         <button className="arrange-del-btn" title="Remove pattern from section" onClick={(e) => { e.stopPropagation(); removePatternFromSection(secId, pi) }}>×</button>
                       </div>
                       {lineBelow && <div className="arrange-drop-line" />}

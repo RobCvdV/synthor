@@ -416,6 +416,9 @@ body {
 }
 .arrange-pattern-item.current .arrange-pattern-name { color: var(--accent); }
 .arrange-pattern-item.playing { background: var(--playhead); }
+.arrange-uses { color: var(--muted); font-size: 10px; }
+.arrange-unique-btn { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 12px; padding: 0 2px; }
+.arrange-unique-btn:hover { color: var(--accent); }
 .arrange-pattern-item.playing .arrange-pattern-num { color: var(--play); }
 .arrange-add-item { cursor: default; }
 .arrange-add-item:hover { background: none; }

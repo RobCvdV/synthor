@@ -78,6 +78,19 @@ describe('trackerOps — cell editing', () => {
     store.setCellNote(firstTrackId(), 999, 60)
     expect(store.past.length).toBe(pastBefore)
   })
+  it('transposeRows shifts notes in range by semitones, clamped, as one undo step', () => {
+    const tid = firstTrackId()
+    const store = useDocStore.getState()
+    store.setCellNote(tid, 0, 60)
+    store.setCellNote(tid, 1, 120)
+    store.setCellNote(tid, 3, 50)
+    const pastBefore = useDocStore.getState().past.length
+    store.transposeRows([tid], 0, 2, 12)
+    const notes = () => useDocStore.getState().doc.entities.tracks[tid].cells.slice(0, 4).map((c) => c.note)
+    expect(notes()).toEqual([72, 127, null, 50])
+    expect(useDocStore.getState().past.length).toBe(pastBefore + 1)
+  })
+
   it('interpolateColumn fills only the volume column, as one undo step', () => {
     const tid = firstTrackId()
     const store = useDocStore.getState()

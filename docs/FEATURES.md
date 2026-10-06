@@ -15,18 +15,6 @@ _Nothing open right now._
 
 ## Tier 2 — Medium effort, big feel
 
-### Block transpose (larger jumps)
-
-Select a region of notes, transpose by N semitones. `Cmd±` already transposes
-a track or selection by ±1 semitone. A quick dialog or key combo `Cmd+shift+±`
-for larger jumps (e.g., ±12 for octave).
-
-**Prerequisites:** Rectangular selection (done).
-**Classic lineage:** All trackers; Impulse Tracker had Alt+F1..F12 for preset
-transpose amounts.
-
----
-
 ### Render to WAV
 
 Offline bounce the compiled graph to a WAV file. `@elemaudio/offline-renderer`
@@ -116,8 +104,6 @@ editing experience.
   reduces confusion when paste does nothing.
 - **Dark/light theme** — CSS custom properties; the tracker look benefits
   from a dark background with bright text (like every classic tracker).
-- **"New pattern from selection"** — select a region, promote it to a new
-  pattern.
 - **Ghost channels** — faintly show the previous/next pattern's notes in
   the grid while editing, for context across pattern boundaries.
 

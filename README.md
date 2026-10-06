@@ -112,6 +112,8 @@ The in-app Legend (tracker view, right side) is authoritative; the essentials:
 | `Cmd/Ctrl ⇧ V` | Paste only the column under the cursor (note, volume or that effect lane) |
 | `Cmd/Ctrl I` | Interpolate the selected rows of the volume / lane column under the cursor |
 | `Cmd − / =` | Transpose track or selection ±1 semitone (Cmd only — Ctrl = adds a track) |
+| `Cmd ⇧ − / =` | Transpose ±1 octave |
+| `Ctrl N` | New pattern from the selection |
 | `F1 … F12` / `⇧F1 … F12` | Mute / solo Track # (global, persists) |
 
 ## Known limitations

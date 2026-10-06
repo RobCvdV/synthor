@@ -47,6 +47,7 @@ const GROUPS: Group[] = [
       { keys: '⌘ ⇧ V', label: 'paste only the column at cursor' },
       { keys: '⌘ I', label: 'interpolate selection (vol / lane at cursor)' },
       { keys: '⌘ − / =', label: 'transpose selection (else track) ±1' },
+      { keys: '⌘ ⇧ − / =', label: 'transpose ±1 octave' },
       { keys: '⌘Z / ⇧⌘Z', label: 'undo / redo' },
     ],
   },
@@ -78,6 +79,9 @@ const GROUPS: Group[] = [
   {
     title: 'Pattern & song',
     rows: [
+      { keys: 'Ctrl N', label: 'new pattern from selection' },
+      { keys: 'Click step', label: 'make it the current step' },
+      { keys: '⧉ on a step', label: 'make unique (own copy of a repeat)' },
       { keys: 'Double-click', label: 'rename pattern (header)' },
       { keys: 'rows − / +', label: 'pattern length (⇧ ±4)' },
       { keys: 'step − / +', label: 'edit step' },
@@ -104,7 +108,7 @@ function Section({ title, rows }: Group) {
 export function Legend() {
   return (
     <div className="legend">
-      <p className="legend-note">⌘ also works as Ctrl, except ⌘ ↑/↓ and ⌘ −/= (Ctrl has its own meaning there).</p>
+      <p className="legend-note">⌘ also works as Ctrl, except ⌘ ↑/↓ and ⌘ (⇧) −/= (Ctrl has its own meaning there).</p>
       {GROUPS.map((g) => <Section key={g.title} {...g} />)}
     </div>
   )

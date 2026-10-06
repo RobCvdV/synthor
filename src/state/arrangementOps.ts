@@ -1,4 +1,4 @@
-import type { Id, Pattern } from '../domain/types'
+import type { Doc, Id, Pattern } from '../domain/types'
 import { emptyCells, fitCells, makeId, newSection } from '../domain/factory'
 import { clamp } from './helpers'
 import type { DocState } from './docStore'
@@ -9,6 +9,10 @@ export interface ArrangementOps {
   addPattern: (name?: string, length?: number) => Id
   removePattern: (patternId: Id) => void
   duplicatePattern: (patternId: Id) => Id
+  /** Gives one section step its own copy of the pattern and shows it; other uses keep the original. */
+  makeStepUnique: (sectionId: Id, step: number) => Id | null
+  /** A new current pattern from rows r0..r1 of the given tracks. */
+  patternFromRows: (trackIds: Id[], r0: number, r1: number) => Id | null
   setCurrentPattern: (patternId: Id) => void
 
   addSection: (name?: string) => Id
@@ -18,6 +22,29 @@ export interface ArrangementOps {
   removePatternFromSection: (sectionId: Id, patternIndex: number) => void
   reorderSections: (fromIdx: number, toIdx: number) => void
   reorderPatternsInSection: (sectionId: Id, fromIdx: number, toIdx: number) => void
+}
+
+/** Copies `trackIds` (rows r0..r1, default all) as fresh tracks; returns the new track ids. */
+function cloneTracks(draft: Doc, trackIds: Id[], r0 = 0, r1 = Infinity): Id[] {
+  const ids: Id[] = []
+  for (const tid of trackIds) {
+    const src = draft.entities.tracks[tid]
+    if (!src) continue
+    const id = makeId('trk')
+    draft.entities.tracks[id] = {
+      id,
+      instrumentId: src.instrumentId,
+      cells: src.cells.slice(r0, r1 + 1).map((c) => ({ note: c.note, volume: c.volume, noteOff: c.noteOff, hold: c.hold ?? false, effectLanes: { ...c.effectLanes } })),
+      effectLanes: src.effectLanes.map((l) => ({ ...l })),
+    }
+    ids.push(id)
+  }
+  return ids
+}
+
+/** The next free "Pattern NN" name. */
+function nextPatternName(doc: Doc): string {
+  return `Pattern ${String(Object.keys(doc.entities.patterns).length + 1).padStart(2, '0')}`
 }
 
 export function arrangementOps(get: () => DocState): ArrangementOps {
@@ -41,7 +68,7 @@ export function arrangementOps(get: () => DocState): ArrangementOps {
 
     addPattern: (name, length) => {
       const src = get().doc.entities.patterns[get().doc.patternId]
-      const patName = name ?? `Pattern ${String(Object.keys(get().doc.entities.patterns).length + 1).padStart(2, '0')}`
+      const patName = name ?? nextPatternName(get().doc)
       const patternId = makeId('pat')
       get().mutate((draft) => {
         // Nothing to base on → a bare 32-row pattern.
@@ -97,27 +124,43 @@ export function arrangementOps(get: () => DocState): ArrangementOps {
       if (!src) return ''
       const newId = makeId('pat')
       get().mutate((draft) => {
-        // Clone tracks with fresh ids, preserving cells and instrument refs.
-        const newTrackIds: Id[] = []
-        for (const tid of src.trackIds) {
-          const srcTrack = draft.entities.tracks[tid]
-          if (!srcTrack) continue
-          const newTrackId = makeId('trk')
-          draft.entities.tracks[newTrackId] = {
-            id: newTrackId,
-            instrumentId: srcTrack.instrumentId,
-            cells: srcTrack.cells.map((c) => ({ note: c.note, volume: c.volume, noteOff: c.noteOff, hold: c.hold ?? false, effectLanes: { ...c.effectLanes } })),
-            effectLanes: [...srcTrack.effectLanes],
-          }
-          newTrackIds.push(newTrackId)
-        }
         const newPattern: Pattern = {
           id: newId,
           name: `${src.name} (copy)`,
           length: src.length,
-          trackIds: newTrackIds,
+          trackIds: cloneTracks(draft, src.trackIds),
         }
         draft.entities.patterns[newId] = newPattern
+      })
+      return newId
+    },
+
+    makeStepUnique: (sectionId, step) => {
+      const { doc } = get()
+      const src = doc.entities.patterns[doc.entities.sections[sectionId]?.patternIds[step] ?? '']
+      if (!src) return null
+      const newId = makeId('pat')
+      get().mutate((draft) => {
+        draft.entities.patterns[newId] = { id: newId, name: `${src.name} (copy)`, length: src.length, trackIds: cloneTracks(draft, src.trackIds) }
+        draft.entities.sections[sectionId].patternIds[step] = newId
+        draft.patternId = newId
+      })
+      return newId
+    },
+
+    patternFromRows: (trackIds, r0, r1) => {
+      const { doc } = get()
+      const lo = Math.max(0, Math.min(r0, r1))
+      const hi = Math.max(r0, r1)
+      if (!trackIds.some((tid) => doc.entities.tracks[tid])) return null
+      const newId = makeId('pat')
+      get().mutate((draft) => {
+        const ids = cloneTracks(draft, trackIds, lo, hi)
+        const length = Math.max(1, ...ids.map((id) => draft.entities.tracks[id].cells.length))
+        // Pad tracks cut short by the pattern end, so every track matches the length.
+        for (const id of ids) draft.entities.tracks[id].cells = fitCells(draft.entities.tracks[id].cells, length)
+        draft.entities.patterns[newId] = { id: newId, name: nextPatternName(doc), length, trackIds: ids }
+        draft.patternId = newId
       })
       return newId
     },

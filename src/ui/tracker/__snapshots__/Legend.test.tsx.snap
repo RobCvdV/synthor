@@ -8,7 +8,7 @@ exports[`Legend > lists the tracker shortcuts by group 1`] = `
     <p
       class="legend-note"
     >
-      ⌘ also works as Ctrl, except ⌘ ↑/↓ and ⌘ −/= (Ctrl has its own meaning there).
+      ⌘ also works as Ctrl, except ⌘ ↑/↓ and ⌘ (⇧) −/= (Ctrl has its own meaning there).
     </p>
     <div
       class="legend-section"
@@ -274,6 +274,16 @@ exports[`Legend > lists the tracker shortcuts by group 1`] = `
         class="legend-row"
       >
         <kbd>
+          ⌘ ⇧ − / =
+        </kbd>
+        <span>
+          transpose ±1 octave
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
           ⌘Z / ⇧⌘Z
         </kbd>
         <span>
@@ -451,6 +461,36 @@ exports[`Legend > lists the tracker shortcuts by group 1`] = `
       <h4>
         Pattern & song
       </h4>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          Ctrl N
+        </kbd>
+        <span>
+          new pattern from selection
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          Click step
+        </kbd>
+        <span>
+          make it the current step
+        </span>
+      </div>
+      <div
+        class="legend-row"
+      >
+        <kbd>
+          ⧉ on a step
+        </kbd>
+        <span>
+          make unique (own copy of a repeat)
+        </span>
+      </div>
       <div
         class="legend-row"
       >
