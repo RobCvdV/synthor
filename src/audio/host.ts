@@ -107,9 +107,14 @@ export class AudioHost {
 
   /** Send a live-note command to the txSeq node (no-op before the first render). */
   sendTxSeqLive(cmd: Record<string, unknown>): void {
+    this.setTxSeqProps({ cmd })
+  }
+
+  /** Set txSeq props without a render; dropped while the node isn't mounted. */
+  setTxSeqProps(props: Record<string, unknown>): void {
     if (!this.txSeqSetter) return
     try {
-      this.txSeqSetter({ cmd }).catch((err: unknown) => console.error('[host] txSeq live cmd failed:', err))
+      this.txSeqSetter(props).catch((err: unknown) => console.error('[host] txSeq update failed:', err))
     } catch (err) {
       // Thrown synchronously while the txSeq ref isn't mounted yet.
       console.warn('[host] txSeq not mounted:', err)

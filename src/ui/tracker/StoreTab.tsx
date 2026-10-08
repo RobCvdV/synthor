@@ -114,6 +114,7 @@ export function StorageLocation({ onRestored }: { onRestored?: () => void }) {
       <p className="muted store-location">
         <span className="store-location-path" title={api.libraryPath}>{tildePath(api.libraryPath)}</span>
         <Button size="sm" onClick={() => void api.revealLibrary()} title="Show the library folder">Reveal</Button>
+        <Button size="sm" onClick={() => void api.changeLibraryFolder()} title="Keep the library in another folder">Change…</Button>
       </p>
     )
   } else if (folder) {

@@ -21,13 +21,16 @@ describe('StorageLocation', () => {
     expect(container.innerHTML).toMatchSnapshot()
   })
 
-  it('shows the library folder in Electron and reveals it', () => {
+  it('shows the library folder in Electron, reveals and changes it', () => {
     const revealLibrary = vi.fn(async () => '')
-    Object.assign(window, { electronAPI: { libraryPath: '/Users/me/Documents/Synthor', revealLibrary } })
+    const changeLibraryFolder = vi.fn(async () => {})
+    Object.assign(window, { electronAPI: { libraryPath: '/Users/me/Documents/Synthor', revealLibrary, changeLibraryFolder } })
     const { container, getByText } = render(<StorageLocation />)
     expect(container.innerHTML).toMatchSnapshot()
     fireEvent.click(getByText('Reveal'))
     expect(revealLibrary).toHaveBeenCalled()
+    fireEvent.click(getByText('Change…'))
+    expect(changeLibraryFolder).toHaveBeenCalled()
   })
 
   it('offers a folder where the browser supports it, and backup/restore everywhere', async () => {

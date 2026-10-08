@@ -405,7 +405,7 @@ export function useEngine(): AudioHost {
 
       if (!state.playing && prev.playing) {
         host.paramRefs.setValue('transport:playing', 0)
-        void setTxSeqRef.current?.({ cmd: { type: 'stop', sessionId: prev.playEpoch } })
+        host.setTxSeqProps({ cmd: { type: 'stop', sessionId: prev.playEpoch } })
         lastEpochRef.current = 0
         useAudioStore.getState().setPlaybackStarted(false)
         return
@@ -415,7 +415,7 @@ export function useEngine(): AudioHost {
         // Keep tempo-synced delay/echo times live without a recompile.
         host.paramRefs.setValue('transport:rowHz', rowHz(state.bpm, state.linesPerBeat))
         if (state.playing) {
-          void setTxSeqRef.current?.({ rowsPerSec: rowHz(state.bpm, state.linesPerBeat) })
+          host.setTxSeqProps({ rowsPerSec: rowHz(state.bpm, state.linesPerBeat) })
         }
       }
     })
