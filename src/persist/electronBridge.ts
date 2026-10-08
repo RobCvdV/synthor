@@ -29,6 +29,8 @@ export interface ElectronApi {
   setSetting(key: string, value: string | null): void
   markBrowserStorageImported(origin: string): Promise<void>
   revealLibrary(): Promise<string>
+  /** Asks for a new library folder; the app relaunches on it unless cancelled. */
+  changeLibraryFolder(): Promise<void>
   /** Returns the unsubscribe. */
   onMenuCommand(listener: (command: AppCommand) => void): () => void
   /** Files opened before the renderer was ready; later ones arrive through `onFileOpened`. */

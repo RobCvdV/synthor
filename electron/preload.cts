@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setSetting: (key: string, value: string | null) => ipcRenderer.send('settings:setItem', key, value),
   markBrowserStorageImported: (origin: string) => ipcRenderer.invoke('settings:markBrowserStorageImported', origin),
   revealLibrary: () => ipcRenderer.invoke('library:reveal'),
+  changeLibraryFolder: () => ipcRenderer.invoke('library:change'),
 
   onMenuCommand: (listener: (command: string) => void) => subscribe('menu:command', listener),
   takeOpenedFiles: () => ipcRenderer.invoke('files:take'),

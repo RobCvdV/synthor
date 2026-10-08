@@ -7,13 +7,13 @@ export type AppCommand = 'newSong' | 'openSong' | 'save' | 'saveAs' | 'importSon
 export function buildMenuTemplate(
   platform: NodeJS.Platform,
   send: (command: AppCommand) => void,
-  checkForUpdates: () => void,
+  actions: { checkForUpdates: () => void; changeLibraryFolder: () => void },
 ): MenuItemConstructorOptions[] {
   const isMac = platform === 'darwin'
   const item = (label: string, command: AppCommand, accelerator?: string): MenuItemConstructorOptions =>
     ({ label, accelerator, click: () => send(command) })
 
-  const updates: MenuItemConstructorOptions = { label: 'Check for Updates…', click: checkForUpdates }
+  const updates: MenuItemConstructorOptions = { label: 'Check for Updates…', click: actions.checkForUpdates }
 
   const file: MenuItemConstructorOptions = {
     label: 'File',
@@ -28,6 +28,7 @@ export function buildMenuTemplate(
       item('Export Song…', 'exportSong'),
       { type: 'separator' },
       item(isMac ? 'Show Library in Finder' : 'Show Library Folder', 'revealLibrary'),
+      { label: 'Change Library Folder…', click: actions.changeLibraryFolder },
       ...(isMac ? [] : [{ type: 'separator' } as const, { role: 'quit' } as const]),
     ],
   }

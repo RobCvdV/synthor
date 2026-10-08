@@ -5,12 +5,13 @@
  * In production the renderer is loaded from the bundled `dist/` directory.
  */
 
-import { app, BrowserWindow, ipcMain, Menu, session, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createSettingsFile, type SettingsFile } from './appSettings.js'
 import { createLibraryFs } from './libraryFs.js'
+import { copyLibrary, libraryTargetProblem } from './libraryFolder.js'
 import { buildMenuTemplate } from './appMenu.js'
 import { createOpenFileQueue, songPathsFromArgv } from './openFiles.js'
 import { checkForUpdatesInteractive, installUpdate, pendingUpdate, setupUpdater } from './updater.js'
@@ -110,10 +111,60 @@ function saveBeforeQuit(): Promise<void> {
   })
 }
 
+function libraryPathOf(settingsFile: SettingsFile): string {
+  return settingsFile.settings.libraryPath ?? path.join(app.getPath('documents'), 'Synthor')
+}
+
+/** Picks a new library folder, optionally copies the library there, and relaunches on it. */
+async function changeLibraryFolder(settingsFile: SettingsFile): Promise<void> {
+  const current = libraryPathOf(settingsFile)
+  const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
+  const picked = await (win ? dialog.showOpenDialog(win, LIBRARY_PICKER) : dialog.showOpenDialog(LIBRARY_PICKER))
+  const target = picked.filePaths[0]
+  if (picked.canceled || !target) return
+
+  const problem = libraryTargetProblem(current, target)
+  const ask = (opts: Electron.MessageBoxOptions) => win ? dialog.showMessageBox(win, opts) : dialog.showMessageBox(opts)
+  if (problem) {
+    await ask({ type: 'warning', message: 'Can’t use that folder', detail: problem })
+    return
+  }
+  const { response } = await ask({
+    type: 'question',
+    buttons: ['Copy and Switch', 'Switch Only', 'Cancel'],
+    defaultId: 0,
+    cancelId: 2,
+    message: `Use “${path.basename(target)}” as the library folder?`,
+    detail: `Copy and Switch copies your songs, instruments and samples from ${current} (files already in the new folder are kept). `
+      + 'Switch Only uses the new folder as it is. The current library stays where it is. Synthor restarts afterwards.',
+  })
+  if (response === 2) return
+
+  await saveBeforeQuit()
+  if (response === 0) {
+    try {
+      await copyLibrary(current, target)
+    } catch (err) {
+      await ask({ type: 'error', message: 'Copying the library failed', detail: err instanceof Error ? err.message : String(err) })
+      return
+    }
+  }
+  settingsFile.update({ libraryPath: target })
+  settingsFile.flush()
+  app.relaunch()
+  app.quit()
+}
+
+const LIBRARY_PICKER: Electron.OpenDialogOptions = {
+  title: 'Choose Library Folder',
+  buttonLabel: 'Use Folder',
+  properties: ['openDirectory', 'createDirectory'],
+}
+
 /** Storage, settings and library IPC for the renderer (see preload.cts). */
 function registerIpc(settingsFile: SettingsFile): void {
   const { settings } = settingsFile
-  const libraryPath = settings.libraryPath ?? path.join(app.getPath('documents'), 'Synthor')
+  const libraryPath = libraryPathOf(settingsFile)
   fs.mkdirSync(libraryPath, { recursive: true })
   const lib = createLibraryFs(libraryPath)
 
@@ -139,6 +190,7 @@ function registerIpc(settingsFile: SettingsFile): void {
   })
 
   ipcMain.handle('library:reveal', () => shell.openPath(libraryPath))
+  ipcMain.handle('library:change', () => changeLibraryFolder(settingsFile))
   ipcMain.handle('update:pending', () => pendingUpdate())
   ipcMain.handle('update:install', () => installUpdate(() => mainWindow, saveBeforeQuit))
   ipcMain.handle('files:take', () => openFiles.take())
@@ -169,7 +221,10 @@ void app.whenReady().then(() => {
   Menu.setApplicationMenu(Menu.buildFromTemplate(buildMenuTemplate(process.platform, (command) => {
     if (mainWindow) mainWindow.webContents.send('menu:command', command)
     else createWindow()
-  }, () => void checkForUpdatesInteractive(() => mainWindow, saveBeforeQuit))))
+  }, {
+    checkForUpdates: () => void checkForUpdatesInteractive(() => mainWindow, saveBeforeQuit),
+    changeLibraryFolder: () => void changeLibraryFolder(settingsFile),
+  })))
   createWindow()
   setupUpdater(() => mainWindow)
 
