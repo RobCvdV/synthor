@@ -1,8 +1,8 @@
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { createLibraryFs, resolveInRoot, type LibraryFs } from './libraryFs'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createLibraryFs, isEvicted, resolveInRoot, type LibraryFs } from './libraryFs'
 
 describe('resolveInRoot', () => {
   const root = path.resolve('/lib')
@@ -79,5 +79,62 @@ describe('createLibraryFs', () => {
   it('refuses to write or remove the root itself', async () => {
     await expect(lib.write('', 'x')).rejects.toThrow(/root/)
     await expect(lib.remove('')).rejects.toThrow(/root/)
+  })
+})
+
+describe('evicted (cloud placeholder) files', () => {
+  let root: string
+  // Real placeholders need iCloud; fake one by reporting no allocated blocks for its path.
+  const placeholders = new Set<string>()
+
+  beforeEach(async () => {
+    root = await fs.mkdtemp(path.join(os.tmpdir(), 'synthor-lib-'))
+    const stat = fs.stat.bind(fs)
+    vi.spyOn(fs, 'stat').mockImplementation((async (p: string) => {
+      const st = await stat(p)
+      return placeholders.has(p) ? Object.assign(st, { blocks: 0 }) : st
+    }) as typeof fs.stat)
+  })
+  afterEach(async () => {
+    vi.restoreAllMocks()
+    placeholders.clear()
+    await fs.rm(root, { recursive: true, force: true })
+  })
+
+  const placeholder = async (rel: string, text: string) => {
+    const full = path.join(root, rel)
+    await fs.mkdir(path.dirname(full), { recursive: true })
+    await fs.writeFile(full, text)
+    placeholders.add(full)
+  }
+
+  it('recognises a placeholder by its missing blocks', () => {
+    expect(isEvicted({ size: 200, blocks: 0 })).toBe(true)
+    expect(isEvicted({ size: 200, blocks: 8 })).toBe(false)
+    expect(isEvicted({ size: 0, blocks: 0 })).toBe(false)
+  })
+
+  it('reports the wait around reading a placeholder, and only then', async () => {
+    const waits: [string, boolean][] = []
+    const lib = createLibraryFs(root, { onCloudWait: (rel, waiting) => waits.push([rel, waiting]) })
+    await placeholder('songs/a/song.json', 'cloud')
+    await fs.writeFile(path.join(root, 'local.txt'), 'here')
+
+    expect(await lib.readText('songs/a/song.json')).toBe('cloud')
+    expect(await lib.readText('local.txt')).toBe('here')
+    expect(await lib.readBytes('missing.bin')).toBeNull()
+    expect(waits).toEqual([['songs/a/song.json', true], ['songs/a/song.json', false]])
+  })
+
+  it('prefetches every placeholder, skipping local and hidden files', async () => {
+    await placeholder('songs/a/song.json', 'a')
+    await placeholder('songs/a/samples/h.bin', 'h')
+    await placeholder('.hidden/x', 'x')
+    await fs.writeFile(path.join(root, 'local.txt'), 'here')
+    const read = vi.spyOn(fs, 'readFile')
+
+    expect(await createLibraryFs(root).prefetch()).toBe(2)
+    expect(read.mock.calls.map(([p]) => path.relative(root, String(p))).sort())
+      .toEqual([path.join('songs', 'a', 'samples', 'h.bin'), path.join('songs', 'a', 'song.json')])
   })
 })
