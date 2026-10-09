@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url'
 import { createSettingsFile, type SettingsFile } from './appSettings.js'
 import { createLibraryFs } from './libraryFs.js'
 import { copyLibrary, libraryTargetProblem } from './libraryFolder.js'
+import { icloudDocumentsPath, loadICloudAddon } from './icloud.js'
 import { buildMenuTemplate } from './appMenu.js'
 import { createOpenFileQueue, songPathsFromArgv } from './openFiles.js'
 import { checkForUpdatesInteractive, installUpdate, pendingUpdate, setupUpdater } from './updater.js'
@@ -161,6 +162,18 @@ const LIBRARY_PICKER: Electron.OpenDialogOptions = {
   properties: ['openDirectory', 'createDirectory'],
 }
 
+/** The app's iCloud Drive folder, looked up once (null without iCloud or the entitlement). */
+let icloudPath: Promise<string | null> = Promise.resolve(null)
+
+function lookUpICloud(): void {
+  const addon = loadICloudAddon([
+    path.join(process.resourcesPath, 'icloud.node'),
+    path.join(__dirname, '..', 'native', 'icloud', 'build', 'Release', 'icloud.node'),
+  ])
+  icloudPath = icloudDocumentsPath(addon)
+  void icloudPath.then((p) => console.log('[icloud]', p ?? 'not available'))
+}
+
 /** Storage, settings and library IPC for the renderer (see preload.cts). */
 function registerIpc(settingsFile: SettingsFile): void {
   const { settings } = settingsFile
@@ -190,6 +203,7 @@ function registerIpc(settingsFile: SettingsFile): void {
   })
 
   ipcMain.handle('library:reveal', () => shell.openPath(libraryPath))
+  ipcMain.handle('icloud:path', () => icloudPath)
   ipcMain.handle('library:change', () => changeLibraryFolder(settingsFile))
   ipcMain.handle('update:pending', () => pendingUpdate())
   ipcMain.handle('update:install', () => installUpdate(() => mainWindow, saveBeforeQuit))
@@ -200,6 +214,7 @@ void app.whenReady().then(() => {
   if (!isPrimaryInstance) return
   const settingsFile = createSettingsFile(path.join(app.getPath('userData'), 'settings.json'))
   app.on('before-quit', settingsFile.flush)
+  lookUpICloud()
   registerIpc(settingsFile)
 
   // Cross-origin isolation so the renderer gets SharedArrayBuffer (Elementary

@@ -104,6 +104,24 @@ export function StoreTab() {
   )
 }
 
+/** Whether the app's own iCloud Drive folder is available to this build (Electron). */
+function ICloudStatus() {
+  const [state, setState] = useState<{ path: string | null } | null>(null)
+  useEffect(() => {
+    let live = true
+    void electronApi()?.icloudPath().then((path) => { if (live) setState({ path }) })
+    return () => { live = false }
+  }, [])
+  if (!state) return null
+  return (
+    <p className="muted store-location">
+      {state.path
+        ? <span className="store-location-path" title={state.path}>iCloud Drive: Synthor folder available</span>
+        : <span className="store-location-path">iCloud Drive: not available</span>}
+    </p>
+  )
+}
+
 /** Where the library lives (Electron folder, a connected web folder, or browser storage), plus backup and restore. */
 export function StorageLocation({ onRestored }: { onRestored?: () => void }) {
   const api = electronApi()
@@ -117,6 +135,7 @@ export function StorageLocation({ onRestored }: { onRestored?: () => void }) {
         <Button size="sm" onClick={() => void api.changeLibraryFolder()} title="Keep the library in another folder">Change…</Button>
       </p>
     )
+    where = <>{where}<ICloudStatus /></>
   } else if (folder) {
     where = (
       <p className="muted store-location">

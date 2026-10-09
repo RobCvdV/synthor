@@ -21,11 +21,13 @@ describe('StorageLocation', () => {
     expect(container.innerHTML).toMatchSnapshot()
   })
 
-  it('shows the library folder in Electron, reveals and changes it', () => {
+  it('shows the library folder and iCloud Drive in Electron, reveals and changes it', async () => {
     const revealLibrary = vi.fn(async () => '')
     const changeLibraryFolder = vi.fn(async () => {})
-    Object.assign(window, { electronAPI: { libraryPath: '/Users/me/Documents/Synthor', revealLibrary, changeLibraryFolder } })
-    const { container, getByText } = render(<StorageLocation />)
+    const icloudPath = vi.fn(async () => '/Users/me/Library/Mobile Documents/iCloud~nl~akiar~synthor/Documents')
+    Object.assign(window, { electronAPI: { libraryPath: '/Users/me/Documents/Synthor', revealLibrary, changeLibraryFolder, icloudPath } })
+    const { container, getByText, findByText } = render(<StorageLocation />)
+    await findByText('iCloud Drive: Synthor folder available')
     expect(container.innerHTML).toMatchSnapshot()
     fireEvent.click(getByText('Reveal'))
     expect(revealLibrary).toHaveBeenCalled()

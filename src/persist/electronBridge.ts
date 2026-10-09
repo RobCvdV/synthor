@@ -31,6 +31,8 @@ export interface ElectronApi {
   revealLibrary(): Promise<string>
   /** Asks for a new library folder; the app relaunches on it unless cancelled. */
   changeLibraryFolder(): Promise<void>
+  /** The app's iCloud Drive folder, or null when iCloud Drive is off or unavailable to this build. */
+  icloudPath(): Promise<string | null>
   /** Returns the unsubscribe. */
   onMenuCommand(listener: (command: AppCommand) => void): () => void
   /** Files opened before the renderer was ready; later ones arrive through `onFileOpened`. */
