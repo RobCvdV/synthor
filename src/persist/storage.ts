@@ -39,11 +39,38 @@ export function joinPath(...parts: string[]): string {
   return parts.filter((p) => p !== '').join('/')
 }
 
+/** A read starting or finishing, so the UI can tell when the library is slow to deliver. */
+export interface ReadActivity {
+  path: string
+  done: boolean
+}
+
+const readListeners = new Set<(a: ReadActivity) => void>()
+
+/** Returns the unsubscribe. */
+export function onReadActivity(listener: (a: ReadActivity) => void): () => void {
+  readListeners.add(listener)
+  return () => { readListeners.delete(listener) }
+}
+
+/** Reports `backend`'s reads to `onReadActivity` listeners. */
+export function trackReads(backend: StorageBackend): StorageBackend {
+  const tracked = <T>(read: (path: string) => Promise<T>) => async (path: string): Promise<T> => {
+    readListeners.forEach((l) => l({ path, done: false }))
+    try {
+      return await read(path)
+    } finally {
+      readListeners.forEach((l) => l({ path, done: true }))
+    }
+  }
+  return { ...backend, readText: tracked(backend.readText), readBytes: tracked(backend.readBytes) }
+}
+
 let active: StorageBackend | null | undefined
 
 function defaultBackend(): StorageBackend | null {
   const api = electronApi()
-  if (api) return createElectronBackend(api.storage)
+  if (api) return trackReads(createElectronBackend(api.storage))
   return isOpfsSupported() ? createOpfsBackend() : null
 }
 

@@ -603,6 +603,14 @@ body {
   border: 1px solid var(--accent); background: rgba(79, 209, 197, 0.12); color: var(--accent);
 }
 .update-btn:hover { background: rgba(79, 209, 197, 0.25); }
+
+/* Library slow to deliver files (iCloud downloads, unreachable folder) */
+.storage-status {
+  display: flex; align-items: center; gap: 10px; padding: 4px 12px;
+  font-size: 12px; color: var(--accent); background: rgba(79, 209, 197, 0.1);
+  border-bottom: 1px solid var(--line);
+}
+.storage-status.unavailable { color: var(--warn); background: rgba(204, 204, 68, 0.1); }
 .bpm-tap.flash { color: var(--accent); }
 
 /* MIDI indicator in the toolbar */

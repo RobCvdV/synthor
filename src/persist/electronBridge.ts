@@ -14,6 +14,10 @@ export interface ElectronApi {
   platform: 'electron'
   /** Absolute path of the library folder on disk. */
   libraryPath: string
+  /** A folder the user picked, the app's iCloud Drive folder, or ~/Documents/Synthor. */
+  libraryKind: 'custom' | 'icloud' | 'local'
+  /** Something to tell about this launch's library (moved to iCloud Drive, iCloud Drive missing). */
+  libraryNotice: { kind: 'info' | 'warn'; text: string } | null
   /** Origins whose browser-storage songs were already copied to the library. */
   importedBrowserOrigins: string[]
   /** The renderer key-value store as loaded at startup. */
@@ -25,12 +29,18 @@ export interface ElectronApi {
     list(path: string): Promise<StorageEntry[]>
     exists(path: string): Promise<boolean>
     remove(path: string): Promise<void>
+    /** A read waits for (`true`) or got (`false`) a file iCloud had moved off the Mac. Returns the unsubscribe. */
+    onCloudWait(listener: (wait: { path: string; waiting: boolean }) => void): () => void
   }
   setSetting(key: string, value: string | null): void
   markBrowserStorageImported(origin: string): Promise<void>
   revealLibrary(): Promise<string>
   /** Asks for a new library folder; the app relaunches on it unless cancelled. */
   changeLibraryFolder(): Promise<void>
+  /** The app's iCloud Drive folder, or null when iCloud Drive is off or unavailable to this build. */
+  icloudPath(): Promise<string | null>
+  /** Offers to move the library into the app's iCloud Drive folder; relaunches if accepted. */
+  useICloudLibrary(): Promise<void>
   /** Returns the unsubscribe. */
   onMenuCommand(listener: (command: AppCommand) => void): () => void
   /** Files opened before the renderer was ready; later ones arrive through `onFileOpened`. */

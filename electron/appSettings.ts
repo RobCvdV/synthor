@@ -5,6 +5,8 @@ import path from 'node:path'
 export interface AppSettings {
   /** Library folder; defaults to ~/Documents/Synthor. */
   libraryPath?: string
+  /** The library was moved into the app's iCloud Drive folder. */
+  icloudLibrary?: boolean
   /** Renderer origins whose browser-storage songs were already copied to disk (dev and packaged differ). */
   importedBrowserOrigins?: string[]
   /** Renderer key-value store (zustand persist). */
