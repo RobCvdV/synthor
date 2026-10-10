@@ -10,6 +10,8 @@ const { contextBridge, ipcRenderer } = electron
 
 const settings = ipcRenderer.sendSync('settings:load') as {
   libraryPath: string
+  libraryKind: 'custom' | 'icloud' | 'local'
+  libraryNotice: { kind: 'info' | 'warn'; text: string } | null
   importedBrowserOrigins: string[]
   store: Record<string, string>
 }
@@ -17,6 +19,8 @@ const settings = ipcRenderer.sendSync('settings:load') as {
 contextBridge.exposeInMainWorld('electronAPI', {
   platform: 'electron' as const,
   libraryPath: settings.libraryPath,
+  libraryKind: settings.libraryKind,
+  libraryNotice: settings.libraryNotice,
   importedBrowserOrigins: settings.importedBrowserOrigins,
   settingsStore: settings.store,
 
@@ -35,6 +39,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   revealLibrary: () => ipcRenderer.invoke('library:reveal'),
   changeLibraryFolder: () => ipcRenderer.invoke('library:change'),
   icloudPath: () => ipcRenderer.invoke('icloud:path'),
+  useICloudLibrary: () => ipcRenderer.invoke('library:useICloud'),
 
   onMenuCommand: (listener: (command: string) => void) => subscribe('menu:command', listener),
   takeOpenedFiles: () => ipcRenderer.invoke('files:take'),

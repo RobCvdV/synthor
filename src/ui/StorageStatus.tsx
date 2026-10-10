@@ -47,8 +47,29 @@ function useStorageStatusFeed(): void {
   }, [])
 }
 
-/** A banner while the library is slow to deliver files, instead of a silently blank or stuck app. */
+/** What main had to say about this launch's library (moved to iCloud Drive, iCloud Drive missing), until dismissed. */
+function LibraryNotice() {
+  const [notice, setNotice] = useState(() => electronApi()?.libraryNotice ?? null)
+  if (!notice) return null
+  return (
+    <div className={`storage-status${notice.kind === 'warn' ? ' unavailable' : ''}`} role="status">
+      <span>{notice.text}</span>
+      <Button size="sm" onClick={() => setNotice(null)}>Dismiss</Button>
+    </div>
+  )
+}
+
+/** Banners about the library: this launch's notice, and slow reads instead of a silently blank or stuck app. */
 export function StorageStatus() {
+  return (
+    <>
+      <LibraryNotice />
+      <SlowReads />
+    </>
+  )
+}
+
+function SlowReads() {
   useStorageStatusFeed()
   const waits = useStorageStatus((s) => s.waits)
   const [now, setNow] = useState(() => Date.now())

@@ -104,8 +104,8 @@ export function StoreTab() {
   )
 }
 
-/** Whether the app's own iCloud Drive folder is available to this build (Electron). */
-function ICloudStatus() {
+/** Offers the app's iCloud Drive folder when the library lives elsewhere (Electron). */
+function ICloudOffer() {
   const [state, setState] = useState<{ path: string | null } | null>(null)
   useEffect(() => {
     let live = true
@@ -115,9 +115,13 @@ function ICloudStatus() {
   if (!state) return null
   return (
     <p className="muted store-location">
-      {state.path
-        ? <span className="store-location-path" title={state.path}>iCloud Drive: Synthor folder available</span>
-        : <span className="store-location-path">iCloud Drive: not available</span>}
+      {state.path ? (
+        <>
+          <span className="store-location-path" title={state.path}>iCloud Drive is available</span>
+          <Button size="sm" onClick={() => void electronApi()?.useICloudLibrary()}
+            title="Keep the library in iCloud Drive › Synthor, synced to your other devices">Move to iCloud Drive…</Button>
+        </>
+      ) : <span className="store-location-path">iCloud Drive: not available</span>}
     </p>
   )
 }
@@ -128,14 +132,15 @@ export function StorageLocation({ onRestored }: { onRestored?: () => void }) {
   const folder = connectedFolderName()
   let where
   if (api) {
+    const inICloud = api.libraryKind === 'icloud'
     where = (
       <p className="muted store-location">
-        <span className="store-location-path" title={api.libraryPath}>{tildePath(api.libraryPath)}</span>
+        <span className="store-location-path" title={api.libraryPath}>{inICloud ? 'iCloud Drive › Synthor' : tildePath(api.libraryPath)}</span>
         <Button size="sm" onClick={() => void api.revealLibrary()} title="Show the library folder">Reveal</Button>
         <Button size="sm" onClick={() => void api.changeLibraryFolder()} title="Keep the library in another folder">Change…</Button>
       </p>
     )
-    where = <>{where}<ICloudStatus /></>
+    if (!inICloud) where = <>{where}<ICloudOffer /></>
   } else if (folder) {
     where = (
       <p className="muted store-location">

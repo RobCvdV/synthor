@@ -13,6 +13,7 @@ import { createSettingsFile, type SettingsFile } from './appSettings.js'
 import { createLibraryFs } from './libraryFs.js'
 import { copyLibrary, libraryTargetProblem } from './libraryFolder.js'
 import { icloudDocumentsPath, loadICloudAddon } from './icloud.js'
+import { resolveLibrary, type LibraryLocation } from './libraryLocation.js'
 import { buildMenuTemplate } from './appMenu.js'
 import { createOpenFileQueue, songPathsFromArgv } from './openFiles.js'
 import { checkForUpdatesInteractive, installUpdate, pendingUpdate, setupUpdater } from './updater.js'
@@ -30,6 +31,8 @@ if (process.env.SYNTHOR_CDP_PORT) {
 if (process.env.SYNTHOR_USER_DATA) app.setPath('userData', process.env.SYNTHOR_USER_DATA)
 
 let mainWindow: BrowserWindow | null = null
+/** Set once the library is resolved and IPC is registered; windows can't load before that. */
+let started = false
 
 const openFiles = createOpenFileQueue((file) => mainWindow?.webContents.send('files:open', file))
 
@@ -51,7 +54,7 @@ app.on('will-finish-launching', () => {
   app.on('open-file', (e, p) => {
     e.preventDefault()
     openFiles.open(p)
-    if (app.isReady() && !mainWindow) createWindow()
+    if (started && !mainWindow) createWindow()
     showMainWindow()
   })
 })
@@ -112,17 +115,22 @@ function saveBeforeQuit(): Promise<void> {
   })
 }
 
-function libraryPathOf(settingsFile: SettingsFile): string {
-  return settingsFile.settings.libraryPath ?? path.join(app.getPath('documents'), 'Synthor')
-}
+/** This launch's library, resolved before the window opens. */
+let library: LibraryLocation
 
-/** Picks a new library folder, optionally copies the library there, and relaunches on it. */
-async function changeLibraryFolder(settingsFile: SettingsFile): Promise<void> {
-  const current = libraryPathOf(settingsFile)
+/**
+ * Picks a new library folder (or takes `icloud`, the app's iCloud Drive folder), optionally copies
+ * the library there, and relaunches on it.
+ */
+async function changeLibraryFolder(settingsFile: SettingsFile, icloud?: string): Promise<void> {
+  const current = library.path
   const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
-  const picked = await (win ? dialog.showOpenDialog(win, LIBRARY_PICKER) : dialog.showOpenDialog(LIBRARY_PICKER))
-  const target = picked.filePaths[0]
-  if (picked.canceled || !target) return
+  let target = icloud
+  if (!target) {
+    const picked = await (win ? dialog.showOpenDialog(win, LIBRARY_PICKER) : dialog.showOpenDialog(LIBRARY_PICKER))
+    target = picked.canceled ? undefined : picked.filePaths[0]
+  }
+  if (!target) return
 
   const problem = libraryTargetProblem(current, target)
   const ask = (opts: Electron.MessageBoxOptions) => win ? dialog.showMessageBox(win, opts) : dialog.showMessageBox(opts)
@@ -135,7 +143,7 @@ async function changeLibraryFolder(settingsFile: SettingsFile): Promise<void> {
     buttons: ['Copy and Switch', 'Switch Only', 'Cancel'],
     defaultId: 0,
     cancelId: 2,
-    message: `Use “${path.basename(target)}” as the library folder?`,
+    message: icloud ? 'Keep the library in iCloud Drive › Synthor?' : `Use “${path.basename(target)}” as the library folder?`,
     detail: `Copy and Switch copies your songs, instruments and samples from ${current} (files already in the new folder are kept). `
       + 'Switch Only uses the new folder as it is. The current library stays where it is. Synthor restarts afterwards.',
   })
@@ -150,7 +158,7 @@ async function changeLibraryFolder(settingsFile: SettingsFile): Promise<void> {
       return
     }
   }
-  settingsFile.update({ libraryPath: target })
+  settingsFile.update(icloud ? { libraryPath: undefined, icloudLibrary: true } : { libraryPath: target })
   settingsFile.flush()
   app.relaunch()
   app.quit()
@@ -177,7 +185,7 @@ function lookUpICloud(): void {
 /** Storage, settings and library IPC for the renderer (see preload.cts). */
 function registerIpc(settingsFile: SettingsFile): void {
   const { settings } = settingsFile
-  const libraryPath = libraryPathOf(settingsFile)
+  const libraryPath = library.path
   fs.mkdirSync(libraryPath, { recursive: true })
   const lib = createLibraryFs(libraryPath, {
     onCloudWait: (rel, waiting) => {
@@ -198,6 +206,8 @@ function registerIpc(settingsFile: SettingsFile): void {
   ipcMain.on('settings:load', (e) => {
     e.returnValue = {
       libraryPath,
+      libraryKind: library.kind,
+      libraryNotice: library.notice ?? null,
       importedBrowserOrigins: settings.importedBrowserOrigins ?? [],
       store: settings.store,
     }
@@ -211,17 +221,29 @@ function registerIpc(settingsFile: SettingsFile): void {
   ipcMain.handle('library:reveal', () => shell.openPath(libraryPath))
   ipcMain.handle('icloud:path', () => icloudPath)
   ipcMain.handle('library:change', () => changeLibraryFolder(settingsFile))
+  ipcMain.handle('library:useICloud', async () => {
+    const icloud = await icloudPath
+    if (icloud) await changeLibraryFolder(settingsFile, icloud)
+  })
   ipcMain.handle('update:pending', () => pendingUpdate())
   ipcMain.handle('update:install', () => installUpdate(() => mainWindow, saveBeforeQuit))
   ipcMain.handle('files:take', () => openFiles.take())
 }
 
-void app.whenReady().then(() => {
+void app.whenReady().then(async () => {
   if (!isPrimaryInstance) return
   const settingsFile = createSettingsFile(path.join(app.getPath('userData'), 'settings.json'))
   app.on('before-quit', settingsFile.flush)
   lookUpICloud()
+  library = await resolveLibrary({
+    settings: settingsFile.settings,
+    icloudDocs: icloudPath,
+    localDefault: path.join(app.getPath('documents'), 'Synthor'),
+    update: (patch) => settingsFile.update(patch),
+  })
+  console.log(`[library] ${library.kind}: ${library.path}`)
   registerIpc(settingsFile)
+  started = true
 
   // Cross-origin isolation so the renderer gets SharedArrayBuffer (Elementary
   // needs it). loadFile can't set headers, so inject them on file:// responses.

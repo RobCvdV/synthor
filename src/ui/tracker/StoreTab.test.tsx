@@ -21,18 +21,40 @@ describe('StorageLocation', () => {
     expect(container.innerHTML).toMatchSnapshot()
   })
 
-  it('shows the library folder and iCloud Drive in Electron, reveals and changes it', async () => {
-    const revealLibrary = vi.fn(async () => '')
-    const changeLibraryFolder = vi.fn(async () => {})
-    const icloudPath = vi.fn(async () => '/Users/me/Library/Mobile Documents/iCloud~nl~akiar~synthor/Documents')
-    Object.assign(window, { electronAPI: { libraryPath: '/Users/me/Documents/Synthor', revealLibrary, changeLibraryFolder, icloudPath } })
+  const icloudDocs = '/Users/me/Library/Mobile Documents/iCloud~nl~akiar~synthor/Documents'
+  const fakeApi = (libraryPath: string, libraryKind: string, icloud: string | null) => {
+    const api = {
+      libraryPath, libraryKind,
+      revealLibrary: vi.fn(async () => ''),
+      changeLibraryFolder: vi.fn(async () => {}),
+      useICloudLibrary: vi.fn(async () => {}),
+      icloudPath: vi.fn(async () => icloud),
+    }
+    Object.assign(window, { electronAPI: api })
+    return api
+  }
+
+  it('shows a local library in Electron, reveals and changes it, and offers iCloud Drive', async () => {
+    const api = fakeApi('/Users/me/Documents/Synthor', 'local', icloudDocs)
     const { container, getByText, findByText } = render(<StorageLocation />)
-    await findByText('iCloud Drive: Synthor folder available')
+    await findByText('iCloud Drive is available')
     expect(container.innerHTML).toMatchSnapshot()
     fireEvent.click(getByText('Reveal'))
-    expect(revealLibrary).toHaveBeenCalled()
+    expect(api.revealLibrary).toHaveBeenCalled()
     fireEvent.click(getByText('Change…'))
-    expect(changeLibraryFolder).toHaveBeenCalled()
+    expect(api.changeLibraryFolder).toHaveBeenCalled()
+    fireEvent.click(getByText('Move to iCloud Drive…'))
+    expect(api.useICloudLibrary).toHaveBeenCalled()
+  })
+
+  it('names the iCloud Drive library, and says when iCloud Drive is missing', async () => {
+    fakeApi(icloudDocs, 'icloud', icloudDocs)
+    const { getByText, queryByText, unmount } = render(<StorageLocation />)
+    expect(getByText('iCloud Drive › Synthor')).toBeTruthy()
+    expect(queryByText('Move to iCloud Drive…')).toBeNull()
+    unmount()
+    fakeApi('/Users/me/Documents/Synthor', 'local', null)
+    expect(await render(<StorageLocation />).findByText('iCloud Drive: not available')).toBeTruthy()
   })
 
   it('offers a folder where the browser supports it, and backup/restore everywhere', async () => {
