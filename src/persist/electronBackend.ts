@@ -7,7 +7,7 @@ function toArrayBuffer(data: Uint8Array): ArrayBuffer {
   return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer
 }
 
-export function createElectronBackend(api: ElectronApi['storage']): StorageBackend {
+export function createElectronBackend(api: Omit<ElectronApi['storage'], 'onCloudWait'>): StorageBackend {
   return {
     readText: (path) => api.readText(path),
     async readBytes(path) {

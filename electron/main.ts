@@ -179,7 +179,13 @@ function registerIpc(settingsFile: SettingsFile): void {
   const { settings } = settingsFile
   const libraryPath = libraryPathOf(settingsFile)
   fs.mkdirSync(libraryPath, { recursive: true })
-  const lib = createLibraryFs(libraryPath)
+  const lib = createLibraryFs(libraryPath, {
+    onCloudWait: (rel, waiting) => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('storage:cloudWait', { path: rel, waiting })
+    },
+  })
+  // Files iCloud moved off the Mac come back now rather than when a song needs them.
+  void lib.prefetch().then((n) => { if (n) console.log(`[library] downloaded ${n} evicted files`) })
 
   ipcMain.handle('storage:readText', (_e, rel: string) => lib.readText(rel))
   ipcMain.handle('storage:readBytes', (_e, rel: string) => lib.readBytes(rel))

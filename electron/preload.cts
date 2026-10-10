@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     list: (path: string) => ipcRenderer.invoke('storage:list', path),
     exists: (path: string) => ipcRenderer.invoke('storage:exists', path),
     remove: (path: string) => ipcRenderer.invoke('storage:remove', path),
+    onCloudWait: (listener: (wait: { path: string; waiting: boolean }) => void) => subscribe('storage:cloudWait', listener),
   },
 
   setSetting: (key: string, value: string | null) => ipcRenderer.send('settings:setItem', key, value),
