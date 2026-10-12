@@ -16,10 +16,11 @@
     "electron:compile": "tsc -p tsconfig.electron.json",
     "electron:dev": "npm run electron:compile && concurrently -k \"vite --config vite.electron.config.ts\" \"wait-on http://localhost:5193 && electron .\"",
     "electron:start": "electron .",
-    "electron:build": "npm run electron:compile && vite build --config vite.electron.config.ts && electron-builder",
-    "electron:dist": "npm run electron:compile && vite build --config vite.electron.config.ts && electron-builder --dir",
+    "electron:build": "npm run electron:compile && npm run electron:native && vite build --config vite.electron.config.ts && electron-builder",
+    "electron:dist": "npm run electron:compile && npm run electron:native && vite build --config vite.electron.config.ts && electron-builder --dir",
     "deploy": "node scripts/deploy.js",
-    "build-deploy": "npm run build && npm run deploy"
+    "build-deploy": "npm run build && npm run deploy",
+    "electron:native": "node scripts/build-native.mjs"
   },
   "dependencies": {
     "@dagrejs/dagre": "^3.1.1",
@@ -49,6 +50,7 @@
     "electron": "^43.4.1",
     "electron-builder": "^25.1.8",
     "jsdom": "^30.0.1",
+    "node-gyp": "^13.1.0",
     "typescript": "^7.0.2",
     "vite": "^8.1.4",
     "vite-plugin-pwa": "^1.3.0",
@@ -56,7 +58,7 @@
     "wait-on": "^9.1.0"
   },
   "build": {
-    "appId": "com.synthor.app",
+    "appId": "nl.akiar.synthor",
     "afterPack": "scripts/adhoc-sign.cjs",
     "productName": "Synthor",
     "directories": {
@@ -88,14 +90,30 @@
       "icon": "build/icon.icns",
       "hardenedRuntime": true,
       "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.plist"
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "extraResources": [
+        {
+          "from": "native/icloud/build/Release/icloud.node",
+          "to": "icloud.node"
+        }
+      ],
+      "extendInfo": {
+        "NSUbiquitousContainers": {
+          "iCloud.nl.akiar.synthor": {
+            "NSUbiquitousContainerIsDocumentScopePublic": true,
+            "NSUbiquitousContainerName": "Synthor",
+            "NSUbiquitousContainerSupportedFolderLevels": "Any"
+          }
+        }
+      }
     },
     "win": {
       "target": "nsis",
       "icon": "build/icon.png"
     },
     "nsis": {
-      "artifactName": "${productName}-Setup-${version}.${ext}"
+      "artifactName": "${productName}-Setup-${version}.${ext}",
+      "guid": "cf1c9294-a5d4-5539-8a0a-de5153d6f4a1"
     },
     "linux": {
       "target": "AppImage",

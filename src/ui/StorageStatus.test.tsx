@@ -67,4 +67,12 @@ describe('StorageStatus', () => {
     })
     expect(container.innerHTML).toBe('')
   })
+
+  it('shows the launch notice about the library until dismissed', () => {
+    Object.assign(window, { electronAPI: { libraryNotice: { kind: 'info', text: 'Your library now lives in iCloud Drive › Synthor.' }, storage: { onCloudWait: () => () => {} } } })
+    const { container } = render(<StorageStatus />)
+    expect(container.innerHTML).toMatchSnapshot()
+    fireEvent.click(screen.getByText('Dismiss'))
+    expect(container.innerHTML).toBe('')
+  })
 })

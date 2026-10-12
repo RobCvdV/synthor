@@ -104,19 +104,43 @@ export function StoreTab() {
   )
 }
 
+/** Offers the app's iCloud Drive folder when the library lives elsewhere (Electron). */
+function ICloudOffer() {
+  const [state, setState] = useState<{ path: string | null } | null>(null)
+  useEffect(() => {
+    let live = true
+    void electronApi()?.icloudPath().then((path) => { if (live) setState({ path }) })
+    return () => { live = false }
+  }, [])
+  if (!state) return null
+  return (
+    <p className="muted store-location">
+      {state.path ? (
+        <>
+          <span className="store-location-path" title={state.path}>iCloud Drive is available</span>
+          <Button size="sm" onClick={() => void electronApi()?.useICloudLibrary()}
+            title="Keep the library in iCloud Drive › Synthor, synced to your other devices">Move to iCloud Drive…</Button>
+        </>
+      ) : <span className="store-location-path">iCloud Drive: not available</span>}
+    </p>
+  )
+}
+
 /** Where the library lives (Electron folder, a connected web folder, or browser storage), plus backup and restore. */
 export function StorageLocation({ onRestored }: { onRestored?: () => void }) {
   const api = electronApi()
   const folder = connectedFolderName()
   let where
   if (api) {
+    const inICloud = api.libraryKind === 'icloud'
     where = (
       <p className="muted store-location">
-        <span className="store-location-path" title={api.libraryPath}>{tildePath(api.libraryPath)}</span>
+        <span className="store-location-path" title={api.libraryPath}>{inICloud ? 'iCloud Drive › Synthor' : tildePath(api.libraryPath)}</span>
         <Button size="sm" onClick={() => void api.revealLibrary()} title="Show the library folder">Reveal</Button>
         <Button size="sm" onClick={() => void api.changeLibraryFolder()} title="Keep the library in another folder">Change…</Button>
       </p>
     )
+    if (!inICloud) where = <>{where}<ICloudOffer /></>
   } else if (folder) {
     where = (
       <p className="muted store-location">
