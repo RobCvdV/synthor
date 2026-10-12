@@ -30,8 +30,10 @@ export async function syncSamplesToVfs(
   const loaded = new Set<string>()
   const l1Sums: Record<string, number> = {}
 
-  for (const s of samples) {
-    const raw = await readSampleAsset(slug, s.hash)
+  // Read in parallel: a library on iCloud may have to download each file first.
+  const raws = await Promise.all(samples.map((s) => readSampleAsset(slug, s.hash)))
+  for (const [i, s] of samples.entries()) {
+    const raw = raws[i]
     if (!raw) {
       console.warn(`Sample "${s.name}" (hash ${s.hash.slice(0, 8)}…) not found in storage — skipping VFS load`)
       continue

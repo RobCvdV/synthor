@@ -6,7 +6,7 @@
 import { electronApi } from './electronBridge'
 import { LIBRARY_ROOTS } from './libraryBackup'
 import { createDirectoryBackend, createOpfsBackend, isOpfsSupported } from './opfsBackend'
-import { copyTree, setStorage, storage, type StorageBackend } from './storage'
+import { copyTree, setStorage, storage, trackReads, type StorageBackend } from './storage'
 
 /** The parts of a FileSystemDirectoryHandle this module needs beyond the DOM typings. */
 export interface FolderHandle extends FileSystemDirectoryHandle {
@@ -46,7 +46,7 @@ export async function copyLibrary(from: StorageBackend, to: StorageBackend, over
 }
 
 function useFolder(handle: FolderHandle, backendFor: (h: FolderHandle) => StorageBackend) {
-  setStorage(backendFor(handle))
+  setStorage(trackReads(backendFor(handle)))
   connected = handle.name
 }
 

@@ -16,6 +16,7 @@ import { InstrumentsView } from './ui/InstrumentsView'
 import { SampleLibraryView } from './ui/SampleLibraryView'
 import { MixerView } from './ui/mixer/MixerView'
 import { DialogHost } from './ui/components/DialogHost'
+import { StorageStatus } from './ui/StorageStatus'
 import { SongCommandHost } from './ui/SongCommandHost'
 import { renameCurrentSong } from './ui/songActions'
 import { useProjectStore } from './state/projectStore'
@@ -104,6 +105,7 @@ export default function App() {
         view={view}
         onSetView={setView}
       />
+      <StorageStatus />
 
       {ready && (view === 'tracker' ? (
         <div className="layout">

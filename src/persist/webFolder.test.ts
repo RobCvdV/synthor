@@ -49,7 +49,7 @@ describe('openSavedFolder', () => {
   it('uses a folder whose access is still granted, without asking', async () => {
     const ask = vi.fn(async () => true)
     await openSavedFolder(ask, storeWith(fakeHandle('Music', 'granted')), () => folder)
-    expect(storage()).toBe(folder)
+    expect(storage()?.write).toBe(folder.write) // reads are wrapped for tracking
     expect(connectedFolderName()).toBe('Music')
     expect(ask).not.toHaveBeenCalled()
   })
@@ -58,7 +58,7 @@ describe('openSavedFolder', () => {
     const handle = fakeHandle('Music', 'prompt')
     await openSavedFolder(async () => true, storeWith(handle), () => folder)
     expect(handle.requestPermission).toHaveBeenCalled()
-    expect(storage()).toBe(folder)
+    expect(storage()?.write).toBe(folder.write)
   })
 
   it('stays on browser storage when declined, denied, or nothing was saved', async () => {

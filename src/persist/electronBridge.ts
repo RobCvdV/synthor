@@ -25,6 +25,8 @@ export interface ElectronApi {
     list(path: string): Promise<StorageEntry[]>
     exists(path: string): Promise<boolean>
     remove(path: string): Promise<void>
+    /** A read waits for (`true`) or got (`false`) a file iCloud had moved off the Mac. Returns the unsubscribe. */
+    onCloudWait(listener: (wait: { path: string; waiting: boolean }) => void): () => void
   }
   setSetting(key: string, value: string | null): void
   markBrowserStorageImported(origin: string): Promise<void>

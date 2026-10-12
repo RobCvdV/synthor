@@ -34,13 +34,68 @@ async function orNull<T>(p: Promise<T>): Promise<T | null> {
   }
 }
 
-export function createLibraryFs(root: string) {
+/** A cloud placeholder (iCloud "Optimize Mac Storage"): has a size but no local blocks, so reading it waits for a download. */
+export function isEvicted(st: { size: number; blocks: number }): boolean {
+  return st.size > 0 && st.blocks === 0
+}
+
+const PREFETCH_CONCURRENCY = 4
+
+export interface LibraryFsHooks {
+  /** A read is waiting for (`true`) or got (`false`) an evicted file's download. */
+  onCloudWait?: (rel: string, waiting: boolean) => void
+}
+
+export function createLibraryFs(root: string, hooks: LibraryFsHooks = {}) {
   const at = (rel: string) => resolveInRoot(root, rel)
 
-  return {
-    readText: (rel: string) => orNull(fs.readFile(at(rel), 'utf8')),
+  /** Runs `read`, reporting the wait when the file first has to be downloaded. */
+  async function read<T>(rel: string, load: (full: string) => Promise<T>): Promise<T | null> {
+    const full = at(rel)
+    const st = await orNull(fs.stat(full))
+    if (!st) return null
+    if (!isEvicted(st) || !hooks.onCloudWait) return orNull(load(full))
+    hooks.onCloudWait(rel, true)
+    try {
+      return await orNull(load(full))
+    } finally {
+      hooks.onCloudWait(rel, false)
+    }
+  }
 
-    readBytes: (rel: string) => orNull(fs.readFile(at(rel))),
+  /** Every evicted file under `dir`, depth first. */
+  async function evicted(dir: string): Promise<string[]> {
+    const entries = await orNull(fs.readdir(dir, { withFileTypes: true }))
+    const found: string[] = []
+    for (const e of entries ?? []) {
+      if (e.name.startsWith('.')) continue
+      const full = path.join(dir, e.name)
+      if (e.isDirectory()) found.push(...await evicted(full))
+      else if (e.isFile()) {
+        const st = await orNull(fs.stat(full))
+        if (st && isEvicted(st)) found.push(full)
+      }
+    }
+    return found
+  }
+
+  return {
+    readText: (rel: string) => read(rel, (full) => fs.readFile(full, 'utf8')),
+
+    readBytes: (rel: string) => read(rel, (full) => fs.readFile(full)),
+
+    /** Downloads every evicted file in the background, so later reads don't wait; returns how many. */
+    async prefetch(): Promise<number> {
+      const queue = await evicted(path.resolve(root))
+      const total = queue.length
+      const worker = async () => {
+        for (let full = queue.shift(); full; full = queue.shift()) {
+          await fs.readFile(full).catch((err: unknown) => console.warn('[library] prefetch failed:', full, err))
+        }
+      }
+      await Promise.all(Array.from({ length: PREFETCH_CONCURRENCY }, worker))
+      return total
+    },
 
     /** Writes via a temp file + rename so a crash never leaves a half-written file. */
     async write(rel: string, data: string | Uint8Array): Promise<void> {

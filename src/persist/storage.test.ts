@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createMemoryBackend } from './memoryBackend'
-import { copyTree, hasStorage, joinPath, mergeMove, setStorage, splitPath, storage, type StorageBackend } from './storage'
+import { copyTree, hasStorage, joinPath, mergeMove, onReadActivity, setStorage, splitPath, storage, trackReads, type ReadActivity, type StorageBackend } from './storage'
 
 const bytes = (...b: number[]) => new Uint8Array(b).buffer
 const names = async (s: StorageBackend, dir: string) => (await s.list(dir)).map((e) => `${e.kind}:${e.name}`).sort()
@@ -31,6 +31,27 @@ describe('active backend', () => {
     expect(storage()).toBe(mem)
     setStorage(null)
     expect(hasStorage()).toBe(false)
+  })
+})
+
+describe('trackReads', () => {
+  it('reports each read starting and finishing, also when it fails', async () => {
+    const mem = createMemoryBackend()
+    await mem.write('songs/a/song.json', '{}')
+    const s = trackReads({ ...mem, readBytes: async () => { throw new Error('gone') } })
+    const seen: ReadActivity[] = []
+    const off = onReadActivity((a) => seen.push(a))
+
+    expect(await s.readText('songs/a/song.json')).toBe('{}')
+    await expect(s.readBytes('x.bin')).rejects.toThrow('gone')
+    await s.list('songs')
+    off()
+    await s.readText('songs/a/song.json')
+
+    expect(seen).toEqual([
+      { path: 'songs/a/song.json', done: false }, { path: 'songs/a/song.json', done: true },
+      { path: 'x.bin', done: false }, { path: 'x.bin', done: true },
+    ])
   })
 })
 
