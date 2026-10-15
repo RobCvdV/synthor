@@ -95,9 +95,14 @@
         {
           "from": "native/icloud/build/Release/icloud.node",
           "to": "icloud.node"
+        },
+        {
+          "from": "build/Assets.car",
+          "to": "Assets.car"
         }
       ],
       "extendInfo": {
+        "CFBundleIconName": "AppIcon",
         "NSUbiquitousContainers": {
           "iCloud.nl.akiar.synthor": {
             "NSUbiquitousContainerIsDocumentScopePublic": true,
