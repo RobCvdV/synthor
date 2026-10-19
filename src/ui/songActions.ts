@@ -3,6 +3,7 @@ import { copyTree, hasStorage, joinPath, requireStorage } from '../persist/stora
 import { listSongs, loadRecent, readSong, saveRecent, slugify, songDir } from '../persist/songStore'
 import { currentSongFile, saveCurrentSong } from '../persist/saveCurrent'
 import { importBrowserStorageOnce } from '../persist/importBrowserStorage'
+import { seedFactoryInstruments } from '../persist/factoryLibrary'
 import { openSavedFolder } from '../persist/webFolder'
 import { exportSongZip, importSongZip } from '../persist/songExport'
 import { songNameConflict, uniqueSongName } from '../persist/songNames'
@@ -140,6 +141,7 @@ export async function loadStartupSong(): Promise<void> {
       cancelLabel: 'Use browser storage',
     }))
     await importBrowserStorageOnce()
+    void seedFactoryInstruments().catch((err) => console.warn('Seeding the factory instruments failed:', err))
     const slug = await loadRecent()
     const file = slug ? await readSong(slug) : null
     if (slug && file) {
