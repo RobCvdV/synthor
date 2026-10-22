@@ -1,0 +1,14 @@
+.panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 24px;
+  color: var(--fg);
+}
+
+.message {
+  color: var(--warn);
+  white-space: pre-wrap;
+}

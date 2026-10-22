@@ -16,6 +16,7 @@ import { InstrumentsView } from './ui/InstrumentsView'
 import { SampleLibraryView } from './ui/SampleLibraryView'
 import { MixerView } from './ui/mixer/MixerView'
 import { DialogHost } from './ui/components/DialogHost'
+import { ErrorBoundary } from './ui/components/ErrorBoundary'
 import { StorageStatus } from './ui/StorageStatus'
 import { SongCommandHost } from './ui/SongCommandHost'
 import { renameCurrentSong } from './ui/songActions'
@@ -107,6 +108,7 @@ export default function App() {
       />
       <StorageStatus />
 
+      <ErrorBoundary resetKey={view}>
       {ready && (view === 'tracker' ? (
         <div className="layout">
           <main className="main">
@@ -138,6 +140,7 @@ export default function App() {
           <SampleLibraryView host={host} />
         </div>
       ))}
+      </ErrorBoundary>
       {ready && <SongCommandHost />}
       <DialogHost />
     </div>
