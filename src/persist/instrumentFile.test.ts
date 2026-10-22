@@ -1,6 +1,7 @@
 import { strToU8, unzipSync, zipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
 import { newModularInstrument, newSampleEntity } from '../domain/factory'
+import { defaultParams } from '../domain/moduleDefs'
 import type { InstrumentBundle } from '../domain/instrumentBundle'
 import type { ModularInstrument } from '../domain/types'
 import { packInstrumentFile, parseInstrumentJson, serializeInstrumentBundle, unpackInstrumentFile } from './instrumentFile'
@@ -9,7 +10,7 @@ import { CURRENT_SCHEMA_VERSION } from './serialize'
 function sampleSynth(): InstrumentBundle {
   const synth = newModularInstrument('Keys')
   const smp = newSampleEntity('Piano C', 'abc123', 'piano.wav', 48000, 1, 480)
-  synth.modules.s = { id: 's', type: 'sample', params: { gain: 1 }, pos: { x: 0, y: 0 }, sampleId: smp.id }
+  synth.modules.s = { id: 's', type: 'sample', params: defaultParams('sample'), pos: { x: 0, y: 0 }, sampleId: smp.id }
   return { rootId: synth.id, instruments: { [synth.id]: synth }, samples: { [smp.id]: smp } }
 }
 
@@ -51,7 +52,7 @@ describe('instrument files', () => {
 
     const migrated = parseInstrumentJson(text).bundle.instruments[bundle.rootId] as ModularInstrument
     expect(migrated.modules.s.sampleId).toBe(Object.keys(bundle.samples)[0])
-    expect(migrated.modules.s.params).toEqual({ gain: 1 })
+    expect(migrated.modules.s.params).toMatchObject({ gain: 1 })
   })
 
   it('imports legacy `.synthor.inst.json` exports', () => {
@@ -69,5 +70,15 @@ describe('instrument files', () => {
     expect(() => unpackInstrumentFile(zipSync({ 'song.json': strToU8('{}') }))).toThrow(/instrument.json/)
     const noRoot = { format: 'synthor-instrument', schemaVersion: CURRENT_SCHEMA_VERSION, bundle: { rootId: 'x', instruments: {}, samples: {} } }
     expect(() => parseInstrumentJson(JSON.stringify(noRoot))).toThrow(/missing its instrument/)
+  })
+})
+
+describe('parseInstrumentJson — pre-v8 drum kit slots under a newer version', () => {
+  it('repairs the slots, so the kit edits and plays', () => {
+    const kit = { id: 'k', kind: 'drumkit', name: 'Drum Kit', keyLo: 36, keyHi: 60, params: { gain: 1 }, channelId: 'master', pan: 0,
+      slots: [{ id: 's', note: 36, sampleId: null, instrumentId: null, pitchOffset: 0, gain: 1, pan: 0.3 }] }
+    const text = JSON.stringify({ format: 'synthor-instrument', schemaVersion: 13, bundle: { rootId: 'k', instruments: { k: kit }, samples: {} } })
+    const root = parseInstrumentJson(text).bundle.instruments.k
+    expect(root.kind === 'drumkit' && root.slots[0]).toMatchObject({ baseNote: 60, volume: 1, pan: 0.3 })
   })
 })

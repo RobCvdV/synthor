@@ -212,10 +212,11 @@ describe('migration v12→v13 — sample references by id', () => {
     expect(inst.modules.w1.sampleId).toBe('a') // index 1 of Beta, Gamma
     expect(inst.modules.c1.sampleId).toBe('b') // missing index meant 0
     expect(inst.modules.x1.sampleId).toBeUndefined()
-    expect(inst.modules.s1.params).toEqual({ gain: 1 })
+    expect(inst.modules.s1.params).toMatchObject({ gain: 1 })
     expect(result.doc.entities.mixChannels.master.effects[0]).toMatchObject({ sampleId: 'a', params: { mix: 1 } })
     expect(result.doc.entities.mixChannels.master.effects[0].params).not.toHaveProperty('sampleIndex')
-    expect(result.doc.entities.mixChannels.master.effects[1]).toBe(raw.doc.entities.mixChannels.master.effects[1])
+    expect(result.doc.entities.mixChannels.master.effects[1]).toMatchObject({ id: 'fx2', type: 'reverb' })
+    expect(result.doc.entities.mixChannels.master.effects[1]).not.toHaveProperty('sampleId')
     expect(result.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
   })
 })
@@ -238,6 +239,35 @@ describe('migration v13→v14 — instrument library attributes', () => {
     doc.entities.samples[smp.id] = smp
     const withSample = migrate(JSON.parse(JSON.stringify(makeSongFile(doc, META))))
     expect(withSample.doc.entities.samples[smp.id].library).toEqual({ id: 'kick', category: 'Drums', tags: [] })
+  })
+})
+
+describe('migration — drum kit slots saved in the pre-v8 shape', () => {
+  // Legacy instrument exports were read as v12, so their pre-v8 slots were saved as v13 unconverted.
+  const oldSlotKit = () => {
+    const doc = createDefaultDoc()
+    const kit = Object.values(doc.entities.instruments).find((i) => i.kind === 'drumkit')!
+    const raw = JSON.parse(JSON.stringify({ schemaVersion: 13, meta: META, doc }))
+    raw.doc.entities.instruments[kit.id].slots = [
+      { id: 's1', note: 36, sampleId: null, instrumentId: null, pitchOffset: -2, gain: 0.8, pan: -0.11 },
+      { id: 's2', note: 38, sampleId: null, instrumentId: null, baseNote: 62, volume: 0.5, pan: 0.2 },
+    ]
+    return { raw, kitId: kit.id }
+  }
+
+  it('fills in baseNote, volume and pan from the old fields', () => {
+    const { raw, kitId } = oldSlotKit()
+    const kit = migrate(raw).doc.entities.instruments[kitId]
+    expect(kit.kind === 'drumkit' && kit.slots).toEqual([
+      { id: 's1', note: 36, sampleId: null, instrumentId: null, baseNote: 58, volume: 0.8, pan: -0.11 },
+      { id: 's2', note: 38, sampleId: null, instrumentId: null, baseNote: 62, volume: 0.5, pan: 0.2 },
+    ])
+  })
+
+  it('leaves complete slots untouched', () => {
+    const doc = createDefaultDoc()
+    const file = migrate(JSON.parse(JSON.stringify(makeSongFile(doc, META))))
+    expect(file.doc.entities.instruments).toEqual(doc.entities.instruments)
   })
 })
 
@@ -580,12 +610,12 @@ describe('migration — eff inlet naming', () => {
     expect(effMods(result)).toEqual(['Eff In 01', 'Eff In 02'])
   })
 
-  it('leaves uniquely named eff modules untouched (identity preserved)', () => {
+  it('leaves uniquely named eff modules untouched', () => {
     const file = makeCurrent({
       m1: { id: 'm1', type: 'eff', name: 'Eff In 01', params: { cc: 0 }, pos: { x: 0, y: 0 } },
       m2: { id: 'm2', type: 'eff', name: 'Eff In 02', params: { cc: 0 }, pos: { x: 0, y: 0 } },
     })
-    expect(migrate(file)).toBe(file)
+    expect(effMods(migrate(file))).toEqual(['Eff In 01', 'Eff In 02'])
   })
 
   it('does not touch non-eff modules', () => {
@@ -662,7 +692,7 @@ describe('migration v8→v9 — delay/echo time to ticks', () => {
     ]))
     const fx = (result.doc.entities.mixChannels as any).master.effects
     expect(fx[0].params.time).toBe(2)
-    expect(fx[1].params).toEqual({ cutoff: 1000 })
+    expect(fx[1].params).toMatchObject({ cutoff: 1000 })
   })
 
   it('leaves other modules and non-time params untouched', () => {
@@ -720,7 +750,7 @@ describe('migration v9→v10 — osc instruments become modular synths', () => {
     expect(inst.channelId).toBe('master')
     expect(inst.pan).toBe(-0.3)
     expect(inst.midiChannel).toBe(4)
-    expect(inst.effectSettings).toEqual({ portamento: 12 })
+    expect(inst.effectSettings).toMatchObject({ portamento: 12 })
     // The track keeps pointing at the same id.
     expect((result.doc.entities.tracks as any).t1.instrumentId).toBe('i1')
     // The old gain lands on the output module.
@@ -754,7 +784,7 @@ describe('migration v9→v10 — osc instruments become modular synths', () => {
     const synth = newModularInstrument('Synth')
     synth.id = 'i1'
     const result = migrate(makeV9({ i1: synth }))
-    expect((result.doc.entities.instruments as any).i1).toBe(synth)
+    expect((result.doc.entities.instruments as any).i1).toEqual(synth)
     expect(result.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
   })
 

@@ -1,0 +1,3 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`ErrorBoundary > shows the error instead of blanking, and recovers on Try Again or a new view 1`] = `"<div class="panel" role="alert"><strong>Something went wrong here.</strong><code class="message">Cannot read properties of undefined</code><span class="muted">Your song is safe. Try again, or switch to another view.</span><button type="button" class="button md">Try Again</button></div>"`;

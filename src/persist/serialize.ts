@@ -15,6 +15,7 @@ import { nextEffName } from '../domain/factory'
 import { defaultParams, MODULE_DEFS } from '../domain/moduleDefs'
 import { sortSamples } from '../domain/sampleChoices'
 import { MAX_CYCLE_FRAMES } from '../domain/moduleDefs'
+import { completeDoc } from './completeDoc'
 
 /**
  * Bump when the on-disk shape changes; add a matching `migrate` case.
@@ -146,6 +147,8 @@ export function migrate(raw: unknown): SongFile {
     raw = { ...(raw as Record<string, unknown>), schemaVersion: CURRENT_SCHEMA_VERSION }
   }
 
+  // Whatever is still missing gets its default (damaged or mislabelled files).
+  raw = completeDoc(raw)
   assertShape(raw)
   return raw
 }
