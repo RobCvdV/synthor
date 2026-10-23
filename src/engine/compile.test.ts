@@ -369,4 +369,12 @@ describe('buildSampleMeta', () => {
     const meta = buildSampleMeta(samples, new Set(['h-bass', 'h-crash']))
     expect([meta.a.hash, meta.b.hash, meta.c.hash]).toEqual(['h-bass', '', 'h-crash'])
   })
+
+  it('takes the length of the decoded audio over the one recorded at import', () => {
+    const wave = { ...sample('w', 'Wave', 'h-wave'), sampleRate: 44100, frames: 441, cycleLength: 147 }
+    const meta = buildSampleMeta({ ...samples, w: wave }, undefined, undefined, { 'h-wave': { frames: 480, sampleRate: 48000 } })
+    expect(meta.w).toMatchObject({ frames: 480, sampleRate: 48000 })
+    expect(meta.w.cycleLength).toBeCloseTo(160)
+    expect(meta.a).toMatchObject({ frames: 480, sampleRate: 48000, cycleLength: undefined })
+  })
 })
