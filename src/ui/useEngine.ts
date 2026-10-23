@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { AudioHost, OUTPUT_WARMUP_MS } from '../audio/host'
-import { compileGraph } from '../engine/compile'
+import { compileGraph, type DecodedSize } from '../engine/compile'
 import { buildArrangement, resolveStep, type StepRef } from '../engine/arrangement'
 import { buildPlaybackData, slicePlaybackData, type PlaybackData } from '../player/playbackData'
 import { trackMuteValues } from '../player/cues'
@@ -65,6 +65,7 @@ export function useEngine(): AudioHost {
   const lastVfsKeysRef = useRef('')
   const vfsLoadedRef = useRef<Set<string>>(new Set())
   const l1SumsRef = useRef<Record<string, number>>({})
+  const decodedSizesRef = useRef<Record<string, DecodedSize>>({})
 
   const lastStructuralKeyRef = useRef('')
   const lastEpochRef = useRef(0)
@@ -261,12 +262,13 @@ export function useEngine(): AudioHost {
           useAudioStore.getState().setStatus('warming')
           const seq = ++vfsSeqRef.current
           vfsSyncRef.current = syncSamplesToVfs(host, samples, slug).then(
-            ({ loaded, l1Sums }) => {
+            ({ loaded, l1Sums, decodedSizes }) => {
               // A newer sync has started: its result (and pending promise) wins.
               if (seq !== vfsSeqRef.current) return
               vfsSyncRef.current = null
               vfsLoadedRef.current = loaded
               l1SumsRef.current = l1Sums
+              decodedSizesRef.current = decodedSizes
               useDocStore.getState().setVfsLoaded(loaded)
               // Samples compiled while still loading were silenced; recompile now they are in.
               schedule()
@@ -336,6 +338,7 @@ export function useEngine(): AudioHost {
             playEpoch,
             vfsLoadedHashes: loadedHashes(),
             l1Sums: auditionL1Sums(),
+            decodedSizes: decodedSizesRef.current,
             midiCcValues: useMidiStore.getState().ccValues,
             paramRefs: host.paramRefs,
             ccBindings: host.ccBindings,

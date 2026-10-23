@@ -1,4 +1,5 @@
 import type { SampleEntity } from '../domain/types'
+import type { DecodedSize } from '../engine/compile'
 import type { AudioHost } from './host'
 
 /** Shared AudioContext reused for all VFS decoding — avoids hitting browser limits. */
@@ -17,7 +18,8 @@ function sharedCtx(): AudioContext {
  *
  * Returns the hashes that were successfully loaded into VFS, plus each
  * sample's L1 sum (Σ|channel 0|) — the compiler uses it to normalize
- * convolution IRs so a conv effect can never amplify beyond the dry peak.
+ * convolution IRs so a conv effect can never amplify beyond the dry peak —
+ * and each sample's decoded length, which can differ from the entity's.
  * Sample entities whose stored files are missing or unparseable are NOT
  * in this set — the caller should prune them from the doc.
  */
@@ -25,10 +27,11 @@ export async function decodeSamplesToVfs(
   host: AudioHost,
   samples: SampleEntity[],
   read: (hash: string) => Promise<ArrayBuffer | null | undefined>,
-): Promise<{ loaded: Set<string>; l1Sums: Record<string, number> }> {
+): Promise<{ loaded: Set<string>; l1Sums: Record<string, number>; decodedSizes: Record<string, DecodedSize> }> {
   const vfs: Record<string, Float32Array | Float32Array[]> = {}
   const loaded = new Set<string>()
   const l1Sums: Record<string, number> = {}
+  const decodedSizes: Record<string, DecodedSize> = {}
 
   // Read in parallel: a library on iCloud may have to download each file first.
   const raws = await Promise.all(samples.map((s) => read(s.hash)))
@@ -47,6 +50,7 @@ export async function decodeSamplesToVfs(
       let l1 = 0
       for (let i = 0; i < ch0.length; i++) l1 += Math.abs(ch0[i])
       l1Sums[s.hash] = l1
+      decodedSizes[s.hash] = { frames: buffer.length, sampleRate: buffer.sampleRate }
 
       // Extract per-channel Float32Array data.
       if (buffer.numberOfChannels === 1) {
@@ -68,5 +72,5 @@ export async function decodeSamplesToVfs(
     await host.updateVfs(vfs)
   }
 
-  return { loaded, l1Sums }
+  return { loaded, l1Sums, decodedSizes }
 }

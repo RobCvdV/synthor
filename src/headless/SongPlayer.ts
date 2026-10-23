@@ -410,7 +410,7 @@ export class SongPlayer {
 
   private async compile(doc: Doc): Promise<void> {
     const host = this.host
-    const { loaded, l1Sums } = await decodeSamplesToVfs(
+    const { loaded, l1Sums, decodedSizes } = await decodeSamplesToVfs(
       host,
       Object.values(doc.entities.samples),
       async (hash) => this.samples.get(hash) ?? null,
@@ -425,6 +425,7 @@ export class SongPlayer {
       playEpoch: 0,
       vfsLoadedHashes: loaded,
       l1Sums,
+      decodedSizes,
       paramRefs: host.paramRefs,
       ccBindings: host.ccBindings,
       txSeq: this.txSeqNode as never,

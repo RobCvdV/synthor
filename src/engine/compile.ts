@@ -9,20 +9,35 @@ import type { ArrangementItem } from './arrangement'
 import { computeSlotLayouts, slotGlobalIndex, MAX_SLOT_SIGNALS, REGULAR_CH, DRUMKIT_CH, DRUMKIT_EXTRA_CHANNELS } from './voiceSlotLayout'
 import type { InstrumentSlotLayout } from './voiceSlotLayout'
 
-/** Sample metadata by sample id. A sample not yet in the VFS gets an empty hash (treated as missing). */
+/** The length of a sample's audio as decoded into the VFS. */
+export interface DecodedSize {
+  frames: number
+  sampleRate: number
+}
+
+/**
+ * Sample metadata by sample id. A sample not yet in the VFS gets an empty hash (treated as missing).
+ * `decoded` wins over the entity's frames and rate: those come from the machine that imported the
+ * sample, and decoding resamples to this machine's rate.
+ */
 export function buildSampleMeta(
   samples: Record<Id, SampleEntity>,
   vfsLoaded?: Set<string>,
   l1Sums?: Record<string, number>,
+  decoded?: Record<string, DecodedSize>,
 ): Record<Id, SampleMeta> {
-  return Object.fromEntries(Object.values(samples).map((s) => [s.id, {
-    hash: !vfsLoaded || vfsLoaded.has(s.hash) ? s.hash : '',
-    channels: s.channels,
-    sampleRate: s.sampleRate,
-    frames: s.frames,
-    cycleLength: s.cycleLength,
-    l1: l1Sums?.[s.hash],
-  }]))
+  return Object.fromEntries(Object.values(samples).map((s) => {
+    const size = decoded?.[s.hash]
+    const scale = size && s.frames > 0 ? size.frames / s.frames : 1
+    return [s.id, {
+      hash: !vfsLoaded || vfsLoaded.has(s.hash) ? s.hash : '',
+      channels: s.channels,
+      sampleRate: size?.sampleRate ?? s.sampleRate,
+      frames: size?.frames ?? s.frames,
+      cycleLength: s.cycleLength !== undefined ? s.cycleLength * scale : undefined,
+      l1: l1Sums?.[s.hash],
+    }]
+  }))
 }
 
 /** Build a sampleId → hash lookup for drumkit slot resolution. */
@@ -87,6 +102,8 @@ export interface RenderContext {
   vfsLoadedHashes?: Set<string>
   /** L1 sums (Σ|ch0|) per sample hash, for conv IR normalization. */
   l1Sums?: Record<string, number>
+  /** Decoded length per sample hash (see `buildSampleMeta`). */
+  decodedSizes?: Record<string, DecodedSize>
   midiCcValues?: Record<number, number>
   paramRefs?: import('../audio/paramRefs').ParamRefRegistry
   ccBindings?: import('../audio/ccBindings').CcBindings
@@ -354,7 +371,7 @@ function compileTrackerVoiceSlots(
 export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
   ctx.ccBindings?.clear()
 
-  const sampleMeta = buildSampleMeta(doc.entities.samples, ctx.vfsLoadedHashes, ctx.l1Sums)
+  const sampleMeta = buildSampleMeta(doc.entities.samples, ctx.vfsLoadedHashes, ctx.l1Sums, ctx.decodedSizes)
   const sampleHashById = buildSampleHashById(doc.entities.samples)
 
   // Live rows-per-second ref — updated on tempo changes so tempo-synced

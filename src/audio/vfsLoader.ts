@@ -1,4 +1,5 @@
 import type { SampleEntity } from '../domain/types'
+import type { DecodedSize } from '../engine/compile'
 import type { AudioHost } from './host'
 import { readSampleAsset } from '../persist/sampleStorage'
 import { decodeSamplesToVfs } from './vfsDecode'
@@ -17,6 +18,6 @@ export function syncSamplesToVfs(
   host: AudioHost,
   samples: SampleEntity[],
   slug: string,
-): Promise<{ loaded: Set<string>; l1Sums: Record<string, number> }> {
+): Promise<{ loaded: Set<string>; l1Sums: Record<string, number>; decodedSizes: Record<string, DecodedSize> }> {
   return decodeSamplesToVfs(host, samples, (hash) => readSampleAsset(slug, hash))
 }
