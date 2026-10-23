@@ -2,9 +2,14 @@ import type { Doc, Id } from '../domain/types'
 import { liveVoiceCount } from '../domain/types'
 import { computeSlotLayouts, slotGlobalIndex, type InstrumentSlotLayout } from '../engine/voiceSlotLayout'
 import { chooseLiveSlot, liveGraphOptions, liveSlotValues } from '../player/liveSlot'
-import { useAppStore } from '../state/appStore'
-import { useDocStore } from '../state/docStore'
 import type { AudioHost } from './host'
+
+/** What live notes are routed against: the app reads its stores, a headless player its own song. */
+export interface LiveNoteContext {
+  doc: Doc
+  freePlay: boolean
+  selectedInstrumentId: Id | null
+}
 
 interface HeldNote {
   instId: Id
@@ -26,17 +31,16 @@ export class LiveNotes {
   private lastSlot = new Map<Id, number>()
   private layoutCache: { doc: Doc; ensure: Id | null; layouts: InstrumentSlotLayout[] } | null = null
 
-  constructor(private host: AudioHost) {}
+  constructor(private host: AudioHost, private context: () => LiveNoteContext) {}
 
   /** `preferredSlot` is the instrument-local tracker slot to use (the cursor track's). */
   noteOn(instId: Id, note: number, velocity = 127, preferredSlot?: number): void {
-    const { doc } = useDocStore.getState()
+    const { doc, freePlay, selectedInstrumentId } = this.context()
     const inst = doc.entities.instruments[instId]
     if (!inst) return
     const key = `${instId}:${note}`
     this.release(key)
 
-    const { freePlay, selectedInstrumentId } = useAppStore.getState()
     if (freePlay && instId === selectedInstrumentId) {
       const pool = inst.kind === 'drumkit'
         ? this.host.voicePool(instId, 1, inst)
@@ -92,7 +96,7 @@ export class LiveNotes {
     if (this.slotOwner.get(h.slot) !== key) return
     this.slotOwner.delete(h.slot)
 
-    const { doc } = useDocStore.getState()
+    const { doc } = this.context()
     const inst = doc.entities.instruments[h.instId]
     const layout = this.layoutCache?.layouts.find((l) => l.instId === h.instId)
     const payload = inst && layout ? liveSlotValues(layout, inst, h.note, h.velocity, false) : null

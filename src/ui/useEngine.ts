@@ -2,7 +2,8 @@ import { useEffect, useRef } from 'react'
 import { AudioHost, OUTPUT_WARMUP_MS } from '../audio/host'
 import { compileGraph } from '../engine/compile'
 import { buildArrangement, resolveStep, type StepRef } from '../engine/arrangement'
-import { buildPlaybackData, mapPatternTracksToSlots, slicePlaybackData, type PlaybackData } from '../player/playbackData'
+import { buildPlaybackData, slicePlaybackData, type PlaybackData } from '../player/playbackData'
+import { trackMuteValues } from '../player/cues'
 import { buildTxSeqData } from '../player/txSeqData'
 import { syncSamplesToVfs } from '../audio/vfsLoader'
 import { withAudition } from '../engine/audition'
@@ -17,6 +18,12 @@ import { useProjectStore } from '../state/projectStore'
 import { rowHz, useTransportStore } from '../state/transportStore'
 import { useAppStore } from '../state/appStore'
 import { useAudioStore } from '../state/audioStore'
+
+/** Live notes route against the open song and the free-play selection. */
+function storeLiveContext() {
+  const { freePlay, selectedInstrumentId } = useAppStore.getState()
+  return { doc: useDocStore.getState().doc, freePlay, selectedInstrumentId }
+}
 
 /**
  * Wires reactive stores to the audio host + the txSeq native sequencer.
@@ -37,7 +44,7 @@ import { useAudioStore } from '../state/audioStore'
  */
 export function useEngine(): AudioHost {
   const hostRef = useRef<AudioHost | null>(null)
-  if (hostRef.current === null) hostRef.current = new AudioHost()
+  if (hostRef.current === null) hostRef.current = new AudioHost({ liveContext: storeLiveContext })
   const host = hostRef.current
 
   // The master meter (MeterCanvas) polls this in every build, dev or packaged.
@@ -187,21 +194,8 @@ export function useEngine(): AudioHost {
       const { mutedTrackNumbers, soloedTrackNumbers } = useAppStore.getState()
       const hasSolo = Object.values(soloedTrackNumbers).some(Boolean)
       // Current pattern last so it wins any slot shared between patterns.
-      const patterns = Object.values(doc.entities.patterns).sort(
-        (a, b) => (a.id === doc.patternId ? 1 : 0) - (b.id === doc.patternId ? 1 : 0),
-      )
-      for (const pattern of patterns) {
-        const trackToSlot = mapPatternTracksToSlots(doc, pattern.id)
-        pattern.trackIds.forEach((trackId, ti) => {
-          const si = trackToSlot.get(trackId)
-          if (si === undefined) return
-          const track = doc.entities.tracks[trackId]
-          if (!track) return
-          const trackNum = ti + 1
-          const muted = hasSolo ? !soloedTrackNumbers[trackNum] : !!mutedTrackNumbers[trackNum]
-          host.paramRefs.setValue(`tracker:${track.instrumentId}:ts:${si}:mute`, muted ? 0 : 1)
-        })
-      }
+      const muted = (n: number) => hasSolo ? !soloedTrackNumbers[n] : !!mutedTrackNumbers[n]
+      for (const [key, value] of trackMuteValues(doc, muted, doc.patternId)) host.paramRefs.setValue(key, value)
     }
 
     const markAudioReady = () => {

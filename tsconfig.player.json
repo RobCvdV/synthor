@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "outDir": "packages/synthor-player/dist/types",
+    "rootDir": "src",
+    "types": []
+  },
+  "include": ["src/headless/index.ts", "src/vite-env.d.ts"]
+}

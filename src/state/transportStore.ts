@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { rowHz } from '../domain/notes'
 
 /**
  * Transport / playhead state. Deliberately separate from the document store:
@@ -65,7 +66,4 @@ export const useTransportStore = create<TransportState>((set) => ({
   }),
 }))
 
-/** Rows advanced per second, derived from tempo. */
-export function rowHz(bpm: number, linesPerBeat: number): number {
-  return (bpm / 60) * linesPerBeat
-}
+export { rowHz }

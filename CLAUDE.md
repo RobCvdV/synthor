@@ -24,6 +24,7 @@ Product intent and planned work live in `docs/` (`VISION`, `FEATURES`, `ROADMAP`
 | UI | `src/ui/` | Views, tracker grid, keymap, `useEngine` (store→host wiring) |
 | Persist | `src/persist/` | OPFS autosave/serialize, sample storage, export |
 | MIDI | `src/midi/` | `useMidi` Web MIDI |
+| Headless | `src/headless/` | `SongPlayer` — songs + game cues without React, stores or storage; built as `packages/synthor-player` |
 
 ## Where to change what
 
@@ -44,6 +45,7 @@ Chains are ordered; each hop is verified. Skipping the tail is how features half
 | Sample editor process (slider, heard while tuning) | pure DSP in `audio/sampleEdit.ts` / `audio/sampleProcess.ts` → a `LIVE_PROCESSES` entry in `ui/sampleEditor/liveProcesses.ts` → its `PROCESS_CHOICES` option in `EditorToolbar`. The panel, preview swap and audition come for free |
 | Sample import / edit / storage | `audio/sampleLoader.ts`, `audio/sampleEdit.ts` (pure edits + resampling), `audio/cycle.ts` (pitch detection, single cycles), `persist/sampleStorage.ts` (OPFS) |
 | Something should change audibly without a recompile | a `paramRefs` ref, not `compileGraph` |
+| Headless player API (games, embeds) | pure cue logic in `player/cues.ts` (+ its test, incl. the offline txSeq hand-over) → `headless/SongPlayer.ts` → export from `headless/index.ts`. The player must stay free of `state/`, `ui/` and storage-backed `persist/` modules — `npm run build:player` bundles whatever it imports |
 
 ## Why things exist
 
@@ -73,6 +75,8 @@ Chains are ordered; each hop is verified. Skipping the tail is how features half
 - **The host is inert until a user gesture** (autoplay policy) — synthetic/synthesized key events won't start the AudioContext.
 - **Samples are referenced by id** (`Module.sampleId`, `ChannelEffect.sampleId`, `DrumKitSlot.sampleId`), never by position in a sorted list — adding or renaming a sample must not repoint anything. Modules with a `samplePicker` in `MODULE_DEFS` get one.
 - **Section playback follows `appStore.currentStep`** (section + step index, resolved with `resolveStep`), never "the section containing `doc.patternId`" — playback rewrites `patternId`, and a pattern can sit in several sections or twice in one. Play-start rows are arrangement-global: use `playStartRow`.
+- **Live notes read their song through `LiveNoteContext`** (`AudioHost` options): the app passes its stores, `SongPlayer` its loaded doc. `audio/` must not import `state/`, or the headless build drags the stores in.
+- **Cue hand-overs never restart the node:** `planTransition` stages bridge → settle → target `update`s, driven by row events through `stepTransition` (the node keeps its row across updates and reads data modulo its length). A restart (`play`) resets the row clock and is only for `'now'` cues.
 - **Elementary VFS keys are content hashes**; changing a conv/wave/sample module's `sampleId` is a structural change (forces recompile + VFS path change).
 
 ## Electron build (feature/electron-build)
