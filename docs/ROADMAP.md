@@ -2,6 +2,7 @@
 
 > Living log: what's done, what's next. Pair with [VISION.md](./VISION.md).
 > Feature candidates are detailed in [FEATURES.md](./FEATURES.md).
+> Game audio (songs a game drives, e.g. Zwap) is planned in [GAME_AUDIO.md](./GAME_AUDIO.md).
 > Newest progress at the top of "Done".
 
 ## Done
