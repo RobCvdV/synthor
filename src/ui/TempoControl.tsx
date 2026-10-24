@@ -1,20 +1,21 @@
 import { memo, useRef, useState } from 'react'
-import { useTransportStore } from '../state/transportStore'
+import { useDocStore } from '../state/docStore'
+import { MAX_BPM, MIN_BPM } from '../domain/types'
 import { EditableLabel } from './components/EditableLabel'
 import { cx } from './components/cx'
 import { tapTempo } from './tapTempo'
 import s from './TempoControl.module.css'
 
-/** Song tempo: double-click the BPM to type one, or tap it in. */
+/** Song tempo (saved with the song): double-click the BPM to type one, or tap it in. */
 export const TempoControl = memo(function TempoControl() {
-  const bpm = useTransportStore((st) => st.bpm)
-  const setBpm = useTransportStore((st) => st.setBpm)
+  const bpm = useDocStore((st) => st.doc.tempo.bpm)
+  const setBpm = useDocStore((st) => st.setBpm)
   const tapsRef = useRef<number[]>([])
   const [flash, setFlash] = useState(false)
 
   const commit = (text: string) => {
     const n = Number(text)
-    if (text.trim() && n >= 20 && n <= 300) setBpm(n)
+    if (text.trim() && n >= MIN_BPM && n <= MAX_BPM) setBpm(n)
   }
 
   const tap = () => {

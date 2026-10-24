@@ -28,6 +28,7 @@ function makeDoc(tracks: Track[], patterns: Pattern[], sections: { id: Id; name:
     },
     patternId: patterns[0].id,
     sectionIds: sections.map((s) => s.id),
+    tempo: { bpm: 120, linesPerBeat: 4 },
   }
 }
 

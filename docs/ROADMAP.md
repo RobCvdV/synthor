@@ -7,6 +7,12 @@
 
 ## Done
 
+### Song tempo (Oct 2026)
+- **Tempo is saved with the song** (`doc.tempo`: BPM + lines per beat, schema
+  v17). Older songs open at 120 BPM / 4 lines per beat. Tempo edits (typed or
+  tapped) are undoable and apply live without a recompile; the headless player
+  plays each song at its own tempo.
+
 ### Tracker editing (Oct 2026)
 - **Interpolate** (Cmd/Ctrl+I): linear fill of the selected rows in the volume
   or effect-lane column under the cursor. One dialog asks for the start and end

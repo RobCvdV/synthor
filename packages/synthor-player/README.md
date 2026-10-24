@@ -18,7 +18,7 @@ Consume it like synthor consumes its vendored Elementary renderer: copy
 ```ts
 import { SongPlayer } from 'synthor-player'
 
-const music = new SongPlayer({ bpm: 120, linesPerBeat: 4 })
+const music = new SongPlayer()            // plays each song at its saved tempo
 await music.load(await (await fetch('/audio/theme.synthor')).arrayBuffer())
 
 // From a user gesture (autoplay policy):
@@ -33,7 +33,7 @@ music.cue('game-over', 'now')             // restart on the new cue
 music.setTrackMuted(3, true)              // layering: Track #3 in every pattern
 music.setInstrumentLevel('Drums', 0.5)    // instrument by name or id
 music.noteOn('Lead', 72); music.noteOff('Lead', 72)  // stingers on song instruments
-music.setTempo(140)
+music.setTempo(140)                       // live change; the next load resets it
 music.setVolume(0.8)
 music.onCue((cue) => console.log('now playing', cue))
 music.onRow(({ cue, row }) => { /* sync visuals to the beat */ })
@@ -52,5 +52,3 @@ music.stop()
   needs at least one track in the song.
 - **Shared audio**: pass `audioContext` (and optionally `destination`) to play
   through a game engine's context, e.g. Phaser's `game.sound.context`.
-- **Tempo isn't stored in songs yet** — set it with the `bpm` option or
-  `setTempo`.

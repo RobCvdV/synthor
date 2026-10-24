@@ -15,7 +15,8 @@ import { structuralParamsKey } from '../domain/moduleDefs'
 import { useDocStore } from '../state/docStore'
 import { useMidiStore } from '../state/midiStore'
 import { useProjectStore } from '../state/projectStore'
-import { rowHz, useTransportStore } from '../state/transportStore'
+import { useTransportStore } from '../state/transportStore'
+import { rowHz } from '../domain/notes'
 import { useAppStore } from '../state/appStore'
 import { useAudioStore } from '../state/audioStore'
 
@@ -215,7 +216,8 @@ export function useEngine(): AudioHost {
       const dataKey = `txseq:${txSeqUploadRevRef.current++}`
       await host.updateVfs({ [dataKey]: packed })
 
-      const rowsPerSec = rowHz(t.bpm, t.linesPerBeat)
+      const { bpm, linesPerBeat } = useDocStore.getState().doc.tempo
+      const rowsPerSec = rowHz(bpm, linesPerBeat)
       const offset = data.rowOffset ?? 0
       // A start outside the loop starts at its top.
       const nodeStart = t.startRow - offset >= 0 && t.startRow - offset < data.totalRows ? t.startRow - offset : 0
@@ -304,7 +306,8 @@ export function useEngine(): AudioHost {
       }
 
       const doRecompile = () => {
-        const { bpm, linesPerBeat, playing, startRow, playEpoch } = useTransportStore.getState()
+        const { playing, startRow, playEpoch } = useTransportStore.getState()
+        const { bpm, linesPerBeat } = doc.tempo
         const { playMode, currentStep } = useAppStore.getState()
 
         const arrangement = playMode !== 'pattern'
@@ -382,6 +385,13 @@ export function useEngine(): AudioHost {
 
     // ── docStore subscription ─────────────────────────────────────────
     const unsubDoc = useDocStore.subscribe((state, prev) => {
+      const tempo = state.doc.tempo
+      if (tempo !== prev.doc.tempo) {
+        // Keep tempo-synced delay/echo times and the row clock live without a recompile.
+        const hz = rowHz(tempo.bpm, tempo.linesPerBeat)
+        host.paramRefs.setValue('transport:rowHz', hz)
+        if (useTransportStore.getState().playing) host.setTxSeqProps({ rowsPerSec: hz })
+      }
       if (state.silentBatch) return
       if (state.doc === prev.doc) return
       if (host.skipNextRecompile) { host.skipNextRecompile = false; return }
@@ -403,14 +413,6 @@ export function useEngine(): AudioHost {
         lastEpochRef.current = 0
         useAudioStore.getState().setPlaybackStarted(false)
         return
-      }
-
-      if (state.bpm !== prev.bpm || state.linesPerBeat !== prev.linesPerBeat) {
-        // Keep tempo-synced delay/echo times live without a recompile.
-        host.paramRefs.setValue('transport:rowHz', rowHz(state.bpm, state.linesPerBeat))
-        if (state.playing) {
-          host.setTxSeqProps({ rowsPerSec: rowHz(state.bpm, state.linesPerBeat) })
-        }
       }
     })
 

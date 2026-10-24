@@ -28,6 +28,7 @@ function makeDoc(opts: {
     },
     patternId: opts.patternId,
     sectionIds: opts.sectionIds ?? [],
+    tempo: { bpm: 120, linesPerBeat: 4 },
   }
 }
 

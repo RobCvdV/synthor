@@ -12,6 +12,7 @@ import { sampleOps, type SampleOps } from './sampleOps'
 import { drumkitOps, type DrumkitOps } from './drumkitOps'
 import { arrangementOps, type ArrangementOps } from './arrangementOps'
 import { mixerOps, type MixerOps } from './mixerOps'
+import { tempoOps, type TempoOps } from './tempoOps'
 
 enablePatches()
 
@@ -29,7 +30,7 @@ interface CoreOps {
   loadDoc: (doc: Doc) => void
 }
 
-export interface DocState extends CoreOps, TrackerOps, TrackOps, InstrumentOps, ModularOps, SampleOps, DrumkitOps, ArrangementOps, MixerOps {
+export interface DocState extends CoreOps, TrackerOps, TrackOps, InstrumentOps, ModularOps, SampleOps, DrumkitOps, ArrangementOps, MixerOps, TempoOps {
   doc: Doc
   past: HistoryEntry[]
   future: HistoryEntry[]
@@ -102,6 +103,7 @@ export const useDocStore = create<DocState>((set, get) => ({
   ...drumkitOps(get),
   ...arrangementOps(get),
   ...mixerOps(get),
+  ...tempoOps(get),
 
   setVfsLoaded: (hashes) => set({ vfsLoadedHashes: hashes }),
 }))

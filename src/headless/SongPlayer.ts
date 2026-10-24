@@ -11,7 +11,7 @@ import {
 import { unpackSongBundle } from '../persist/songBundle'
 import type { SongFile } from '../persist/serialize'
 import { rowHz } from '../domain/notes'
-import type { Doc, Id, Instrument } from '../domain/types'
+import { DEFAULT_TEMPO, type Doc, type Id, type Instrument } from '../domain/types'
 
 /**
  * When a cue takes over a playing one:
@@ -27,8 +27,6 @@ export interface SongPlayerOptions {
   audioContext?: AudioContext
   /** Where the music goes; defaults to the context's destination. */
   destination?: AudioNode
-  bpm?: number
-  linesPerBeat?: number
   /** Output gain, 0..1+. */
   volume?: number
 }
@@ -87,8 +85,8 @@ export class SongPlayer {
   private cueListeners = new Set<(cue: Cue) => void>()
 
   constructor(options: SongPlayerOptions = {}) {
-    this.bpm = options.bpm ?? 120
-    this.linesPerBeat = options.linesPerBeat ?? 4
+    this.bpm = DEFAULT_TEMPO.bpm
+    this.linesPerBeat = DEFAULT_TEMPO.linesPerBeat
     this.volume = options.volume ?? 1
     this.host = new AudioHost({
       // noteOn guards on a loaded doc before live notes ever read it.
@@ -99,11 +97,14 @@ export class SongPlayer {
     this.host.onReady = () => this.attachTxSeq()
   }
 
-  /** Load a `.synthor` zip, `.synthor.json` text bytes, or an already parsed song. Stops playback. */
+  /** Load a `.synthor` zip, `.synthor.json` text bytes, or an already parsed song, at the song's
+   *  tempo. Stops playback. */
   async load(source: ArrayBuffer | Uint8Array | SongFile): Promise<void> {
     const bundle = 'doc' in source ? { file: source, samples: new Map<string, ArrayBuffer>() } : unpackSongBundle(source)
     this.stop()
     this.doc = bundle.file.doc
+    this.bpm = this.doc.tempo.bpm
+    this.linesPerBeat = this.doc.tempo.linesPerBeat
     this.samples = bundle.samples
     this.current = null
     this.levels.clear()
@@ -204,6 +205,7 @@ export class SongPlayer {
     this.host.paramRefs.setValue('player:volume', volume)
   }
 
+  /** Change the tempo live (e.g. speeding up with the game); the next load resets it to the song's. */
   setTempo(bpm: number, linesPerBeat = this.linesPerBeat): void {
     this.bpm = bpm
     this.linesPerBeat = linesPerBeat

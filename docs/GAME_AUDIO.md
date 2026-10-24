@@ -21,8 +21,8 @@
   samples. Two songs sounding together doubles the voices, so layering and
   variation within a game come from one song. A short crossfade between two
   players is fine.
-- **Tempo belongs to the song** (`bpm`, `linesPerBeat`), not to the transport
-  alone — the editor loses it today too.
+- **Tempo belongs to the song** (`doc.tempo`: `bpm`, `linesPerBeat`, schema
+  v17) — done; the player plays a song at its own tempo.
 - **Game authoring tools are a separate app** ("Synthor Game Studio": own
   entry and build config in this repo, sharing the engine, player and file
   format). The editor stays a tracker.
@@ -30,9 +30,8 @@
 ## Phases
 
 ### 1. Quick wins (JS)
-- **Tempo in the song**: `tempo: { bpm, linesPerBeat }` on the doc, schema
-  bump + `migrate` (old songs → 120 / 4) + `completeDoc` default; loading a song
-  sets the transport, tempo edits are saved and undoable; `SongPlayer` reads it.
+- ~~**Tempo in the song**~~ — done: `doc.tempo`, schema v17 (older songs load at
+  120 / 4), undoable edits, the engine and `SongPlayer` read it.
 - **Sound-effect instruments**: the game declares `{ instrument: voices }`;
   those get free-play voices (`liveVoiceInstIds` + `VoicePool`, no C++), with
   pan by screen position and echo / reverb sends.
@@ -87,11 +86,21 @@
 
 | # | Role | # | Role |
 |---|---|---|---|
-| 1 | Kick | 6 | Arp / pulse |
-| 2 | Snare / clap | 7 | Lead melody |
-| 3 | Hats / percussion | 8 | Tension (riser, ticking, drone) |
-| 4 | Bass | 9 | Accent instrument for stingers |
-| 5 | Pads / chords | | |
+| 1 | Kick | 10 | Arp / pulse |
+| 2 | Snare / clap | 11 | Lead melody |
+| 3 | Hats | 12 | Tension (riser, ticking, drone) |
+| 4 | Percussion | 13 | Accent instrument for stingers |
+| 5 | Bass | | |
+| 6–9 | Chords (one note per track, up to 4) | | |
+
+- **Drums on separate tracks**, each playing the drum's own instrument (e.g.
+  Synth Kick), not one shared kit: every drum-kit track compiles *all* of the
+  kit's sounds, so four tracks of one kit cost four full kits. One instrument
+  per drum track is one voice, and each sound can be muted or faded alone.
+- **Chords** take a track per note, i.e. a voice per note while they sound.
+  Three-note voicings or a thick (detuned) pad patch keep it cheap.
+- **Arp** fits one track. An instrument-level auto-arpeggiator (playing a held
+  chord, with per-instrument rules for simultaneous notes) is an open idea.
 
 ### Stages
 
@@ -114,10 +123,10 @@ A/B variants alternate every 2 loops.
 
 | Layer | Game state | On |
 |---|---|---|
-| Tension (8) | `movesWithoutReaction` hits the warning (`doNoReactionPenalty`) | Drone / pulse |
+| Tension (12) | `movesWithoutReaction` hits the warning (`doNoReactionPenalty`) | Drone / pulse |
 | Ticking (3) | A bomb at 3, then 2 moves | 16th, then 32nd hats |
-| Lead (7) | Level progress ≥ 50% | Melody |
-| Riser (8) | `shouldLevelUp` / ≥ 90% progress | Snare roll / riser |
+| Lead (11) | Level progress ≥ 50% | Melody |
+| Riser (12) | `shouldLevelUp` / ≥ 90% progress | Snare roll / riser |
 | Thin-out | No move for 15 s | Pads + bass only until the next move |
 
 ### Stingers and fills from player actions
@@ -158,5 +167,5 @@ A/B variants alternate every 2 loops.
 ### Minimum first set
 
 `menu`, `intro`, `stage1` A + B, `stage2` A, `danger`, `lastMove`,
-`fill-cascade`, `to-stage2`, `gameover` — plus stingers on track 9 (match,
-cascade arpeggio, penalty) and layer tracks 7 (lead) and 8 (tension).
+`fill-cascade`, `to-stage2`, `gameover` — plus stingers on track 13 (match,
+cascade arpeggio, penalty) and layer tracks 11 (lead) and 12 (tension).
