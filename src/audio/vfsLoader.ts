@@ -1,15 +1,7 @@
 import type { SampleEntity } from '../domain/types'
 import type { AudioHost } from './host'
 import { readSampleAsset } from '../persist/sampleStorage'
-
-/** Shared AudioContext reused for all VFS decoding — avoids hitting browser limits. */
-let _sharedCtx: AudioContext | null = null
-function sharedCtx(): AudioContext {
-  if (!_sharedCtx || _sharedCtx.state === 'closed') {
-    _sharedCtx = new AudioContext()
-  }
-  return _sharedCtx
-}
+import { decodeSamplesToVfs } from './vfsDecode'
 
 /**
  * Load sample PCM data from storage into Elementary's VFS so they're playable.
@@ -21,52 +13,10 @@ function sharedCtx(): AudioContext {
  * Sample entities whose stored files are missing or unparseable are NOT
  * in this set — the caller should prune them from the doc.
  */
-export async function syncSamplesToVfs(
+export function syncSamplesToVfs(
   host: AudioHost,
   samples: SampleEntity[],
   slug: string,
 ): Promise<{ loaded: Set<string>; l1Sums: Record<string, number> }> {
-  const vfs: Record<string, Float32Array | Float32Array[]> = {}
-  const loaded = new Set<string>()
-  const l1Sums: Record<string, number> = {}
-
-  // Read in parallel: a library on iCloud may have to download each file first.
-  const raws = await Promise.all(samples.map((s) => readSampleAsset(slug, s.hash)))
-  for (const [i, s] of samples.entries()) {
-    const raw = raws[i]
-    if (!raw) {
-      console.warn(`Sample "${s.name}" (hash ${s.hash.slice(0, 8)}…) not found in storage — skipping VFS load`)
-      continue
-    }
-
-    try {
-      const ctx = sharedCtx()
-      const buffer = await ctx.decodeAudioData(raw.slice(0))
-
-      const ch0 = buffer.getChannelData(0)
-      let l1 = 0
-      for (let i = 0; i < ch0.length; i++) l1 += Math.abs(ch0[i])
-      l1Sums[s.hash] = l1
-
-      // Extract per-channel Float32Array data.
-      if (buffer.numberOfChannels === 1) {
-        vfs[s.hash] = new Float32Array(ch0)
-      } else {
-        const chData: Float32Array[] = [new Float32Array(ch0)]
-        for (let ch = 1; ch < buffer.numberOfChannels; ch++) {
-          chData.push(new Float32Array(buffer.getChannelData(ch)))
-        }
-        vfs[s.hash] = chData
-      }
-      loaded.add(s.hash)
-    } catch (err) {
-      console.error('Failed to decode sample for VFS:', s.name, err)
-    }
-  }
-
-  if (Object.keys(vfs).length > 0) {
-    await host.updateVfs(vfs)
-  }
-
-  return { loaded, l1Sums }
+  return decodeSamplesToVfs(host, samples, (hash) => readSampleAsset(slug, hash))
 }

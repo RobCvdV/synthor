@@ -5,7 +5,7 @@
  */
 import { createMasterChannel, fitCells } from '../domain/factory'
 import { defaultParams, MODULE_DEFS } from '../domain/moduleDefs'
-import { DEFAULT_EFFECT_SETTINGS, MASTER_CHANNEL_ID, type ModuleType } from '../domain/types'
+import { DEFAULT_EFFECT_SETTINGS, DEFAULT_TEMPO, MASTER_CHANNEL_ID, MAX_BPM, MIN_BPM, type ModuleType } from '../domain/types'
 
 type Rec = Record<string, unknown>
 
@@ -164,12 +164,17 @@ export function completeDoc(raw: any): any {
     sections[id] = { ...s, id, name: str(s.name, 'Section'), patternIds: arrOf(s.patternIds).filter((pid) => typeof pid === 'string' && !!patterns[pid]) }
   }
 
+  const tempo = recOf(doc.tempo)
   const mixerInstrumentOrder = arrOf(e.mixerInstrumentOrder).filter((iid): iid is string => typeof iid === 'string' && !!instruments[iid])
   return {
     ...raw,
     doc: {
       ...doc,
       sectionIds: arrOf(doc.sectionIds).filter((sid) => typeof sid === 'string' && !!sections[sid]),
+      tempo: {
+        bpm: Math.min(MAX_BPM, Math.max(MIN_BPM, num(tempo.bpm, DEFAULT_TEMPO.bpm))),
+        linesPerBeat: Math.max(1, Math.round(num(tempo.linesPerBeat, DEFAULT_TEMPO.linesPerBeat))),
+      },
       entities: {
         ...e,
         instruments,

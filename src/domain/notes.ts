@@ -30,3 +30,8 @@ export function freqToNote(freq: number): { midi: number; cents: number } {
   const midi = Math.round(exact)
   return { midi, cents: Math.round((exact - midi) * 100) }
 }
+
+/** Rows advanced per second, derived from tempo. */
+export function rowHz(bpm: number, linesPerBeat: number): number {
+  return (bpm / 60) * linesPerBeat
+}

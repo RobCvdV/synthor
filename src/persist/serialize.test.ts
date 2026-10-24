@@ -51,6 +51,24 @@ describe('song serialization', () => {
     expect(() => migrate({ schemaVersion: 1, doc: { entities: {} } })).toThrow(/meta\.name/)
   })
 
+  it('gives a v16 song (no tempo) 120 BPM, 4 lines per beat, and keeps a saved tempo', () => {
+    const v16 = JSON.parse(JSON.stringify({ ...makeSongFile(createDefaultDoc(), META), schemaVersion: 16 }))
+    delete v16.doc.tempo
+    expect(migrate(v16).doc.tempo).toEqual({ bpm: 120, linesPerBeat: 4 })
+
+    const doc = createDefaultDoc()
+    doc.tempo = { bpm: 92, linesPerBeat: 6 }
+    const restored = deserializeSong(serializeSong(makeSongFile(doc, META)))
+    expect(restored.schemaVersion).toBe(17)
+    expect(restored.doc.tempo).toEqual({ bpm: 92, linesPerBeat: 6 })
+  })
+
+  it('repairs an out-of-range tempo', () => {
+    const file = JSON.parse(JSON.stringify(makeSongFile(createDefaultDoc(), META)))
+    file.doc.tempo = { bpm: 9000, linesPerBeat: 'x' }
+    expect(migrate(file).doc.tempo).toEqual({ bpm: 300, linesPerBeat: 4 })
+  })
+
   it('accepts an already-current file via migrate', () => {
     const file = makeSongFile(createDefaultDoc(), META)
     expect(migrate(file)).toEqual(file)
@@ -115,6 +133,7 @@ describe('song serialization', () => {
         entities: { ...doc.entities, sections: undefined as never, samples: doc.entities.samples },
         patternId: doc.patternId,
         sectionIds: undefined as never,
+        tempo: undefined as never,
       },
     }
     // Strip sections/sectionIds to simulate a v2 file.
@@ -144,6 +163,7 @@ describe('song serialization', () => {
         entities: { ...doc.entities, sections: undefined as never, samples: doc.entities.samples },
         patternId: doc.patternId,
         sectionIds: undefined as never,
+        tempo: undefined as never,
       },
     }
     const v2raw = JSON.parse(JSON.stringify(v2))

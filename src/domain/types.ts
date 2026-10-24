@@ -302,9 +302,20 @@ export interface Entities {
   mixerInstrumentOrder: Id[]
 }
 
+/** Song tempo: beats per minute, and rows per beat (4 = sixteenth-note grid). */
+export interface Tempo {
+  bpm: number
+  linesPerBeat: number
+}
+
+export const DEFAULT_TEMPO: Tempo = { bpm: 120, linesPerBeat: 4 }
+export const MIN_BPM = 20
+export const MAX_BPM = 300
+
 /** The full editable document. Serializable as-is to JSON. */
 export interface Doc {
   entities: Entities
+  tempo: Tempo
   /** The pattern currently open in the editor. */
   patternId: Id
   /** Ordered sections that form the song arrangement. */

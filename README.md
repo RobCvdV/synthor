@@ -61,6 +61,13 @@ Key mechanisms (see `CLAUDE.md` for the full rules):
   doc autosaves. **appStore** holds persisted UI/performance state (view,
   cursor, octave, Track-# mutes/solos, selected instrument/sample).
 
+## Headless player (games)
+
+`src/headless/` plays songs without the editor — no React, stores or
+storage — for embedding in a game. `npm run build:player` bundles it into
+`packages/synthor-player/dist` (one ES module with the txSeq wasm, plus
+types). See [packages/synthor-player/README.md](packages/synthor-player/README.md).
+
 ## Develop
 
 ```bash

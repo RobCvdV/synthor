@@ -8,9 +8,10 @@
  * JSON-only export/import remains available for lightweight sharing.
  */
 
-import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate'
-import { deserializeSong, serializeSong, type SongFile } from './serialize'
+import { zipSync, strToU8 } from 'fflate'
+import { serializeSong, type SongFile } from './serialize'
 import { readSampleAsset, writeSampleData } from './sampleStorage'
+import { unpackSongBundle } from './songBundle'
 import type { SampleEntity } from '../domain/types'
 
 /**
@@ -62,33 +63,13 @@ export async function importSongZip(
   data: ArrayBuffer,
   chooseSlug: (file: SongFile) => string,
 ): Promise<ImportResult> {
-  // Detect format: JSON starts with '{', zip starts with 'PK' (0x50 0x4B).
-  const view = new Uint8Array(data)
-  const isJson = view[0] === 0x7B // '{'
-
-  if (isJson) {
-    const file = deserializeSong(new TextDecoder().decode(data))
-    return { file, slug: chooseSlug(file), samplesImported: 0 }
-  }
-
-  // Unzip
-  const entries = unzipSync(new Uint8Array(data))
-  const songEntry = entries['song.json']
-  if (!songEntry) throw new Error('Not a valid song file: missing song.json in zip')
-
-  const text = strFromU8(songEntry)
-  const file = deserializeSong(text)
+  const { file, samples } = unpackSongBundle(data)
   const slug = chooseSlug(file)
-  let samplesImported = 0
 
   // Write sample binaries to storage
-  for (const [path, bytes] of Object.entries(entries)) {
-    const match = /^samples\/([0-9a-f]+)\.bin$/.exec(path)
-    if (!match) continue
-    const hash = match[1]
-    await writeSampleData(slug, hash, bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength))
-    samplesImported++
+  for (const [hash, bytes] of samples) {
+    await writeSampleData(slug, hash, bytes)
   }
 
-  return { file, slug, samplesImported }
+  return { file, slug, samplesImported: samples.size }
 }

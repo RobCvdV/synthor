@@ -35,7 +35,7 @@ function buildSampleHashById(samples: Record<Id, SampleEntity>): Record<Id, stri
 }
 
 /** Get the default gain for an instrument, regardless of kind. */
-function getInstGain(inst: Instrument): number {
+export function getInstGain(inst: Instrument): number {
   if (inst.kind === 'modular') return 1
   return inst.params.gain
 }
@@ -221,8 +221,9 @@ function compileTrackerVoiceSlots(
       }
 
       // ── Slot mute ref (for solo/mute without recompile) ──
+      // Smoothed: muting a sounding layer must not click.
       const slotMuteRef = ctx.paramRefs
-        ? ctx.paramRefs.getOrCreate(`tracker:${trackerKey}:mute`, 1)
+        ? el.sm(ctx.paramRefs.getOrCreate(`tracker:${trackerKey}:mute`, 1))
         : one
 
       // Instrument-level gain via ref.

@@ -4,7 +4,7 @@ import type { StereoOut } from '../engine/modular'
 import { ParamRefRegistry, setActiveParamRefs } from './paramRefs'
 import { CcBindings } from './ccBindings'
 import { VoicePool } from '../engine/voicePool'
-import { LiveNotes } from './liveNotes'
+import { LiveNotes, type LiveNoteContext } from './liveNotes'
 import type { DrumKitInstrument } from '../domain/types'
 
 /** How long a freshly created AudioContext needs before its output stream
@@ -15,6 +15,15 @@ export const OUTPUT_WARMUP_MS = 1500
 
 /** Time constant (s) of the crossfade when a playing PCM preview's audio is swapped. */
 const PCM_SWAP_FADE = 0.004
+
+export interface AudioHostOptions {
+  /** Song + routing state live notes resolve against. */
+  liveContext: () => LiveNoteContext
+  /** Share an existing context (e.g. a game engine's) instead of creating one on start(). */
+  audioContext?: AudioContext
+  /** Where the output goes; defaults to the context's destination. */
+  destination?: AudioNode
+}
 
 /**
  * Owns the AudioContext + Elementary WebRenderer and pushes compiled graphs to
@@ -69,7 +78,16 @@ export class AudioHost {
   readonly voicePools = new Map<string, VoicePool>()
 
   /** Router for keyboard / MIDI / pip notes. */
-  readonly live = new LiveNotes(this)
+  readonly live: LiveNotes
+
+  private readonly externalCtx: AudioContext | null
+  private readonly destination: AudioNode | null
+
+  constructor(options: AudioHostOptions) {
+    this.live = new LiveNotes(this, options.liveContext)
+    this.externalCtx = options.audioContext ?? null
+    this.destination = options.destination ?? null
+  }
 
   /** Prop setter of the keyed txSeq ref — set by useEngine once the host is ready. */
   txSeqSetter: ((props: Record<string, unknown>) => Promise<unknown>) | null = null
@@ -293,6 +311,16 @@ export class AudioHost {
     return this.ctx?.currentTime ?? 0
   }
 
+  /** The audio time reaching the speakers at `perfNow` (a `performance.now()` time) —
+   *  what visuals in time with the music should follow, not the render clock. */
+  outputTime(perfNow = performance.now()): number {
+    const ctx = this.ctx
+    if (!ctx) return 0
+    const ts = ctx.getOutputTimestamp?.()
+    if (ts?.contextTime && ts.performanceTime) return ts.contextTime + (perfNow - ts.performanceTime) / 1000
+    return ctx.currentTime - (ctx.outputLatency || ctx.baseLatency || 0)
+  }
+
   /** Milliseconds the output stream has been flowing — fresh contexts need
    *  a settling window before the first sound lands cleanly. */
   get outputAgeMs(): number {
@@ -341,7 +369,7 @@ export class AudioHost {
     // Reuse an in-flight start to avoid creating duplicate AudioContexts.
     if (this.starting) return this.starting
     this.starting = (async () => {
-      this.ctx = new AudioContext()
+      this.ctx = this.externalCtx ?? new AudioContext()
       this.core = new WebRenderer()
       this.paramRefs.attach(this.core)
       setActiveParamRefs(this.paramRefs)
@@ -355,7 +383,7 @@ export class AudioHost {
         outputChannelCount: [2],
       })
 
-      node.connect(this.ctx.destination)
+      node.connect(this.destination ?? this.ctx.destination)
       // Metering tap only — analysers are not in the output path.
       const splitter = this.ctx.createChannelSplitter(2)
       node.connect(splitter)

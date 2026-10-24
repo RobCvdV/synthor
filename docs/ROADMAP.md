@@ -2,9 +2,16 @@
 
 > Living log: what's done, what's next. Pair with [VISION.md](./VISION.md).
 > Feature candidates are detailed in [FEATURES.md](./FEATURES.md).
+> Game audio (songs a game drives, e.g. Zwap) is planned in [GAME_AUDIO.md](./GAME_AUDIO.md).
 > Newest progress at the top of "Done".
 
 ## Done
+
+### Song tempo (Oct 2026)
+- **Tempo is saved with the song** (`doc.tempo`: BPM + lines per beat, schema
+  v17). Older songs open at 120 BPM / 4 lines per beat. Tempo edits (typed or
+  tapped) are undoable and apply live without a recompile; the headless player
+  plays each song at its own tempo.
 
 ### Tracker editing (Oct 2026)
 - **Interpolate** (Cmd/Ctrl+I): linear fill of the selected rows in the volume

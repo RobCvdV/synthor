@@ -21,3 +21,4 @@ certs
 !/build/entitlements.mac.icloud.plist
 mise.toml
 /vendor/elementary/
+/packages/synthor-player/dist

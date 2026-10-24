@@ -2,7 +2,8 @@ import { useEffect, useRef } from 'react'
 import { AudioHost, OUTPUT_WARMUP_MS } from '../audio/host'
 import { compileGraph } from '../engine/compile'
 import { buildArrangement, resolveStep, type StepRef } from '../engine/arrangement'
-import { buildPlaybackData, mapPatternTracksToSlots, slicePlaybackData, type PlaybackData } from '../player/playbackData'
+import { buildPlaybackData, slicePlaybackData, type PlaybackData } from '../player/playbackData'
+import { trackMuteValues } from '../player/cues'
 import { buildTxSeqData } from '../player/txSeqData'
 import { syncSamplesToVfs } from '../audio/vfsLoader'
 import { withAudition } from '../engine/audition'
@@ -14,9 +15,16 @@ import { structuralParamsKey } from '../domain/moduleDefs'
 import { useDocStore } from '../state/docStore'
 import { useMidiStore } from '../state/midiStore'
 import { useProjectStore } from '../state/projectStore'
-import { rowHz, useTransportStore } from '../state/transportStore'
+import { useTransportStore } from '../state/transportStore'
+import { rowHz } from '../domain/notes'
 import { useAppStore } from '../state/appStore'
 import { useAudioStore } from '../state/audioStore'
+
+/** Live notes route against the open song and the free-play selection. */
+function storeLiveContext() {
+  const { freePlay, selectedInstrumentId } = useAppStore.getState()
+  return { doc: useDocStore.getState().doc, freePlay, selectedInstrumentId }
+}
 
 /**
  * Wires reactive stores to the audio host + the txSeq native sequencer.
@@ -37,7 +45,7 @@ import { useAudioStore } from '../state/audioStore'
  */
 export function useEngine(): AudioHost {
   const hostRef = useRef<AudioHost | null>(null)
-  if (hostRef.current === null) hostRef.current = new AudioHost()
+  if (hostRef.current === null) hostRef.current = new AudioHost({ liveContext: storeLiveContext })
   const host = hostRef.current
 
   // The master meter (MeterCanvas) polls this in every build, dev or packaged.
@@ -187,21 +195,8 @@ export function useEngine(): AudioHost {
       const { mutedTrackNumbers, soloedTrackNumbers } = useAppStore.getState()
       const hasSolo = Object.values(soloedTrackNumbers).some(Boolean)
       // Current pattern last so it wins any slot shared between patterns.
-      const patterns = Object.values(doc.entities.patterns).sort(
-        (a, b) => (a.id === doc.patternId ? 1 : 0) - (b.id === doc.patternId ? 1 : 0),
-      )
-      for (const pattern of patterns) {
-        const trackToSlot = mapPatternTracksToSlots(doc, pattern.id)
-        pattern.trackIds.forEach((trackId, ti) => {
-          const si = trackToSlot.get(trackId)
-          if (si === undefined) return
-          const track = doc.entities.tracks[trackId]
-          if (!track) return
-          const trackNum = ti + 1
-          const muted = hasSolo ? !soloedTrackNumbers[trackNum] : !!mutedTrackNumbers[trackNum]
-          host.paramRefs.setValue(`tracker:${track.instrumentId}:ts:${si}:mute`, muted ? 0 : 1)
-        })
-      }
+      const muted = (n: number) => hasSolo ? !soloedTrackNumbers[n] : !!mutedTrackNumbers[n]
+      for (const [key, value] of trackMuteValues(doc, muted, doc.patternId)) host.paramRefs.setValue(key, value)
     }
 
     const markAudioReady = () => {
@@ -221,7 +216,8 @@ export function useEngine(): AudioHost {
       const dataKey = `txseq:${txSeqUploadRevRef.current++}`
       await host.updateVfs({ [dataKey]: packed })
 
-      const rowsPerSec = rowHz(t.bpm, t.linesPerBeat)
+      const { bpm, linesPerBeat } = useDocStore.getState().doc.tempo
+      const rowsPerSec = rowHz(bpm, linesPerBeat)
       const offset = data.rowOffset ?? 0
       // A start outside the loop starts at its top.
       const nodeStart = t.startRow - offset >= 0 && t.startRow - offset < data.totalRows ? t.startRow - offset : 0
@@ -310,7 +306,8 @@ export function useEngine(): AudioHost {
       }
 
       const doRecompile = () => {
-        const { bpm, linesPerBeat, playing, startRow, playEpoch } = useTransportStore.getState()
+        const { playing, startRow, playEpoch } = useTransportStore.getState()
+        const { bpm, linesPerBeat } = doc.tempo
         const { playMode, currentStep } = useAppStore.getState()
 
         const arrangement = playMode !== 'pattern'
@@ -388,6 +385,13 @@ export function useEngine(): AudioHost {
 
     // ── docStore subscription ─────────────────────────────────────────
     const unsubDoc = useDocStore.subscribe((state, prev) => {
+      const tempo = state.doc.tempo
+      if (tempo !== prev.doc.tempo) {
+        // Keep tempo-synced delay/echo times and the row clock live without a recompile.
+        const hz = rowHz(tempo.bpm, tempo.linesPerBeat)
+        host.paramRefs.setValue('transport:rowHz', hz)
+        if (useTransportStore.getState().playing) host.setTxSeqProps({ rowsPerSec: hz })
+      }
       if (state.silentBatch) return
       if (state.doc === prev.doc) return
       if (host.skipNextRecompile) { host.skipNextRecompile = false; return }
@@ -409,14 +413,6 @@ export function useEngine(): AudioHost {
         lastEpochRef.current = 0
         useAudioStore.getState().setPlaybackStarted(false)
         return
-      }
-
-      if (state.bpm !== prev.bpm || state.linesPerBeat !== prev.linesPerBeat) {
-        // Keep tempo-synced delay/echo times live without a recompile.
-        host.paramRefs.setValue('transport:rowHz', rowHz(state.bpm, state.linesPerBeat))
-        if (state.playing) {
-          host.setTxSeqProps({ rowsPerSec: rowHz(state.bpm, state.linesPerBeat) })
-        }
       }
     })
 

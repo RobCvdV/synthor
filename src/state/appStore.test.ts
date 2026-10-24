@@ -25,6 +25,7 @@ function makeFixture(args: {
   const doc: Doc = {
     patternId: pid,
     sectionIds: [],
+    tempo: { bpm: 120, linesPerBeat: 4 },
     entities: {
       instruments: {},
       tracks,

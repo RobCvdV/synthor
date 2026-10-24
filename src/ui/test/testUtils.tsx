@@ -35,8 +35,6 @@ export function resetStores(): void {
   })
   useTransportStore.setState({
     playing: false,
-    bpm: 120,
-    linesPerBeat: 4,
     startTime: 0,
     startRow: 0,
     playEpoch: 0,
