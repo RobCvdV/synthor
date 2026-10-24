@@ -39,10 +39,10 @@
   instrument — a CPU budget per instrument for older phones.
 
 ### 2. Music clock and beat sync (JS)
-- `player.clock`: `AudioContext` time → song position, fitted from row events
-  and corrected for output latency (`getOutputTimestamp` / `outputLatency`).
-  `clock.now()` → `{ row, beat, bar, beatPhase, barPhase }`;
-  `clock.timeUntil('beat' | 'bar' | row)`.
+- ~~Music clock~~ — done: `player.position()` → `{ cue, row, beat, beatPhase,
+  beatInBar, bar, barPhase }` as heard (`player/songClock.ts` fits row-event
+  timing, `AudioHost.outputTime` takes off output latency);
+  `player.timeUntil('row' | 'beat' | 'bar')`.
 - In the game: `onBeat` / `onBar` from the scene's update loop. Idle effects
   read `beatPhase` per frame; decorative flourishes start on the next beat or
   8th; player feedback (swap, select) is never delayed.

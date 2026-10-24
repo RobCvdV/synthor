@@ -3,7 +3,7 @@
  * a game or any page, without the editor.
  */
 
-export { SongPlayer, type SongPlayerOptions, type CueTiming, type RowEvent } from './SongPlayer'
+export { SongPlayer, type SongPlayerOptions, type CueTiming, type RowEvent, type MusicPosition } from './SongPlayer'
 export type { Cue, CueInfo } from '../player/cues'
 export { unpackSongBundle, type SongBundle } from '../persist/songBundle'
 export type { SongFile, SongMeta } from '../persist/serialize'

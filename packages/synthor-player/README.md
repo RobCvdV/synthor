@@ -36,7 +36,11 @@ music.noteOn('Lead', 72); music.noteOff('Lead', 72)  // stingers on song instrum
 music.setTempo(140)                       // live change; the next load resets it
 music.setVolume(0.8)
 music.onCue((cue) => console.log('now playing', cue))
-music.onRow(({ cue, row }) => { /* sync visuals to the beat */ })
+music.onRow(({ cue, row }) => { /* every row change, a few ms late */ })
+
+// Animations in time with the music: read the position every frame.
+const pos = music.position()              // { cue, row, beat, beatPhase, beatInBar, bar, barPhase } or null
+const wait = music.timeUntil('beat')      // seconds until the next beat is heard
 music.stop()
 ```
 
@@ -50,5 +54,8 @@ music.stop()
   are smoothed, so they don't click.
 - **Stingers** play through the instrument's tracker slots, so the instrument
   needs at least one track in the song.
+- **The music clock** follows what is *heard*: row events pin down where row
+  boundaries fall (within ~5 ms after a few seconds), and output latency is
+  taken off. `beatsPerBar` (option, default 4) sets the bars.
 - **Shared audio**: pass `audioContext` (and optionally `destination`) to play
   through a game engine's context, e.g. Phaser's `game.sound.context`.

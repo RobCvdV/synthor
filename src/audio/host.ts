@@ -311,6 +311,16 @@ export class AudioHost {
     return this.ctx?.currentTime ?? 0
   }
 
+  /** The audio time reaching the speakers at `perfNow` (a `performance.now()` time) —
+   *  what visuals in time with the music should follow, not the render clock. */
+  outputTime(perfNow = performance.now()): number {
+    const ctx = this.ctx
+    if (!ctx) return 0
+    const ts = ctx.getOutputTimestamp?.()
+    if (ts?.contextTime && ts.performanceTime) return ts.contextTime + (perfNow - ts.performanceTime) / 1000
+    return ctx.currentTime - (ctx.outputLatency || ctx.baseLatency || 0)
+  }
+
   /** Milliseconds the output stream has been flowing — fresh contexts need
    *  a settling window before the first sound lands cleanly. */
   get outputAgeMs(): number {

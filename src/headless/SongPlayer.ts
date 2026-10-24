@@ -10,6 +10,7 @@ import {
 } from '../player/cues'
 import { unpackSongBundle } from '../persist/songBundle'
 import type { SongFile } from '../persist/serialize'
+import { clockRow, createClock, musicalTime, observeRow, setClockRate, type MusicalTime, type SongClock } from '../player/songClock'
 import { rowHz } from '../domain/notes'
 import { DEFAULT_TEMPO, type Doc, type Id, type Instrument } from '../domain/types'
 
@@ -29,6 +30,14 @@ export interface SongPlayerOptions {
   destination?: AudioNode
   /** Output gain, 0..1+. */
   volume?: number
+  /** For bars in `position()`; default 4. */
+  beatsPerBar?: number
+}
+
+/** Where the music is, as heard: the cue, its (fractional) row, beats and bars. */
+export interface MusicPosition extends MusicalTime {
+  cue: Cue
+  rowsPerSecond: number
 }
 
 export interface RowEvent {
@@ -77,6 +86,10 @@ export class SongPlayer {
 
   private bpm: number
   private linesPerBeat: number
+  private beatsPerBar: number
+  private clock: SongClock = createClock(1)
+  /** The cue (and its length) the latest row event belongs to. */
+  private clockCue: { cue: Cue; length: number } | null = null
   private volume: number
   private muted = new Set<number>()
   private levels = new Map<Id, number>()
@@ -87,6 +100,7 @@ export class SongPlayer {
   constructor(options: SongPlayerOptions = {}) {
     this.bpm = DEFAULT_TEMPO.bpm
     this.linesPerBeat = DEFAULT_TEMPO.linesPerBeat
+    this.beatsPerBar = options.beatsPerBar ?? 4
     this.volume = options.volume ?? 1
     this.host = new AudioHost({
       // noteOn guards on a loaded doc before live notes ever read it.
@@ -136,6 +150,8 @@ export class SongPlayer {
     this.queued = null
     this.current = { cue: target, data }
     this.lastRow = 0
+    this.clock = createClock(this.rowsPerSec)
+    this.clockCue = null
     this.playing = true
     this.host.paramRefs.setValue('transport:playing', 1)
     this.applyMutes()
@@ -211,6 +227,27 @@ export class SongPlayer {
     this.linesPerBeat = linesPerBeat
     this.host.paramRefs.setValue('transport:rowHz', this.rowsPerSec)
     this.host.setTxSeqProps({ rowsPerSec: this.rowsPerSec })
+    this.clock = setClockRate(this.clock, this.rowsPerSec, this.host.currentTime)
+  }
+
+  /**
+   * Where the music is as heard at `perfNow` (a `performance.now()` time) — read it every
+   * frame for animations in time with the music. Null while stopped or before the first row.
+   */
+  position(perfNow = performance.now()): MusicPosition | null {
+    const at = this.clockCue
+    const row = at && this.playing ? clockRow(this.clock, this.host.outputTime(perfNow)) : null
+    if (row === null || !at) return null
+    const wrapped = ((row % at.length) + at.length) % at.length
+    return { cue: at.cue, rowsPerSecond: this.rowsPerSec, ...musicalTime(wrapped, this.linesPerBeat, this.beatsPerBar) }
+  }
+
+  /** Seconds, as heard, until the next row / beat / bar starts — to land an animation on it. */
+  timeUntil(unit: 'row' | 'beat' | 'bar', perfNow = performance.now()): number | null {
+    const pos = this.position(perfNow)
+    if (!pos) return null
+    const size = unit === 'row' ? 1 : unit === 'beat' ? this.linesPerBeat : this.linesPerBeat * this.beatsPerBar
+    return (size - (pos.row % size)) / pos.rowsPerSecond
   }
 
   /** Play a note on a song instrument over the music (stingers). The instrument needs a track in the song. */
@@ -377,7 +414,7 @@ export class SongPlayer {
     const current = this.current
     if (!current) return
     if (!t) {
-      this.emitRow(current.cue, row)
+      this.emitRow(current.cue, row, current.data.totalRows)
       return
     }
 
@@ -398,10 +435,13 @@ export class SongPlayer {
       this.queued = null
       if (next) void this.cue(next.cue, next.timing)
     }
-    this.emitRow(step.sounding === 'from' ? current.cue : t.cue, step.row)
+    if (step.sounding === 'from') this.emitRow(current.cue, step.row, current.data.totalRows)
+    else this.emitRow(t.cue, step.row, t.target.totalRows)
   }
 
-  private emitRow(cue: Cue, row: number): void {
+  private emitRow(cue: Cue, row: number, length: number): void {
+    this.clock = observeRow(this.clock, row, this.host.currentTime)
+    this.clockCue = { cue, length }
     for (const l of this.rowListeners) l({ cue, row })
   }
 
