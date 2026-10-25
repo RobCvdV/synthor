@@ -5,12 +5,12 @@ import { compileGraph, getInstGain } from '../engine/compile'
 import { buildPlaybackData, type PlaybackData } from '../player/playbackData'
 import { buildTxSeqData } from '../player/txSeqData'
 import {
-  listCues, nextBoundary, planTransition, resolveCue, stepTransition, trackMuteValues,
-  type Cue, type CueInfo, type CueTransition, type TransitionStage,
+  listCues, nodeView, planTransition, resolveCue, stepTransition, switchRow, trackMuteValues,
+  type Cue, type CueInfo, type RunningTransition,
 } from '../player/cues'
 import { unpackSongBundle } from '../persist/songBundle'
 import type { SongFile } from '../persist/serialize'
-import { clockRow, createClock, musicalTime, observeRow, setClockRate, type MusicalTime, type SongClock } from '../player/songClock'
+import { clockRow, createClock, musicalTime, observeRow, sendDelay, setClockRate, type MusicalTime, type SongClock } from '../player/songClock'
 import { rowHz } from '../domain/notes'
 import { DEFAULT_TEMPO, type Doc, type Id, type Instrument } from '../domain/types'
 
@@ -20,8 +20,25 @@ import { DEFAULT_TEMPO, type Doc, type Id, type Instrument } from '../domain/typ
  *   'sync' — swap at once, keeping the row position (layered variations of equal length).
  *   'end'  — when the current loop finishes.
  *   { every: n } — on the next n-row boundary (n = rows per bar for bar-quantized changes).
+ * Boundaries count from the top of the cue sounding when the switch lands, so
+ * a cue asked for mid hand-over follows the cue that is taking over.
  */
 export type CueTiming = 'now' | 'sync' | 'end' | { every: number }
+
+/** One step of `queue()`: a cue and when it takes over from the step before. */
+export interface CueStep {
+  cue: Cue
+  timing?: CueTiming
+}
+
+export interface NoteTiming {
+  /** Heard on the next row / beat / bar (default 'now'), plus `delayRows` more rows. */
+  at?: 'now' | 'row' | 'beat' | 'bar'
+  delayRows?: number
+  /** Held for this many rows (default 1). */
+  rows?: number
+  velocity?: number
+}
 
 export interface SongPlayerOptions {
   /** Share an existing context (e.g. the game engine's) instead of creating one. */
@@ -47,11 +64,12 @@ export interface RowEvent {
   row: number
 }
 
-interface Transition extends CueTransition {
+interface Transition extends RunningTransition {
   cue: Cue
-  stage: TransitionStage
   /** The stage's upload has reached the node; row events now describe it. */
   landed: boolean
+  /** The target is sent; until it lands the node still plays the settle data. */
+  finishing: boolean
 }
 
 /** Seconds a cue switch is scheduled ahead, covering event and upload latency. */
@@ -81,7 +99,9 @@ export class SongPlayer {
   private request = 0
   private current: { cue: Cue; data: PlaybackData } | null = null
   private transition: Transition | null = null
-  private queued: { cue: Cue; timing: CueTiming } | null = null
+  /** Steps of `queue()` still to come; the head is asked for once the step before sounds. */
+  private steps: CueStep[] = []
+  private noteTimers = new Set<ReturnType<typeof setTimeout>>()
   private lastRow = 0
 
   private bpm: number
@@ -134,7 +154,12 @@ export class SongPlayer {
   }
 
   /** Play `cue` from its top (default: the whole song, or the open pattern without sections). */
-  async play(cue?: Cue): Promise<void> {
+  play(cue?: Cue): Promise<void> {
+    this.steps = []
+    return this.restart(cue)
+  }
+
+  private async restart(cue?: Cue): Promise<void> {
     const doc = this.requireDoc()
     const req = ++this.request
     await this.prepare()
@@ -147,7 +172,6 @@ export class SongPlayer {
 
     this.session++
     this.transition = null
-    this.queued = null
     this.current = { cue: target, data }
     this.lastRow = 0
     this.clock = createClock(this.rowsPerSec)
@@ -159,27 +183,50 @@ export class SongPlayer {
     this.emitCue(target)
   }
 
-  /** Move to `cue`; while stopped this is play(cue). See CueTiming. */
+  /**
+   * Move to `cue`; while stopped this is play(cue). See CueTiming. A cue asked
+   * for during a hand-over replaces the one not yet sounding, or follows the
+   * one taking over. Drops what is left of a `queue()`.
+   */
   cue(cue: Cue, timing: CueTiming = 'end'): Promise<void> {
-    if (!this.playing || !this.current || timing === 'now') return this.play(cue)
+    this.steps = []
+    return this.switchTo(cue, timing)
+  }
+
+  /**
+   * Play cues one after another: each step is asked for once the step before
+   * starts sounding, so its timing counts from that cue's top — e.g. a fill
+   * then the stage back: `[{ cue: 'fill', timing: { every: 16 } }, { cue: 'stage', timing: 'end' }]`.
+   */
+  queue(steps: CueStep[]): Promise<void> {
+    const [first, ...rest] = steps
+    this.steps = rest
+    return first ? this.switchTo(first.cue, first.timing ?? 'end') : Promise.resolve()
+  }
+
+  private switchTo(cue: Cue, timing: CueTiming): Promise<void> {
+    if (!this.playing || !this.current || timing === 'now') return this.restart(cue)
     const data = this.dataFor(cue)
-    if (this.transition) {
-      // One hand-over at a time; the latest request follows the running one.
-      this.queued = { cue, timing }
-      return Promise.resolve()
-    }
-    if (timing === 'sync') {
+    const running = this.transition
+    if (timing === 'sync' && !running) {
       this.current = { cue, data }
       this.applyMutes()
       this.emitCue(cue)
       return this.upload(data, 'update')
     }
 
-    const from = this.current.data
-    const quantum = timing === 'end' ? from.totalRows : timing.every
+    const view = nodeView(this.current.data, running, this.lastRow)
+    if (running && running.cue !== this.current.cue && !(running.stage === 'bridge' && this.lastRow < running.at)) {
+      // Its cue already sounds, but the switch away lands before it settled.
+      this.current = { cue: running.cue, data: running.target }
+      this.applyMutes()
+      this.emitCue(running.cue)
+    }
+    // Mid hand-over the node's rows aren't the cue's, so 'sync' switches on the next row instead.
+    const quantum = timing === 'end' ? view.length : timing === 'sync' ? 1 : timing.every
     const margin = Math.ceil(this.rowsPerSec * SWITCH_LEAD_S) + 1
-    const plan = planTransition(from, data, nextBoundary(this.lastRow, from.totalRows, quantum, margin))
-    const transition: Transition = { ...plan, cue, stage: 'bridge', landed: false }
+    const plan = planTransition(view.data, data, switchRow(view, this.lastRow, quantum, margin), view)
+    const transition: Transition = { ...plan, cue, stage: 'bridge', landed: false, finishing: false }
     this.transition = transition
     return this.upload(plan.bridge, 'update').then(() => { transition.landed = true })
   }
@@ -187,10 +234,12 @@ export class SongPlayer {
   /** Stop the sequence; release tails ring out. */
   stop(): void {
     this.request++
+    this.steps = []
+    for (const timer of this.noteTimers) clearTimeout(timer)
+    this.noteTimers.clear()
     if (!this.playing) return
     this.playing = false
     this.transition = null
-    this.queued = null
     this.host.paramRefs.setValue('transport:playing', 0)
     this.host.setTxSeqProps({ cmd: { type: 'stop', sessionId: this.session } })
   }
@@ -256,6 +305,26 @@ export class SongPlayer {
     if (inst && this.host.isReady) this.host.live.noteOn(inst.id, note, velocity)
   }
 
+  /**
+   * A stinger note in time with the music: heard on the next row / beat / bar
+   * (sent ahead by the output latency) and released after `rows`. Played at
+   * once while stopped. Pending notes are dropped by stop().
+   */
+  playNote(instrument: string, note: number, timing: NoteTiming = {}): void {
+    const { at = 'now', delayRows = 0, rows = 1, velocity = 127 } = timing
+    const rowS = 1 / this.rowsPerSec
+    const until = at === 'now' ? 0 : this.timeUntil(at)
+    const unitRows = at === 'beat' ? this.linesPerBeat : at === 'bar' ? this.linesPerBeat * this.beatsPerBar : 1
+    const latency = Math.max(0, this.host.currentTime - this.host.outputTime())
+    const delay = until === null
+      ? delayRows * rowS
+      : sendDelay(until + delayRows * rowS, at === 'now' ? 0 : latency, at === 'now' ? 0 : unitRows * rowS)
+    this.later(delay, () => {
+      this.noteOn(instrument, note, velocity)
+      this.later(rows * rowS, () => this.noteOff(instrument, note))
+    })
+  }
+
   noteOff(instrument: string, note: number): void {
     const inst = this.findInstrument(instrument)
     if (inst && this.host.isReady) this.host.live.noteOff(inst.id, note)
@@ -297,6 +366,15 @@ export class SongPlayer {
 
   private get rowsPerSec(): number {
     return rowHz(this.bpm, this.linesPerBeat)
+  }
+
+  private later(seconds: number, fn: () => void): void {
+    if (seconds <= 0) return fn()
+    const timer = setTimeout(() => {
+      this.noteTimers.delete(timer)
+      fn()
+    }, seconds * 1000)
+    this.noteTimers.add(timer)
   }
 
   private requireDoc(): Doc {
@@ -417,25 +495,27 @@ export class SongPlayer {
       this.emitRow(current.cue, row, current.data.totalRows)
       return
     }
+    if (t.finishing) {
+      this.emitRow(t.cue, row >= t.at ? row - t.at : row % t.target.totalRows, t.target.totalRows)
+      return
+    }
 
     const step = stepTransition(t, t.stage, t.landed, row)
     if (step.send === 'settle') {
       t.stage = 'settle'
       t.landed = false
+      // Upload before emitting: a queued step's bridge must follow the settle data.
+      void this.upload(t.settle, 'update').then(() => { t.landed = true })
       this.current = { cue: t.cue, data: t.target }
       this.applyMutes()
       this.emitCue(t.cue)
-      void this.upload(t.settle, 'update').then(() => { t.landed = true })
     } else if (step.send === 'target') {
-      this.transition = null
-      // Rows now index the target directly, so the next hand-over can plan from them.
-      this.lastRow = step.row
-      void this.upload(t.target, 'update')
-      const next = this.queued
-      this.queued = null
-      if (next) void this.cue(next.cue, next.timing)
+      t.finishing = true
+      void this.upload(t.target, 'update').then(() => {
+        if (this.transition === t) this.transition = null
+      })
     }
-    if (step.sounding === 'from') this.emitRow(current.cue, step.row, current.data.totalRows)
+    if (step.sounding === 'from') this.emitRow(current.cue, step.row, t.fromLength)
     else this.emitRow(t.cue, step.row, t.target.totalRows)
   }
 
@@ -447,5 +527,7 @@ export class SongPlayer {
 
   private emitCue(cue: Cue): void {
     for (const l of this.cueListeners) l(cue)
+    const next = this.steps.shift()
+    if (next) void this.switchTo(next.cue, next.timing ?? 'end')
   }
 }

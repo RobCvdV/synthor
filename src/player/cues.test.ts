@@ -4,8 +4,8 @@ import { createNode } from '@elemaudio/core'
 import { buildTxSeqData } from './txSeqData'
 import { buildPlaybackData, type PlaybackData } from './playbackData'
 import {
-  concatPlaybackData, listCues, nextBoundary, planTransition, resolveCue, stepTransition, tilePlaybackData, trackMuteValues,
-  type TransitionStage,
+  concatPlaybackData, listCues, nextBoundary, nodeView, planTransition, resolveCue, stepTransition, switchRow, tilePlaybackData,
+  trackMuteValues, type RunningTransition, type TransitionStage,
 } from './cues'
 import { newModularInstrument, newTrack } from '../domain/factory'
 import type { Doc, Id, Pattern, Track } from '../domain/types'
@@ -267,6 +267,121 @@ describe('hand-over on the txSeq node', () => {
       // …then `to` loops from its top.
       played.slice(firstB).forEach((v, i) => expect(v).toBe(200 + (i % lenB)))
       expect(played.length - firstB).toBeGreaterThan(lenB * 3)
+    })
+  }
+})
+
+describe('re-planning a running hand-over', () => {
+  // rows identified by freq: cue A = 100 + r, B = 200 + r, C = 300 + r
+  const ramp = (rows: number, base: number): PlaybackData => {
+    const signals = Array.from({ length: 11 }, () => new Array<number>(rows).fill(0))
+    signals[REGULAR_CH.freq] = Array.from({ length: rows }, (_, r) => base + r)
+    return { slots: [{ instId: 'i1', slotIndex: 0, signals, drumGateCount: 0 }], totalRows: rows, arrangement: [] }
+  }
+  const name = (f: number) => `${'?ABC'[Math.floor(f / 100)]}${f % 100}`
+
+  /**
+   * Plays rows like txSeq while driving hand-overs the way SongPlayer does:
+   * row events step the running one, `requests[i]` asks for a cue at row i
+   * (planned from the node's current view); uploads land `lag` rows later.
+   */
+  function play(start: PlaybackData, requests: Record<number, { to: PlaybackData; quantum: number }>, rows: number, lag: number, onCue?: (to: PlaybackData, i: number) => void) {
+    let data = start
+    let steady = start
+    let running: RunningTransition | null = null
+    let landed = false
+    const uploads: { data: PlaybackData; inRows: number; for: RunningTransition | null }[] = []
+    let pos = 0
+    const heard: string[] = []
+    for (let i = 0; i < rows; i++) {
+      for (const u of uploads) u.inRows--
+      while (uploads.length && uploads[0].inRows < 0) {
+        const u = uploads.shift()!
+        data = u.data
+        if (u.for && u.for === running) landed = true
+      }
+      heard.push(name(freqAt(data, pos)))
+      if (running) {
+        const step = stepTransition(running, running.stage, landed, pos)
+        if (step.send === 'settle') {
+          running.stage = 'settle'
+          landed = false
+          uploads.push({ data: running.settle, inRows: lag, for: running })
+          onCue?.(running.target, i)
+        } else if (step.send === 'target') {
+          steady = running.target
+          uploads.push({ data: running.target, inRows: lag, for: null })
+          running = null
+        }
+      }
+      const req = requests[i]
+      if (req) {
+        const view = nodeView(steady, running, pos)
+        const at = switchRow(view, pos, req.quantum, lag + 1)
+        running = { ...planTransition(view.data, req.to, at, view), stage: 'bridge' }
+        landed = false
+        uploads.push({ data: running.bridge, inRows: lag, for: running })
+      }
+      pos += 1
+      if (pos >= data.totalRows) pos -= data.totalRows
+    }
+    return heard
+  }
+
+  /** The runs of one cue in a row of heard rows: [cue, first row, count] */
+  const runs = (heard: string[]) => heard.reduce<[string, number, number][]>((acc, h) => {
+    const cue = h[0]
+    const row = Number(h.slice(1))
+    const last = acc[acc.length - 1]
+    if (last && last[0] === cue) last[2]++
+    else acc.push([cue, row, 1])
+    return acc
+  }, [])
+  /** Every cue's rows run on without gaps, wrapping at its length */
+  const contiguous = (heard: string[], lengths: Record<string, number>) => heard.every((h, i) => {
+    if (i === 0 || heard[i - 1][0] !== h[0]) return true
+    const prev = Number(heard[i - 1].slice(1))
+    return Number(h.slice(1)) === (prev + 1) % lengths[h[0]]
+  })
+
+  const A = ramp(8, 100)
+  const B = ramp(12, 200)
+  const C = ramp(4, 300)
+  const lengths = { A: 8, B: 12, C: 4 }
+
+  for (const lag of [0, 1, 2]) {
+    it(`a cue asked for while the last hand-over settles lands on the sounding cue's bar (lag ${lag})`, () => {
+      // B asked for at row 1 (on A's 4-row grid); C while B has only just begun
+      const heard = play(A, { 1: { to: B, quantum: 4 }, 9: { to: C, quantum: 4 } }, 40, lag)
+      const r = runs(heard)
+      expect(r.map(([c]) => c)).toEqual(['A', 'B', 'C'])
+      expect(r[1][1]).toBe(0) // B from its top
+      expect(r[1][2] % 4).toBe(0) // left on B's 4-row grid
+      expect(r[1][2]).toBeLessThan(12) // before B's loop ended
+      expect(r[2][1]).toBe(0)
+      expect(contiguous(heard, lengths)).toBe(true)
+    })
+
+    it(`a cue asked for before the last one sounded replaces it (lag ${lag})`, () => {
+      const heard = play(A, { 0: { to: B, quantum: 8 }, 2: { to: C, quantum: 4 } }, 24, lag)
+      const r = runs(heard)
+      expect(r.map(([c]) => c)).toEqual(['A', 'C'])
+      expect(r[0][2] % 4).toBe(0)
+      expect(contiguous(heard, lengths)).toBe(true)
+    })
+
+    it(`a fill plays once, then the stage comes back from its top (lag ${lag})`, () => {
+      const fill = C
+      const requests: Record<number, { to: PlaybackData; quantum: number }> = { 1: { to: fill, quantum: 4 } }
+      const heard = play(A, requests, 40, lag, (to, i) => {
+        // the fill starts sounding: ask for the stage back at the fill's end
+        if (to === fill) requests[i] = { to: A, quantum: fill.totalRows }
+      })
+      const r = runs(heard)
+      expect(r.map(([c]) => c)).toEqual(['A', 'C', 'A'])
+      expect(r[1]).toEqual(['C', 0, 4]) // the fill exactly once
+      expect(r[2][1]).toBe(0)
+      expect(contiguous(heard, lengths)).toBe(true)
     })
   }
 })

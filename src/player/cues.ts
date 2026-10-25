@@ -133,9 +133,21 @@ export interface CueTransition {
   bridge: PlaybackData
   settle: PlaybackData
   target: PlaybackData
+  /** Where `from`'s own rows start in the node's rows, and its length — for reporting its rows. */
+  fromStart: number
+  fromLength: number
 }
 
-export function planTransition(from: PlaybackData, to: PlaybackData, at: number): CueTransition {
+/**
+ * `from` is the data on the node (a plain cue, or a running hand-over's data);
+ * `fromView` says which rows of it the sounding cue occupies.
+ */
+export function planTransition(
+  from: PlaybackData,
+  to: PlaybackData,
+  at: number,
+  fromView: { start: number; length: number } = { start: 0, length: from.totalRows },
+): CueTransition {
   const cut = Math.max(1, Math.min(at, from.totalRows))
   const head = cut < from.totalRows ? slicePlaybackData(from, 0, cut - 1)! : from
   const { rowOffset: _drop, ...headData } = head
@@ -144,7 +156,45 @@ export function planTransition(from: PlaybackData, to: PlaybackData, at: number)
     bridge: concatPlaybackData(headData, to),
     settle: concatPlaybackData(tilePlaybackData(to, cut), to),
     target: to,
+    fromStart: fromView.start,
+    fromLength: fromView.length,
   }
+}
+
+/** What the node plays: its data, and where the sounding cue's rows sit in it. */
+export interface NodeView {
+  data: PlaybackData
+  /** Node row of the sounding cue's row 0 (cue row = (row − start) mod length). */
+  start: number
+  length: number
+  /** Latest node row a new switch may land on. */
+  limit: number
+}
+
+/** A running hand-over as the player tracks it. */
+export interface RunningTransition extends CueTransition {
+  stage: TransitionStage
+}
+
+/**
+ * The node's view at node row `row`, with `steady` the plain cue's data when
+ * no hand-over runs. Before `at` the old cue sounds and a new switch may not
+ * land later than `at`; from `at` on the hand-over's target does.
+ */
+export function nodeView(steady: PlaybackData, running: RunningTransition | null, row: number): NodeView {
+  if (!running) return { data: steady, start: 0, length: steady.totalRows, limit: steady.totalRows }
+  const { at, target } = running
+  if (running.stage === 'bridge' && row < at) {
+    return { data: running.bridge, start: running.fromStart, length: running.fromLength, limit: at }
+  }
+  return { data: running.settle, start: at, length: target.totalRows, limit: at + target.totalRows }
+}
+
+/** Node row where a switch on the sounding cue's `quantum`-row grid lands, `margin` rows ahead at least. */
+export function switchRow(view: NodeView, row: number, quantum: number, margin: number): number {
+  const cueRow = (((row - view.start) % view.length) + view.length) % view.length
+  const boundary = nextBoundary(cueRow, view.length, quantum, margin)
+  return Math.min(view.limit, row + (boundary - cueRow))
 }
 
 export type TransitionStage = 'bridge' | 'settle'
@@ -165,7 +215,9 @@ export interface TransitionStep {
  */
 export function stepTransition(plan: CueTransition, stage: TransitionStage, landed: boolean, row: number): TransitionStep {
   if (stage === 'bridge' && !(landed && row >= plan.at)) {
-    return row < plan.at ? { send: null, sounding: 'from', row } : { send: null, sounding: 'to', row: row - plan.at }
+    if (row >= plan.at) return { send: null, sounding: 'to', row: row - plan.at }
+    const fromRow = (((row - plan.fromStart) % plan.fromLength) + plan.fromLength) % plan.fromLength
+    return { send: null, sounding: 'from', row: fromRow }
   }
   const send = stage === 'bridge' ? 'settle' : landed && row < plan.at ? 'target' : null
   return { send, sounding: 'to', row: row >= plan.at ? row - plan.at : row % plan.target.totalRows }
