@@ -17,7 +17,7 @@ import type {
   Section,
   Track,
 } from './types'
-import { DEFAULT_EFFECT_SETTINGS, DEFAULT_LIVE_VOICES, MASTER_CHANNEL_ID } from './types'
+import { DEFAULT_EFFECT_SETTINGS, DEFAULT_LIVE_VOICES, DEFAULT_TEMPO, MASTER_CHANNEL_ID } from './types'
 import { defaultParams } from './moduleDefs'
 
 /**
@@ -309,6 +309,7 @@ export function createDefaultDoc(): Doc {
       mixChannels: { [MASTER_CHANNEL_ID]: master },
       mixerInstrumentOrder: [lead.id, kit.id],
     },
+    tempo: { ...DEFAULT_TEMPO },
     patternId: pattern.id,
     sectionIds: [section.id],
   }

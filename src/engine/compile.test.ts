@@ -45,6 +45,7 @@ function makeDoc(patterns: { id: Id; name: string; length: number }[]): {
     },
     patternId: patterns[0]?.id ?? '',
     sectionIds: [],
+    tempo: { bpm: 120, linesPerBeat: 4 },
   }
   return { doc, instIds, trackIds }
 }
@@ -70,6 +71,7 @@ describe('compileGraph', () => {
         mixChannels: { [MASTER_CHANNEL_ID]: master }, mixerInstrumentOrder: [] },
       patternId: 'nonexistent',
       sectionIds: [],
+      tempo: { bpm: 120, linesPerBeat: 4 },
     }
     const out = compileGraph(doc, defaultCtx())
     expect(out).toBeDefined()
@@ -84,6 +86,7 @@ describe('compileGraph', () => {
         mixChannels: { [MASTER_CHANNEL_ID]: master }, mixerInstrumentOrder: [] },
       patternId: 'empty',
       sectionIds: [],
+      tempo: { bpm: 120, linesPerBeat: 4 },
     }
     const out = compileGraph(doc, defaultCtx({ arrangement: [{ patternId: 'empty', startRow: 0 }] }))
     expect(out).toBeDefined()
@@ -215,6 +218,7 @@ function makeInstrumentsDoc(instrumentCount: number): Doc {
     },
     patternId: '',
     sectionIds: [],
+    tempo: { bpm: 120, linesPerBeat: 4 },
   }
 }
 
@@ -312,6 +316,7 @@ describe('compileLiveVoices', () => {
       },
       patternId: '',
       sectionIds: [],
+      tempo: { bpm: 120, linesPerBeat: 4 },
     }
     const refs = mockParamRefs()
     compileGraph(doc, defaultCtx({ paramRefs: refs as any, vfsLoadedHashes: new Set(['abc123']) }))

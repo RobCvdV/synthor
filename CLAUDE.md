@@ -24,6 +24,7 @@ Product intent and planned work live in `docs/` (`VISION`, `FEATURES`, `ROADMAP`
 | UI | `src/ui/` | Views, tracker grid, keymap, `useEngine` (store→host wiring) |
 | Persist | `src/persist/` | OPFS autosave/serialize, sample storage, export |
 | MIDI | `src/midi/` | `useMidi` Web MIDI |
+| Headless | `src/headless/` | `SongPlayer` — songs + game cues without React, stores or storage; built as `packages/synthor-player` |
 
 ## Where to change what
 
@@ -35,7 +36,8 @@ Chains are ordered; each hop is verified. Skipping the tail is how features half
 | New param on an existing module | `domain/moduleDefs.ts` `params` (the slider is automatic) → read it in that module's `engine/modular.ts` case via `kconst` (live ref). A param the graph is compiled from (a `Math.round(p.x)` branch, a node count) must be `structural: true`, or changing it does nothing until the next unrelated recompile |
 | New effect lane (tracker column) | `domain/effects.ts` (`BUILTIN_LANE_TYPES` + `LANE_DEFS`) → `engine/voiceSlotLayout.ts` channel counts → `player/playbackData.ts` (fill the channel + its neutral default) → `src/native/TxSeq.h`, only if it needs sub-row behaviour → `engine/compile.ts` (txSeq outlet read + apply) → `ui/tracker/TrackerGrid.tsx` column |
 | New persisted UI preference | `state/appStore.ts`: state + action + **`partialize`** — a key missing from `partialize` silently doesn't persist |
-| Transport / BPM / note timing | `state/transportStore.ts` + `player/` — must not cause a recompile |
+| Transport / note timing | `state/transportStore.ts` + `player/` — must not cause a recompile |
+| Tempo | `doc.tempo` (saved with the song) via `state/tempoOps.ts`; `useEngine`'s doc subscription pushes it to the `transport:rowHz` ref and the txSeq `rowsPerSec` — never a recompile |
 | New keyboard shortcut | `ui/useAppKeys.ts` (global + mixer), `ui/tracker/useTrackerKeys.ts` (tracker editing; cursor math in `tracker/trackerNav.ts`), or the view's own handler (`InstrumentsView`, `SampleLibraryView`, `ModularEditor`, `SampleEditor`). `ui/keymap.ts` is only the note layout |
 | Save / load / project format | `persist/serialize.ts`: bump `CURRENT_SCHEMA_VERSION` **and** add the `migrate` case. A new entity field also gets its default in `persist/completeDoc.ts`, which completes every loaded document (songs, library items, instrument files) and drops references that can't resolve |
 | Instrument files / instrument library | `domain/instrumentBundle.ts` (collect + insert with fresh ids) → `persist/instrumentFile.ts` (`.synthinst`, migrated like songs) → `persist/instrumentLibrary.ts` (`instruments/<id>/`) → `ui/instrumentActions.ts` → `ui/library/` dialogs. Song instruments keep `library` (category, tags, the library id they came from); bundles strip it and files/library items carry it as metadata, so set it again when inserting |
@@ -44,6 +46,7 @@ Chains are ordered; each hop is verified. Skipping the tail is how features half
 | Sample editor process (slider, heard while tuning) | pure DSP in `audio/sampleEdit.ts` / `audio/sampleProcess.ts` → a `LIVE_PROCESSES` entry in `ui/sampleEditor/liveProcesses.ts` → its `PROCESS_CHOICES` option in `EditorToolbar`. The panel, preview swap and audition come for free |
 | Sample import / edit / storage | `audio/sampleLoader.ts`, `audio/sampleEdit.ts` (pure edits + resampling), `audio/cycle.ts` (pitch detection, single cycles), `persist/sampleStorage.ts` (OPFS) |
 | Something should change audibly without a recompile | a `paramRefs` ref, not `compileGraph` |
+| Headless player API (games, embeds) | pure cue logic in `player/cues.ts` (+ its test, incl. the offline txSeq hand-over) → `headless/SongPlayer.ts` → export from `headless/index.ts`. The player must stay free of `state/`, `ui/` and storage-backed `persist/` modules — `npm run build:player` bundles whatever it imports |
 
 ## Why things exist
 
@@ -73,6 +76,9 @@ Chains are ordered; each hop is verified. Skipping the tail is how features half
 - **The host is inert until a user gesture** (autoplay policy) — synthetic/synthesized key events won't start the AudioContext.
 - **Samples are referenced by id** (`Module.sampleId`, `ChannelEffect.sampleId`, `DrumKitSlot.sampleId`), never by position in a sorted list — adding or renaming a sample must not repoint anything. Modules with a `samplePicker` in `MODULE_DEFS` get one.
 - **Section playback follows `appStore.currentStep`** (section + step index, resolved with `resolveStep`), never "the section containing `doc.patternId`" — playback rewrites `patternId`, and a pattern can sit in several sections or twice in one. Play-start rows are arrangement-global: use `playStartRow`.
+- **Live notes read their song through `LiveNoteContext`** (`AudioHost` options): the app passes its stores, `SongPlayer` its loaded doc. `audio/` must not import `state/`, or the headless build drags the stores in.
+- **The music clock is fitted, not polled:** `player/songClock.ts` estimates row boundaries from the times rows *change* in txseq events (they arrive late and whole), and `SongPlayer.position()` reads it at `AudioHost.outputTime` (what is heard). Don't interpolate from the last event alone — that is up to a row off.
+- **Cue hand-overs never restart the node:** `planTransition` stages bridge → settle → target `update`s, driven by row events through `stepTransition` (the node keeps its row across updates and reads data modulo its length). A restart (`play`) resets the row clock and is only for `'now'` cues.
 - **Elementary VFS keys are content hashes**; changing a conv/wave/sample module's `sampleId` is a structural change (forces recompile + VFS path change).
 
 ## Electron build (feature/electron-build)

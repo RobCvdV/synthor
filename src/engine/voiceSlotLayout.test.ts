@@ -32,6 +32,7 @@ function makeDoc(
     },
     patternId: Object.keys(patterns)[0] ?? 'no_pattern',
     sectionIds: [],
+    tempo: { bpm: 120, linesPerBeat: 4 },
   }
 }
 

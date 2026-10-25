@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { TempoControl } from './TempoControl'
 import { resetStores } from './test/testUtils'
-import { useTransportStore } from '../state/transportStore'
+import { useDocStore } from '../state/docStore'
 
 function typeBpm(text: string) {
   fireEvent.doubleClick(screen.getByText('120'))
@@ -18,13 +18,20 @@ describe('TempoControl', () => {
   it('sets a typed tempo', () => {
     render(<TempoControl />)
     typeBpm('96')
-    expect(useTransportStore.getState().bpm).toBe(96)
+    expect(useDocStore.getState().doc.tempo.bpm).toBe(96)
+  })
+
+  it('makes a tempo change one undoable edit', () => {
+    render(<TempoControl />)
+    typeBpm('96')
+    useDocStore.getState().undo()
+    expect(useDocStore.getState().doc.tempo.bpm).toBe(120)
   })
 
   it('ignores a tempo outside 20–300', () => {
     render(<TempoControl />)
     typeBpm('500')
-    expect(useTransportStore.getState().bpm).toBe(120)
+    expect(useDocStore.getState().doc.tempo.bpm).toBe(120)
   })
 
   it('sets the tempo from taps', () => {
@@ -34,7 +41,7 @@ describe('TempoControl', () => {
       now.mockReturnValue(t)
       fireEvent.click(screen.getByText('TAP'))
     }
-    expect(useTransportStore.getState().bpm).toBe(150)
+    expect(useDocStore.getState().doc.tempo.bpm).toBe(150)
     now.mockRestore()
   })
 })

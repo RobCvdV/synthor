@@ -79,7 +79,7 @@ function buildForSong(doc: Doc): ArrangementItem[] {
 }
 
 /** Every step of the given sections, with cumulative offsets. Skips stale pattern references. */
-function flattenSteps(doc: Doc, sectionIds: Id[]): ArrangementItem[] {
+export function flattenSteps(doc: Doc, sectionIds: Id[]): ArrangementItem[] {
   const items: ArrangementItem[] = []
   let offset = 0
   for (const sectionId of sectionIds) {

@@ -5,8 +5,6 @@ import { useTransportStore } from './transportStore'
 function resetStore() {
   useTransportStore.setState({
     playing: false,
-    bpm: 120,
-    linesPerBeat: 4,
     startTime: 0,
     startRow: 0,
     playEpoch: 0,
@@ -61,17 +59,6 @@ describe('transportStore', () => {
     expect(useTransportStore.getState().startRow).toBe(0)
   })
 
-  /* ---- bpm ---- */
-
-  it('defaults to 120 BPM', () => {
-    expect(useTransportStore.getState().bpm).toBe(120)
-  })
-
-  it('setBpm() updates the tempo', () => {
-    useTransportStore.getState().setBpm(140)
-    expect(useTransportStore.getState().bpm).toBe(140)
-  })
-
   /* ---- playEpoch isolation ---- */
 
   it('each play() call increments playEpoch', () => {
@@ -81,11 +68,5 @@ describe('transportStore', () => {
     useTransportStore.getState().stop()
     useTransportStore.getState().play(2)
     expect(useTransportStore.getState().playEpoch).toBe(e1 + 1)
-  })
-
-  /* ---- lines per beat ---- */
-
-  it('defaults to 4 lines per beat (16th notes)', () => {
-    expect(useTransportStore.getState().linesPerBeat).toBe(4)
   })
 })
