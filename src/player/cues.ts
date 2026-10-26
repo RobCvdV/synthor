@@ -63,6 +63,19 @@ export function trackMuteValues(
   isMuted: (trackNumber: number) => boolean,
   winningPatternId?: Id,
 ): [key: string, value: number][] {
+  return trackLevelValues(doc, (n) => (isMuted(n) ? 0 : 1), winningPatternId)
+}
+
+/**
+ * Slot gain values (the smoothed mute refs, 0..1) for Track #s (1-based)
+ * across every pattern; `only` limits them to those Track #s.
+ */
+export function trackLevelValues(
+  doc: Doc,
+  levelOf: (trackNumber: number) => number,
+  winningPatternId?: Id,
+  only?: ReadonlySet<number>,
+): [key: string, value: number][] {
   const out: [string, number][] = []
   const patterns = Object.values(doc.entities.patterns).sort(
     (a, b) => (a.id === winningPatternId ? 1 : 0) - (b.id === winningPatternId ? 1 : 0),
@@ -72,8 +85,8 @@ export function trackMuteValues(
     pattern.trackIds.forEach((trackId, ti) => {
       const si = trackToSlot.get(trackId)
       const track = doc.entities.tracks[trackId]
-      if (si === undefined || !track) return
-      out.push([`tracker:${track.instrumentId}:ts:${si}:mute`, isMuted(ti + 1) ? 0 : 1])
+      if (si === undefined || !track || (only && !only.has(ti + 1))) return
+      out.push([`tracker:${track.instrumentId}:ts:${si}:mute`, levelOf(ti + 1)])
     })
   }
   return out

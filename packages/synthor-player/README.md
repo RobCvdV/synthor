@@ -36,6 +36,7 @@ music.queue([                              // each step once the one before soun
 ])                                         //   have been had it played on (else from its top)
 
 music.setTrackMuted(3, true)              // layering: Track #3 in every pattern
+music.setTrackLevel(10, 0, 4)             // fade Track #10 out over 4 s (and back in with 1)
 music.setInstrumentLevel('Drums', 0.5)    // instrument by name or id
 music.noteOn('Lead', 72); music.noteOff('Lead', 72)  // stingers on song instruments
 music.playNote('Lead', 76, { at: 'beat', delayRows: 1, rows: 2 })  // heard on the beat (±a few ms)

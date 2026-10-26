@@ -6,7 +6,7 @@ import { buildPlaybackData, type PlaybackData } from '../player/playbackData'
 import { buildTxSeqData } from '../player/txSeqData'
 import {
   listCues, mustWaitForWrap, nodeView, planTransition, resolveCue, resumeRow, rotatePlaybackData, rowsPlayed,
-  stepTransition, switchRow, trackMuteValues, type Cue, type CueInfo, type RunningTransition,
+  stepTransition, switchRow, trackLevelValues, type Cue, type CueInfo, type RunningTransition,
 } from '../player/cues'
 import { unpackSongBundle } from '../persist/songBundle'
 import type { SongFile } from '../persist/serialize'
@@ -79,6 +79,9 @@ interface Transition extends RunningTransition {
   finishing: boolean
 }
 
+/** How often a fade steps (the mute refs smooth each step over 20 ms). */
+const FADE_STEP_MS = 30
+
 /** Seconds a cue switch is scheduled ahead, covering event and upload latency. */
 const SWITCH_LEAD_S = 0.1
 
@@ -127,6 +130,10 @@ export class SongPlayer {
   private volume: number
   private muted = new Set<number>()
   private levels = new Map<Id, number>()
+  /** Track # levels (0..1) for fades; 1 when absent */
+  private trackLevels = new Map<number, number>()
+  private fades = new Map<number, { from: number; to: number; start: number; ms: number }>()
+  private fadeTimer: ReturnType<typeof setInterval> | null = null
 
   private rowListeners = new Set<(e: RowEvent) => void>()
   private cueListeners = new Set<(cue: Cue) => void>()
@@ -156,6 +163,8 @@ export class SongPlayer {
     this.samples = bundle.samples
     this.current = null
     this.levels.clear()
+    this.trackLevels.clear()
+    this.fades.clear()
     this.dataCache.clear()
     this.prepared = null
     if (this.host.isReady) await this.prepare()
@@ -301,6 +310,42 @@ export class SongPlayer {
   setMutedTracks(trackNumbers: Iterable<number>): void {
     this.muted = new Set(trackNumbers)
     this.applyMutes()
+  }
+
+  /**
+   * A Track #'s level (0..1, in every pattern), faded over `fadeSeconds` — to
+   * build a part up or down by layers. A muted track stays silent.
+   */
+  setTrackLevel(trackNumber: number, level: number, fadeSeconds = 0): void {
+    const from = this.trackLevel(trackNumber)
+    if (fadeSeconds <= 0 || from === level) {
+      this.fades.delete(trackNumber)
+      this.trackLevels.set(trackNumber, level)
+      this.applyMutes(new Set([trackNumber]))
+      return
+    }
+    this.fades.set(trackNumber, { from, to: level, start: performance.now(), ms: fadeSeconds * 1000 })
+    this.fadeTimer ??= setInterval(() => this.stepFades(), FADE_STEP_MS)
+  }
+
+  /** A Track #'s level now (mid-fade too). */
+  trackLevel(trackNumber: number): number {
+    return this.trackLevels.get(trackNumber) ?? 1
+  }
+
+  private stepFades(): void {
+    const now = performance.now()
+    const stepping = new Set(this.fades.keys())
+    for (const [n, f] of this.fades) {
+      const t = Math.min(1, (now - f.start) / f.ms)
+      this.trackLevels.set(n, f.from + (f.to - f.from) * t)
+      if (t >= 1) this.fades.delete(n)
+    }
+    this.applyMutes(stepping)
+    if (this.fades.size === 0 && this.fadeTimer) {
+      clearInterval(this.fadeTimer)
+      this.fadeTimer = null
+    }
   }
 
   /** Scale an instrument (by name or id) against its own gain: 0 silences it, 1 is as mixed. */
@@ -489,10 +534,12 @@ export class SongPlayer {
     this.applyMutes()
   }
 
-  private applyMutes(): void {
+  /** The tracks' gains: mutes and levels (`only`: just these Track #s). */
+  private applyMutes(only?: ReadonlySet<number>): void {
     if (!this.doc || !this.host.isReady) return
     const winner = this.current?.data.arrangement[0]?.patternId
-    for (const [key, value] of trackMuteValues(this.doc, (n) => this.muted.has(n), winner)) {
+    const level = (n: number) => (this.muted.has(n) ? 0 : this.trackLevel(n))
+    for (const [key, value] of trackLevelValues(this.doc, level, winner, only)) {
       this.host.paramRefs.setValue(key, value)
     }
   }
