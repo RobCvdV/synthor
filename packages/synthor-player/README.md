@@ -29,10 +29,16 @@ music.cue('danger', 'end')                // when the current loop finishes
 music.cue('danger', { every: 16 })        // on the next 16-row boundary (a bar)
 music.cue('danger-alt', 'sync')           // swap now, keeping the position
 music.cue('game-over', 'now')             // restart on the new cue
+// A cue asked for mid hand-over replaces the one not yet heard, or follows the one taking over.
+music.queue([                              // each step once the one before sounds:
+  { cue: 'fill', timing: { every: 16 } },  //   a fill on the next bar,
+  { cue: 'stage', timing: 'end' },         //   then the stage back when it ends
+])
 
 music.setTrackMuted(3, true)              // layering: Track #3 in every pattern
 music.setInstrumentLevel('Drums', 0.5)    // instrument by name or id
 music.noteOn('Lead', 72); music.noteOff('Lead', 72)  // stingers on song instruments
+music.playNote('Lead', 76, { at: 'beat', delayRows: 1, rows: 2 })  // heard on the beat (±a few ms)
 music.setTempo(140)                       // live change; the next load resets it
 music.setVolume(0.8)
 music.onCue((cue) => console.log('now playing', cue))

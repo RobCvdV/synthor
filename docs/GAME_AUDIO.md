@@ -48,11 +48,17 @@
   8th; player feedback (swap, select) is never delayed.
 
 ### 3. Conductor API (JS, on today's cue hand-over)
-- `player.queue([{ cue: 'fill-a' }, { cue: 'stage2' }], { at: 'bar' })`: play a
-  fill once, then move on — the hand-over already splices parts in a row.
+- ~~Re-planned hand-overs~~ — done: a cue asked for mid hand-over replaces the
+  one not yet heard, or lands on the grid of the one taking over
+  (`nodeView` / `switchRow` in `player/cues.ts`) instead of waiting out its loop.
+- ~~Queue~~ — done: `player.queue([{ cue: 'fill', timing: { every: 16 } },
+  { cue: 'stage', timing: 'end' }])` asks for each step once the one before
+  sounds, so a fill plays once and the stage comes back from its top.
+- ~~Timed stingers~~ — done: `player.playNote(instrument, note, { at: 'beat',
+  delayRows, rows, velocity })`, sent ahead by the output latency (±10 ms until
+  phase 4).
 - Chord changes: transpose tracks or swap harmony tracks at the next bar
   (pitch is baked into the upload: rebuild + hand-over).
-- Accents: live notes scheduled by the clock (±10 ms until phase 4).
 
 ### 4. Sequencer extension (C++ `TxSeq`, one wasm rebuild)
 - Timed command queue on the audio thread: `{ at: row (+ offset), cmd }` for

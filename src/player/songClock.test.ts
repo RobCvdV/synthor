@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { clockRow, createClock, musicalTime, observeRow, setClockRate, type SongClock } from './songClock'
+import { clockRow, createClock, musicalTime, observeRow, sendDelay, setClockRate, type SongClock } from './songClock'
 
 const BLOCK_S = 512 / 44100 // txSeq emits every 4 blocks of 128 frames
 
@@ -79,5 +79,20 @@ describe('songClock', () => {
 describe('musicalTime', () => {
   it('splits a row into beats and bars', () => {
     expect(musicalTime(22, 4, 4)).toEqual({ row: 22, beat: 5.5, beatPhase: 0.5, beatInBar: 1, bar: 1, barPhase: 0.375 })
+  })
+})
+
+describe('sendDelay', () => {
+  it('sends ahead of the next grid point by the latency', () => {
+    expect(sendDelay(0.3, 0.05, 0.5)).toBeCloseTo(0.25, 9)
+  })
+
+  it('moves on to the next reachable point when this one is too close', () => {
+    expect(sendDelay(0.02, 0.05, 0.5)).toBeCloseTo(0.47, 9)
+    expect(sendDelay(0.02, 0.6, 0.25)).toBeCloseTo(0.17, 9)
+  })
+
+  it('sends at once without a grid', () => {
+    expect(sendDelay(0.02, 0.05, 0)).toBe(0)
   })
 })

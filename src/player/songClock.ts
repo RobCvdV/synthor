@@ -83,3 +83,15 @@ export function musicalTime(row: number, linesPerBeat: number, beatsPerBar: numb
     barPhase: bars - Math.floor(bars),
   }
 }
+
+/**
+ * Seconds to wait before sending a note so it is heard on the next grid
+ * point: `until` (s, as heard) to the next one, `latency` (s) from sending to
+ * hearing, `period` (s) between grid points. A point closer than the latency
+ * is missed, so the note goes to the first one still reachable.
+ */
+export function sendDelay(until: number, latency: number, period: number): number {
+  let d = until - latency
+  if (period > 0) while (d < 0) d += period
+  return Math.max(0, d)
+}
