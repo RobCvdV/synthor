@@ -5,6 +5,31 @@
 > (`RobCvdV/zwap-phaser-react`), which plays songs through the headless
 > `SongPlayer` (`src/headless/`, built as `packages/synthor-player`).
 
+## Status
+
+The player side of phases 1–3 is built; Zwap conducts a song with it. How
+Zwap uses it (sections, a DJ that plays with each section, energy, stingers,
+beat-synced visuals), the score's contract and the **current backlog** are in
+Zwap's [`docs/MUSIC.md`](https://github.com/RobCvdV/zwap-phaser-react/blob/main/docs/MUSIC.md).
+The open items for this repo are marked below: sound-effect instruments and a
+cost benchmark (phase 1), chord changes (phase 3), the C++ sequencer work
+(phase 4) and the Game Studio (phase 5).
+
+**`SongPlayer` API** (see `packages/synthor-player/README.md`): `load`,
+`start`, `play(cue)`, `cue(cue, timing)` (`'now' | 'sync' | 'end' | { every }`),
+`queue(steps)` with `resume`, `setTrackMuted` / `setMutedTracks`,
+`setTrackLevel(track, level, fadeSeconds)`, `setInstrumentLevel`, `setTempo`,
+`setVolume`, `noteOn` / `noteOff`, `playNote(instrument, note, { at, delayRows,
+rows, velocity })`, `position()`, `timeUntil('row' | 'beat' | 'bar')`,
+`onRow`, `onCue`. Cue logic is pure in `src/player/cues.ts` (hand-overs,
+re-planning, resume, track levels) and `src/player/songClock.ts` (the music
+clock), both with tests.
+
+**Shipping a player change to Zwap**: `npm run build:player`, then copy
+`packages/synthor-player/dist/synthor-player.js`, `dist/types/` and `README.md`
+into Zwap's `vendor/synthor-player/` and write this repo's commit to its
+`SYNTHOR_COMMIT`.
+
 ## Decisions
 
 - **The audio thread keeps time, the game conducts.** The game decides *what*
@@ -29,7 +54,7 @@
 
 ## Phases
 
-### 1. Quick wins (JS)
+### 1. Quick wins (JS) — tempo done; sound-effect instruments and the benchmark open
 - ~~**Tempo in the song**~~ — done: `doc.tempo`, schema v17 (older songs load at
   120 / 4), undoable edits, the engine and `SongPlayer` read it.
 - **Sound-effect instruments**: the game declares `{ instrument: voices }`;
@@ -38,16 +63,17 @@
 - **Cost benchmark**: render a song offline in vitest and time it per
   instrument — a CPU budget per instrument for older phones.
 
-### 2. Music clock and beat sync (JS)
+### 2. Music clock and beat sync (JS) — done
 - ~~Music clock~~ — done: `player.position()` → `{ cue, row, beat, beatPhase,
   beatInBar, bar, barPhase }` as heard (`player/songClock.ts` fits row-event
   timing, `AudioHost.outputTime` takes off output latency);
   `player.timeUntil('row' | 'beat' | 'bar')`.
-- In the game: `onBeat` / `onBar` from the scene's update loop. Idle effects
-  read `beatPhase` per frame; decorative flourishes start on the next beat or
-  8th; player feedback (swap, select) is never delayed.
+- ~~In the game~~ — done in Zwap (`RhythmService`): `onBeat` / `onBar` from the
+  scene's update loop. Idle effects read `beatPhase` per frame; decorative
+  flourishes start on the next beat or 8th; player feedback (swap, select) is
+  never delayed.
 
-### 3. Conductor API (JS, on today's cue hand-over)
+### 3. Conductor API (JS, on today's cue hand-over) — done but chord changes
 - ~~Re-planned hand-overs~~ — done: a cue asked for mid hand-over replaces the
   one not yet heard, or lands on the grid of the one taking over
   (`nodeView` / `switchRow` in `player/cues.ts`) instead of waiting out its loop.
@@ -61,10 +87,16 @@
 - ~~Timed stingers~~ — done: `player.playNote(instrument, note, { at: 'beat',
   delayRows, rows, velocity })`, sent ahead by the output latency (±10 ms until
   phase 4).
+- ~~Track levels~~ — done: `player.setTrackLevel(track, level, fadeSeconds)`
+  fades a Track # through the (smoothed) slot mute refs, so a game builds a
+  section up and down by parts while it stays on.
+- ~~Conductor in the game~~ — done in Zwap: sections chosen by energy, a DJ
+  that plays with each section for minutes, fills, drops and stingers (see
+  Zwap's `docs/MUSIC.md`).
 - Chord changes: transpose tracks or swap harmony tracks at the next bar
   (pitch is baked into the upload: rebuild + hand-over).
 
-### 4. Sequencer extension (C++ `TxSeq`, one wasm rebuild)
+### 4. Sequencer extension (C++ `TxSeq`, one wasm rebuild) — open
 - Timed command queue on the audio thread: `{ at: row (+ offset), cmd }` for
   jump-to-data, note on/off, mute and param values. An exact `jumpAt` replaces
   the bridge / settle / target hand-over; accents become sample-accurate.
@@ -75,12 +107,17 @@
 - Needs emsdk 3.1.52 and `vendor/elementary` (see
   [NATIVE_SEQUENCER_NODE.md](./NATIVE_SEQUENCER_NODE.md)).
 
-### 5. Synthor Game Studio
+### 5. Synthor Game Studio — open
 - Buttons that simulate game events (stage up, danger, fill, accent) to
   audition the conductor while composing.
 - Export the stage / cue mapping as a config the game loads.
 
 ## Composing for Zwap
+
+> The ideas below shaped the score. What Zwap plays now — sections (calm,
+> stage1, interlude, pre, chorus, break) chosen by energy and played with by a
+> DJ, rather than one stage per level band — and the events still to wire up
+> are in Zwap's `docs/MUSIC.md`. The track roles still hold.
 
 ### Tools
 
