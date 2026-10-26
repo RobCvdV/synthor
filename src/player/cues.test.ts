@@ -5,7 +5,7 @@ import { buildTxSeqData } from './txSeqData'
 import { buildPlaybackData, type PlaybackData } from './playbackData'
 import {
   concatPlaybackData, listCues, mustWaitForWrap, nextBoundary, nodeView, planTransition, resolveCue, resumeRow, rotatePlaybackData, rowsPlayed,
-  stepTransition, switchRow, tilePlaybackData, trackMuteValues, type RunningTransition, type TransitionStage,
+  stepTransition, switchRow, tilePlaybackData, trackLevelValues, trackMuteValues, type RunningTransition, type TransitionStage,
 } from './cues'
 import { newModularInstrument, newTrack } from '../domain/factory'
 import type { Doc, Id, Pattern, Track } from '../domain/types'
@@ -130,6 +130,19 @@ describe('trackMuteValues', () => {
       ['tracker:inst_lead:ts:0:mute', 1], // a, track 1
       ['tracker:inst_lead:ts:1:mute', 0], // a, track 2
     ])
+  })
+
+  it('sets Track # levels for fades, only for the tracks asked', () => {
+    const a = rampPattern('a', 4, 40)
+    const a2 = newTrack('inst_lead', 4)
+    a2.id = 'trk_a2'
+    a.pattern.trackIds.push(a2.id)
+    const doc = makeDoc([a.track, a2], [a.pattern])
+    expect(trackLevelValues(doc, (n) => n / 4)).toEqual([
+      ['tracker:inst_lead:ts:0:mute', 0.25],
+      ['tracker:inst_lead:ts:1:mute', 0.5],
+    ])
+    expect(trackLevelValues(doc, () => 0.5, undefined, new Set([2]))).toEqual([['tracker:inst_lead:ts:1:mute', 0.5]])
   })
 })
 
