@@ -5,8 +5,8 @@ import { compileGraph, getInstGain } from '../engine/compile'
 import { buildPlaybackData, type PlaybackData } from '../player/playbackData'
 import { buildTxSeqData } from '../player/txSeqData'
 import {
-  listCues, nodeView, planTransition, resolveCue, stepTransition, switchRow, trackMuteValues,
-  type Cue, type CueInfo, type RunningTransition,
+  listCues, mustWaitForWrap, nodeView, planTransition, resolveCue, resumeRow, rotatePlaybackData, rowsPlayed,
+  stepTransition, switchRow, trackMuteValues, type Cue, type CueInfo, type RunningTransition,
 } from '../player/cues'
 import { unpackSongBundle } from '../persist/songBundle'
 import type { SongFile } from '../persist/serialize'
@@ -29,6 +29,11 @@ export type CueTiming = 'now' | 'sync' | 'end' | { every: number }
 export interface CueStep {
   cue: Cue
   timing?: CueTiming
+  /**
+   * Carry on where the cue would be had it kept playing since it was left
+   * (e.g. a stage after a fill or a detour), instead of from its top.
+   */
+  resume?: boolean
 }
 
 export interface NoteTiming {
@@ -66,6 +71,8 @@ export interface RowEvent {
 
 interface Transition extends RunningTransition {
   cue: Cue
+  /** Rows into the song where the switch lands. */
+  elapsedAt: number
   /** The stage's upload has reached the node; row events now describe it. */
   landed: boolean
   /** The target is sent; until it lands the node still plays the settle data. */
@@ -97,8 +104,15 @@ export class SongPlayer {
   private playing = false
   /** Bumped by every play/stop, so a play still warming up can tell it was superseded. */
   private request = 0
-  private current: { cue: Cue; data: PlaybackData } | null = null
+  /** The sounding cue; its data starts at its row `offset` when it carries on mid-way. */
+  private current: { cue: Cue; data: PlaybackData; offset: number } | null = null
   private transition: Transition | null = null
+  /** The sounding cue's timeline: rows into the song and its row when it started, its wraps since. */
+  private played = { startElapsed: 0, startRow: 0, loops: 0, lastRow: 0 }
+  /** Where each cue was left (its row, and rows into the song), for `resume`. */
+  private left = new Map<string, { row: number; elapsed: number }>()
+  /** A switch asked for just before the loop wraps, planned once it has. */
+  private deferred: { step: CueStep; done: () => void } | null = null
   /** Steps of `queue()` still to come; the head is asked for once the step before sounds. */
   private steps: CueStep[] = []
   private noteTimers = new Set<ReturnType<typeof setTimeout>>()
@@ -172,7 +186,10 @@ export class SongPlayer {
 
     this.session++
     this.transition = null
-    this.current = { cue: target, data }
+    this.current = { cue: target, data, offset: 0 }
+    this.played = { startElapsed: 0, startRow: 0, loops: 0, lastRow: 0 }
+    this.left.clear()
+    this.dropDeferred()
     this.lastRow = 0
     this.clock = createClock(this.rowsPerSec)
     this.clockCue = null
@@ -190,7 +207,7 @@ export class SongPlayer {
    */
   cue(cue: Cue, timing: CueTiming = 'end'): Promise<void> {
     this.steps = []
-    return this.switchTo(cue, timing)
+    return this.switchTo({ cue, timing })
   }
 
   /**
@@ -201,34 +218,62 @@ export class SongPlayer {
   queue(steps: CueStep[]): Promise<void> {
     const [first, ...rest] = steps
     this.steps = rest
-    return first ? this.switchTo(first.cue, first.timing ?? 'end') : Promise.resolve()
+    return first ? this.switchTo(first) : Promise.resolve()
   }
 
-  private switchTo(cue: Cue, timing: CueTiming): Promise<void> {
+  private switchTo(step: CueStep): Promise<void> {
+    const { cue, timing = 'end', resume = false } = step
+    this.dropDeferred()
     if (!this.playing || !this.current || timing === 'now') return this.restart(cue)
-    const data = this.dataFor(cue)
     const running = this.transition
     if (timing === 'sync' && !running) {
-      this.current = { cue, data }
+      const data = rotatePlaybackData(this.dataFor(cue), this.current.offset)
+      this.current = { cue, data, offset: this.current.offset }
       this.applyMutes()
       this.emitCue(cue)
       return this.upload(data, 'update')
     }
+    const margin = Math.ceil(this.rowsPerSec * SWITCH_LEAD_S) + 1
+    if (mustWaitForWrap(this.current.data, running, this.lastRow, margin)) {
+      return new Promise((done) => { this.deferred = { step, done } })
+    }
 
-    const view = nodeView(this.current.data, running, this.lastRow)
     if (running && running.cue !== this.current.cue && !(running.stage === 'bridge' && this.lastRow < running.at)) {
       // Its cue already sounds, but the switch away lands before it settled.
-      this.current = { cue: running.cue, data: running.target }
+      this.settleOn(running)
       this.applyMutes()
       this.emitCue(running.cue)
     }
+    const view = nodeView(this.current.data, running, this.lastRow, this.current.offset)
     // Mid hand-over the node's rows aren't the cue's, so 'sync' switches on the next row instead.
     const quantum = timing === 'end' ? view.length : timing === 'sync' ? 1 : timing.every
-    const margin = Math.ceil(this.rowsPerSec * SWITCH_LEAD_S) + 1
-    const plan = planTransition(view.data, data, switchRow(view, this.lastRow, quantum, margin), view)
-    const transition: Transition = { ...plan, cue, stage: 'bridge', landed: false, finishing: false }
+    const at = switchRow(view, this.lastRow, quantum, margin)
+
+    // where the sounding cue is left, and where `cue` carries on
+    const n = view.length
+    const leaveRow = (((this.lastRow - view.start) % n) + n) % n + (at - this.lastRow)
+    const { startElapsed, startRow, loops } = this.played
+    const elapsedAt = startElapsed + rowsPlayed(startRow, loops, leaveRow, n)
+    this.left.set(cueKey(this.current.cue), { row: leaveRow % n, elapsed: elapsedAt })
+    const data = this.dataFor(cue)
+    const back = resume ? this.left.get(cueKey(cue)) : undefined
+    const offset = back ? resumeRow(back.row, elapsedAt - back.elapsed, data.totalRows) : 0
+
+    const plan = planTransition(view.data, rotatePlaybackData(data, offset), at, view, offset)
+    const transition: Transition = { ...plan, cue, elapsedAt, stage: 'bridge', landed: false, finishing: false }
     this.transition = transition
     return this.upload(plan.bridge, 'update').then(() => { transition.landed = true })
+  }
+
+  /** A hand-over's cue sounds: it is the current cue from here. */
+  private settleOn(t: Transition): void {
+    this.current = { cue: t.cue, data: t.target, offset: t.toOffset }
+    this.played = { startElapsed: t.elapsedAt, startRow: t.toOffset, loops: 0, lastRow: t.toOffset }
+  }
+
+  private dropDeferred(): void {
+    this.deferred?.done()
+    this.deferred = null
   }
 
   /** Stop the sequence; release tails ring out. */
@@ -240,6 +285,7 @@ export class SongPlayer {
     if (!this.playing) return
     this.playing = false
     this.transition = null
+    this.dropDeferred()
     this.host.paramRefs.setValue('transport:playing', 0)
     this.host.setTxSeqProps({ cmd: { type: 'stop', sessionId: this.session } })
   }
@@ -389,7 +435,7 @@ export class SongPlayer {
   }
 
   private dataFor(cue: Cue): PlaybackData {
-    const key = JSON.stringify(cue)
+    const key = cueKey(cue)
     let data = this.dataCache.get(key)
     if (!data) {
       const doc = this.requireDoc()
@@ -492,11 +538,14 @@ export class SongPlayer {
     const current = this.current
     if (!current) return
     if (!t) {
-      this.emitRow(current.cue, row, current.data.totalRows)
+      const n = current.data.totalRows
+      this.emitRow(current.cue, (row + current.offset) % n, n)
+      this.runDeferred()
       return
     }
     if (t.finishing) {
-      this.emitRow(t.cue, row >= t.at ? row - t.at : row % t.target.totalRows, t.target.totalRows)
+      const n = t.target.totalRows
+      this.emitRow(t.cue, ((row >= t.at ? row - t.at : row) + t.toOffset) % n, n)
       return
     }
 
@@ -506,7 +555,7 @@ export class SongPlayer {
       t.landed = false
       // Upload before emitting: a queued step's bridge must follow the settle data.
       void this.upload(t.settle, 'update').then(() => { t.landed = true })
-      this.current = { cue: t.cue, data: t.target }
+      this.settleOn(t)
       this.applyMutes()
       this.emitCue(t.cue)
     } else if (step.send === 'target') {
@@ -519,7 +568,21 @@ export class SongPlayer {
     else this.emitRow(t.cue, step.row, t.target.totalRows)
   }
 
+  /** A switch held back at the loop's end goes ahead once the loop has wrapped. */
+  private runDeferred(): void {
+    const d = this.deferred
+    if (!d || !this.current) return
+    const margin = Math.ceil(this.rowsPerSec * SWITCH_LEAD_S) + 1
+    if (mustWaitForWrap(this.current.data, this.transition, this.lastRow, margin)) return
+    this.deferred = null
+    void this.switchTo(d.step).then(d.done)
+  }
+
   private emitRow(cue: Cue, row: number, length: number): void {
+    if (cue === this.current?.cue) {
+      if (row < this.played.lastRow) this.played.loops++
+      this.played.lastRow = row
+    }
     this.clock = observeRow(this.clock, row, this.host.currentTime)
     this.clockCue = { cue, length }
     for (const l of this.rowListeners) l({ cue, row })
@@ -528,6 +591,8 @@ export class SongPlayer {
   private emitCue(cue: Cue): void {
     for (const l of this.cueListeners) l(cue)
     const next = this.steps.shift()
-    if (next) void this.switchTo(next.cue, next.timing ?? 'end')
+    if (next) void this.switchTo(next)
   }
 }
+
+const cueKey = (cue: Cue): string => JSON.stringify(cue)

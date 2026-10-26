@@ -4,8 +4,8 @@ import { createNode } from '@elemaudio/core'
 import { buildTxSeqData } from './txSeqData'
 import { buildPlaybackData, type PlaybackData } from './playbackData'
 import {
-  concatPlaybackData, listCues, nextBoundary, nodeView, planTransition, resolveCue, stepTransition, switchRow, tilePlaybackData,
-  trackMuteValues, type RunningTransition, type TransitionStage,
+  concatPlaybackData, listCues, mustWaitForWrap, nextBoundary, nodeView, planTransition, resolveCue, resumeRow, rotatePlaybackData, rowsPlayed,
+  stepTransition, switchRow, tilePlaybackData, trackMuteValues, type RunningTransition, type TransitionStage,
 } from './cues'
 import { newModularInstrument, newTrack } from '../domain/factory'
 import type { Doc, Id, Pattern, Track } from '../domain/types'
@@ -271,6 +271,36 @@ describe('hand-over on the txSeq node', () => {
   }
 })
 
+describe('carrying a cue on', () => {
+  const data = (rows: number): PlaybackData => ({
+    slots: [{ instId: 'i1', slotIndex: 0, signals: [Array.from({ length: rows }, (_, r) => r)], drumGateCount: 0 }],
+    totalRows: rows,
+    arrangement: [{ patternId: 'p1', startRow: 0 }, { patternId: 'p2', startRow: 4 }],
+  })
+
+  it('rotates data to start at a row, splitting the pattern it starts in', () => {
+    const rotated = rotatePlaybackData(data(8), 2)
+    expect(rotated.slots[0].signals[0]).toEqual([2, 3, 4, 5, 6, 7, 0, 1])
+    expect(rotated.arrangement).toEqual([
+      { patternId: 'p1', startRow: 0 },
+      { patternId: 'p2', startRow: 2 },
+      { patternId: 'p1', startRow: 6 },
+    ])
+    expect(rotatePlaybackData(data(8), 4).arrangement).toEqual([
+      { patternId: 'p2', startRow: 0 },
+      { patternId: 'p1', startRow: 4 },
+    ])
+    const d = data(8)
+    expect(rotatePlaybackData(d, 8)).toBe(d)
+  })
+
+  it('finds the row a cue would be at, had it kept playing', () => {
+    expect(resumeRow(8, 4, 16)).toBe(12)
+    expect(resumeRow(12, 40, 16)).toBe(4)
+    expect(rowsPlayed(4, 2, 6, 16)).toBe(34)
+  })
+})
+
 describe('re-planning a running hand-over', () => {
   // rows identified by freq: cue A = 100 + r, B = 200 + r, C = 300 + r
   const ramp = (rows: number, base: number): PlaybackData => {
@@ -280,19 +310,30 @@ describe('re-planning a running hand-over', () => {
   }
   const name = (f: number) => `${'?ABC'[Math.floor(f / 100)]}${f % 100}`
 
+  type Request = { to: PlaybackData; quantum: number; resume?: boolean }
+
   /**
    * Plays rows like txSeq while driving hand-overs the way SongPlayer does:
    * row events step the running one, `requests[i]` asks for a cue at row i
-   * (planned from the node's current view); uploads land `lag` rows later.
+   * (planned from the node's current view, carrying on where the cue would be
+   * with `resume`); uploads land `lag` rows later.
    */
-  function play(start: PlaybackData, requests: Record<number, { to: PlaybackData; quantum: number }>, rows: number, lag: number, onCue?: (to: PlaybackData, i: number) => void) {
+  function play(start: PlaybackData, requests: Record<number, Request>, rows: number, lag: number, onCue?: (to: PlaybackData, i: number) => void) {
     let data = start
     let steady = start
-    let running: RunningTransition | null = null
+    let offset = 0
+    let running: (RunningTransition & { cue: PlaybackData; elapsedAt: number }) | null = null
     let landed = false
     const uploads: { data: PlaybackData; inRows: number; for: RunningTransition | null }[] = []
     let pos = 0
     const heard: string[] = []
+    // the sounding cue: where it started (rows into the song, its row) and its wraps since
+    let sounding = start
+    let played = { startElapsed: 0, startRow: 0, loops: 0, lastRow: 0 }
+    const left = new Map<PlaybackData, { row: number; elapsed: number }>()
+    // an upload lands after `lag` + 1 rows: the switch needs a row more than that
+    const margin = lag + 2
+    let deferred: Request | null = null
     for (let i = 0; i < rows; i++) {
       for (const u of uploads) u.inRows--
       while (uploads.length && uploads[0].inRows < 0) {
@@ -301,24 +342,40 @@ describe('re-planning a running hand-over', () => {
         if (u.for && u.for === running) landed = true
       }
       heard.push(name(freqAt(data, pos)))
+      let row = (pos + offset) % steady.totalRows
       if (running) {
         const step = stepTransition(running, running.stage, landed, pos)
+        row = step.row
         if (step.send === 'settle') {
           running.stage = 'settle'
           landed = false
           uploads.push({ data: running.settle, inRows: lag, for: running })
-          onCue?.(running.target, i)
+          sounding = running.cue
+          played = { startElapsed: running.elapsedAt, startRow: running.toOffset, loops: 0, lastRow: running.toOffset }
+          onCue?.(running.cue, i)
         } else if (step.send === 'target') {
           steady = running.target
+          offset = running.toOffset
           uploads.push({ data: running.target, inRows: lag, for: null })
           running = null
         }
       }
-      const req = requests[i]
-      if (req) {
-        const view = nodeView(steady, running, pos)
-        const at = switchRow(view, pos, req.quantum, lag + 1)
-        running = { ...planTransition(view.data, req.to, at, view), stage: 'bridge' }
+      if (row < played.lastRow) played.loops++
+      played.lastRow = row
+      const req: Request | null = requests[i] ?? deferred
+      deferred = null
+      if (req && mustWaitForWrap(steady, running, pos, margin)) deferred = req
+      else if (req) {
+        const view = nodeView(steady, running, pos, offset)
+        const at = switchRow(view, pos, req.quantum, margin)
+        const n = view.length
+        const leaveRow = (((pos - view.start) % n) + n) % n + (at - pos)
+        const elapsedAt = played.startElapsed + rowsPlayed(played.startRow, played.loops, leaveRow, n)
+        left.set(sounding, { row: leaveRow % n, elapsed: elapsedAt })
+        const back = req.resume ? left.get(req.to) : undefined
+        const toOffset = back ? resumeRow(back.row, elapsedAt - back.elapsed, req.to.totalRows) : 0
+        const plan = planTransition(view.data, rotatePlaybackData(req.to, toOffset), at, view, toOffset)
+        running = { ...plan, stage: 'bridge', cue: req.to, elapsedAt }
         landed = false
         uploads.push({ data: running.bridge, inRows: lag, for: running })
       }
@@ -382,6 +439,40 @@ describe('re-planning a running hand-over', () => {
       expect(r[1]).toEqual(['C', 0, 4]) // the fill exactly once
       expect(r[2][1]).toBe(0)
       expect(contiguous(heard, lengths)).toBe(true)
+    })
+
+    it(`a fill hands back to the stage where it would have been (lag ${lag})`, () => {
+      const stage = ramp(16, 100)
+      const requests: Record<number, Request> = { 5: { to: C, quantum: 4 } }
+      const heard = play(stage, requests, 60, lag, (to, i) => {
+        if (to === C) requests[i] = { to: stage, quantum: C.totalRows, resume: true }
+      })
+      const r = runs(heard)
+      expect(r.map(([c]) => c).slice(0, 3)).toEqual(['A', 'C', 'A'])
+      expect(r[1]).toEqual(['C', 0, 4])
+      // the fill stood in for 4 of the stage's rows: it carries on after them, on its grid
+      expect(r[2][1]).toBe((r[0][1] + r[0][2] + 4) % 16)
+      expect(r[2][1] % 4).toBe(0)
+      expect(contiguous(heard, { A: 16, C: 4 })).toBe(true)
+    })
+
+    it(`the stage carries on through a looping detour and a second one (lag ${lag})`, () => {
+      const stage = ramp(16, 100)
+      const requests: Record<number, Request> = {
+        3: { to: B, quantum: 4 },
+        30: { to: stage, quantum: 4, resume: true },
+        41: { to: C, quantum: 4 },
+        52: { to: stage, quantum: 4, resume: true },
+      }
+      const heard = play(stage, requests, 80, lag)
+      const r = runs(heard)
+      expect(r.map(([c]) => c)).toEqual(['A', 'B', 'A', 'C', 'A'])
+      // every return: the stage's next row as if it had played on under the detour
+      for (const k of [2, 4]) {
+        const [, lastStart, lastCount] = r[k - 2]
+        expect(r[k][1]).toBe((lastStart + lastCount + r[k - 1][2]) % 16)
+      }
+      expect(contiguous(heard, { A: 16, B: 12, C: 4 })).toBe(true)
     })
   }
 })
