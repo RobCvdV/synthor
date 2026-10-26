@@ -53,7 +53,11 @@
   (`nodeView` / `switchRow` in `player/cues.ts`) instead of waiting out its loop.
 - ~~Queue~~ — done: `player.queue([{ cue: 'fill', timing: { every: 16 } },
   { cue: 'stage', timing: 'end' }])` asks for each step once the one before
-  sounds, so a fill plays once and the stage comes back from its top.
+  sounds, so a fill plays once and the stage comes back.
+- ~~Resume~~ — done: a step with `resume: true` carries the cue on where it
+  would be had it kept playing since it was left, so fills and detours stand
+  in for bars of the stage instead of restarting its progression
+  (`rotatePlaybackData`, `resumeRow` in `player/cues.ts`).
 - ~~Timed stingers~~ — done: `player.playNote(instrument, note, { at: 'beat',
   delayRows, rows, velocity })`, sent ahead by the output latency (±10 ms until
   phase 4).

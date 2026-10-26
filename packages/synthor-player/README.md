@@ -32,8 +32,8 @@ music.cue('game-over', 'now')             // restart on the new cue
 // A cue asked for mid hand-over replaces the one not yet heard, or follows the one taking over.
 music.queue([                              // each step once the one before sounds:
   { cue: 'fill', timing: { every: 16 } },  //   a fill on the next bar,
-  { cue: 'stage', timing: 'end' },         //   then the stage back when it ends
-])
+  { cue: 'stage', timing: 'end', resume: true },  // then the stage back, where it would
+])                                         //   have been had it played on (else from its top)
 
 music.setTrackMuted(3, true)              // layering: Track #3 in every pattern
 music.setInstrumentLevel('Drums', 0.5)    // instrument by name or id

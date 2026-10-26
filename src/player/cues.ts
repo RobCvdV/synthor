@@ -109,6 +109,40 @@ export function tilePlaybackData(data: PlaybackData, rows: number): PlaybackData
 }
 
 /**
+ * `data` starting at its row `start` (and wrapping round to it), so a cue can
+ * carry on mid-way instead of from its top.
+ */
+export function rotatePlaybackData(data: PlaybackData, start: number): PlaybackData {
+  const n = data.totalRows
+  const s = n > 0 ? ((start % n) + n) % n : 0
+  if (s === 0) return data
+  const arrangement: ArrangementItem[] = []
+  data.arrangement.forEach((it, i) => {
+    const end = data.arrangement[i + 1]?.startRow ?? n
+    if (it.startRow < s && end > s) arrangement.push({ ...it, startRow: 0 }, { ...it, startRow: it.startRow - s + n })
+    else arrangement.push({ ...it, startRow: (it.startRow - s + n) % n })
+  })
+  return {
+    slots: data.slots.map((slot) => ({ ...slot, signals: slot.signals.map((sig) => sig.slice(s).concat(sig.slice(0, s))) })),
+    totalRows: n,
+    arrangement: arrangement.sort((a, b) => a.startRow - b.startRow),
+  }
+}
+
+/**
+ * Where a cue left at its row `row`, `rowsSince` rows ago, would be now had
+ * it kept playing — the row to carry on from.
+ */
+export function resumeRow(row: number, rowsSince: number, length: number): number {
+  return length > 0 ? (((row + rowsSince) % length) + length) % length : 0
+}
+
+/** Rows played since a cue started sounding at its row `startRow`, now at (unwrapped) `row` after `loops` wraps. */
+export function rowsPlayed(startRow: number, loops: number, row: number, length: number): number {
+  return loops * length + row - startRow
+}
+
+/**
  * The first row ≥ `row + margin` on a `quantum` grid, capped at `total` (the
  * loop end). A cue switch lands there, so the upload has `margin` rows to arrive.
  */
@@ -136,6 +170,8 @@ export interface CueTransition {
   /** Where `from`'s own rows start in the node's rows, and its length — for reporting its rows. */
   fromStart: number
   fromLength: number
+  /** `to`'s cue row at its first row (`to` is rotated to start there; 0 from its top). */
+  toOffset: number
 }
 
 /**
@@ -147,6 +183,7 @@ export function planTransition(
   to: PlaybackData,
   at: number,
   fromView: { start: number; length: number } = { start: 0, length: from.totalRows },
+  toOffset = 0,
 ): CueTransition {
   const cut = Math.max(1, Math.min(at, from.totalRows))
   const head = cut < from.totalRows ? slicePlaybackData(from, 0, cut - 1)! : from
@@ -158,6 +195,7 @@ export function planTransition(
     target: to,
     fromStart: fromView.start,
     fromLength: fromView.length,
+    toOffset,
   }
 }
 
@@ -178,22 +216,47 @@ export interface RunningTransition extends CueTransition {
 
 /**
  * The node's view at node row `row`, with `steady` the plain cue's data when
- * no hand-over runs. Before `at` the old cue sounds and a new switch may not
- * land later than `at`; from `at` on the hand-over's target does.
+ * no hand-over runs (rotated to start at its cue row `offset`). Before `at` the
+ * old cue sounds and a new switch may not land later than `at`; from `at` on
+ * the hand-over's target does. Once the settle data wraps, its rows before
+ * `at` hold the target tiled from its first row, so a switch lands before `at`.
  */
-export function nodeView(steady: PlaybackData, running: RunningTransition | null, row: number): NodeView {
-  if (!running) return { data: steady, start: 0, length: steady.totalRows, limit: steady.totalRows }
-  const { at, target } = running
+export function nodeView(steady: PlaybackData, running: RunningTransition | null, row: number, offset = 0): NodeView {
+  if (!running) {
+    // a switch too close to the loop's end lands in the next loop: the bridge plays it on
+    const n = steady.totalRows
+    return { data: tilePlaybackData(steady, 2 * n), start: -offset, length: n, limit: 2 * n }
+  }
+  const { at, target, toOffset } = running
   if (running.stage === 'bridge' && row < at) {
     return { data: running.bridge, start: running.fromStart, length: running.fromLength, limit: at }
   }
-  return { data: running.settle, start: at, length: target.totalRows, limit: at + target.totalRows }
+  if (row < at) return { data: running.settle, start: -toOffset, length: target.totalRows, limit: at }
+  return { data: running.settle, start: at - toOffset, length: target.totalRows, limit: at + target.totalRows }
 }
 
-/** Node row where a switch on the sounding cue's `quantum`-row grid lands, `margin` rows ahead at least. */
+/**
+ * A plain loop about to wrap: an upload sent now may land before or after the
+ * wrap, so no switch can be placed safely — plan it once the wrap is seen.
+ * (Loops too short to ever be clear of their wrap are planned regardless.)
+ */
+export function mustWaitForWrap(steady: PlaybackData, running: RunningTransition | null, row: number, margin: number): boolean {
+  const n = steady.totalRows
+  return !running && n > 2 * margin && n - row <= margin
+}
+
+/**
+ * Node row where a switch on the sounding cue's `quantum`-row grid lands,
+ * `margin` rows ahead at least. The grid restarts at the cue's top, and its
+ * end counts as a grid line; past it the switch lands in the next loop.
+ */
 export function switchRow(view: NodeView, row: number, quantum: number, margin: number): number {
-  const cueRow = (((row - view.start) % view.length) + view.length) % view.length
-  const boundary = nextBoundary(cueRow, view.length, quantum, margin)
+  const n = view.length
+  const cueRow = (((row - view.start) % n) + n) % n
+  const q = quantum > 0 ? Math.min(quantum, n) : n
+  const want = cueRow + margin
+  const inLoop = Math.ceil(want / q) * q
+  const boundary = inLoop <= n ? inLoop : n + Math.ceil((want - n) / q) * q
   return Math.min(view.limit, row + (boundary - cueRow))
 }
 
@@ -215,10 +278,11 @@ export interface TransitionStep {
  */
 export function stepTransition(plan: CueTransition, stage: TransitionStage, landed: boolean, row: number): TransitionStep {
   if (stage === 'bridge' && !(landed && row >= plan.at)) {
-    if (row >= plan.at) return { send: null, sounding: 'to', row: row - plan.at }
+    if (row >= plan.at) return { send: null, sounding: 'to', row: (row - plan.at + plan.toOffset) % plan.target.totalRows }
     const fromRow = (((row - plan.fromStart) % plan.fromLength) + plan.fromLength) % plan.fromLength
     return { send: null, sounding: 'from', row: fromRow }
   }
   const send = stage === 'bridge' ? 'settle' : landed && row < plan.at ? 'target' : null
-  return { send, sounding: 'to', row: row >= plan.at ? row - plan.at : row % plan.target.totalRows }
+  const n = plan.target.totalRows
+  return { send, sounding: 'to', row: ((row >= plan.at ? row - plan.at : row) + plan.toOffset) % n }
 }
