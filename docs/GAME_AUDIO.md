@@ -13,7 +13,7 @@ beat-synced visuals), the score's contract and the **current backlog** are in
 Zwap's [`docs/MUSIC.md`](https://github.com/RobCvdV/zwap-phaser-react/blob/main/docs/MUSIC.md).
 The open items for this repo are marked below: sound-effect instruments and a
 cost benchmark (phase 1), chord changes (phase 3), the C++ sequencer work
-(phase 4) and the Game Studio (phase 5).
+(phase 4) and the Game screen (phase 5).
 
 **`SongPlayer` API** (see `packages/synthor-player/README.md`): `load`,
 `start`, `play(cue)`, `cue(cue, timing)` (`'now' | 'sync' | 'end' | { every }`),
@@ -48,9 +48,14 @@ into Zwap's `vendor/synthor-player/` and write this repo's commit to its
   players is fine.
 - **Tempo belongs to the song** (`doc.tempo`: `bpm`, `linesPerBeat`, schema
   v17) — done; the player plays a song at its own tempo.
-- **Game authoring tools are a separate app** ("Synthor Game Studio": own
-  entry and build config in this repo, sharing the engine, player and file
-  format). The editor stays a tracker.
+- **Game authoring is a screen in the editor** ("Game", next to tracker,
+  instruments, samples and mixer), shown for songs with game settings or when
+  switched on. It runs the same conductor the game does, on the open song.
+- **A song carries its game settings** (`doc.game`): sections with their
+  energy and grammar, the DJ's parts, mood cues, fills, drops and stingers,
+  referring to sections, patterns and instruments by id. A game loads the song
+  and gets the music's behaviour with it; its own code only maps game events
+  (moves, cascades, level-ups, danger) to the conductor.
 
 ## Phases
 
@@ -107,10 +112,23 @@ into Zwap's `vendor/synthor-player/` and write this repo's commit to its
 - Needs emsdk 3.1.52 and `vendor/elementary` (see
   [NATIVE_SEQUENCER_NODE.md](./NATIVE_SEQUENCER_NODE.md)).
 
-### 5. Synthor Game Studio — open
-- Buttons that simulate game events (stage up, danger, fill, accent) to
-  audition the conductor while composing.
-- Export the stage / cue mapping as a config the game loads.
+### 5. Game screen — open
+1. **The conductor moves here** from Zwap: section choice by energy
+   (`MusicEnergy`), the DJ (`MusicDj`), plans for moods, fills and level-ups
+   (`MusicConductor`) become pure modules in `src/player/`, and the stateful
+   part of Zwap's `MusicService` a `GameConductor` in `src/headless/` around a
+   `SongPlayer`, exported by the player package. Zwap keeps only its game
+   hooks (scenes and bombs to moods, events to conductor calls, the mix).
+2. **Game settings in the song**: `doc.game` (schema bump, a `migrate` case,
+   defaults and dropped dangling ids in `completeDoc`). Zwap's current config
+   moves into its score; Zwap reads it from the song.
+3. **The Game screen, simulator**: buttons for game events (a move, cascades,
+   level-up, danger on / off, last move, penalty, unlock, idle), sliders for
+   level and progress, and a live readout: the section, its visit (bars,
+   stay, due), the parts in / out or cut, the energy and the DJ's last move.
+4. **The Game screen, settings**: a section table (energy, length, what may
+   follow, the DJ's parts, transition), mood cues, fills, drops, the DJ's
+   part groups and timings, and stinger note sequences.
 
 ## Composing for Zwap
 

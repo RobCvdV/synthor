@@ -6,7 +6,7 @@ import { buildPlaybackData, type PlaybackData } from '../player/playbackData'
 import { buildTxSeqData } from '../player/txSeqData'
 import {
   listCues, mustWaitForWrap, nodeView, planTransition, resolveCue, resumeRow, rotatePlaybackData, rowsPlayed,
-  stepTransition, switchRow, trackLevelValues, type Cue, type CueInfo, type RunningTransition,
+  stepTransition, switchRow, trackLevelValues, type Cue, type CueInfo, type CueStep, type CueTiming, type RunningTransition,
 } from '../player/cues'
 import { unpackSongBundle } from '../persist/songBundle'
 import type { SongFile } from '../persist/serialize'
@@ -14,27 +14,7 @@ import { clockRow, createClock, musicalTime, observeRow, sendDelay, setClockRate
 import { rowHz } from '../domain/notes'
 import { DEFAULT_TEMPO, type Doc, type Id, type Instrument } from '../domain/types'
 
-/**
- * When a cue takes over a playing one:
- *   'now'  — restart on the new cue's top immediately.
- *   'sync' — swap at once, keeping the row position (layered variations of equal length).
- *   'end'  — when the current loop finishes.
- *   { every: n } — on the next n-row boundary (n = rows per bar for bar-quantized changes).
- * Boundaries count from the top of the cue sounding when the switch lands, so
- * a cue asked for mid hand-over follows the cue that is taking over.
- */
-export type CueTiming = 'now' | 'sync' | 'end' | { every: number }
-
-/** One step of `queue()`: a cue and when it takes over from the step before. */
-export interface CueStep {
-  cue: Cue
-  timing?: CueTiming
-  /**
-   * Carry on where the cue would be had it kept playing since it was left
-   * (e.g. a stage after a fill or a detour), instead of from its top.
-   */
-  resume?: boolean
-}
+export type { CueStep, CueTiming }
 
 export interface NoteTiming {
   /** Heard on the next row / beat / bar (default 'now'), plus `delayRows` more rows. */
