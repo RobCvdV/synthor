@@ -28,6 +28,8 @@ export interface GameSection {
 /** The music for one of the game's moods (anything but `play`, which is the sections) */
 export interface GameMood {
   cue: string
+  /** Played once at once, cutting off what plays (a game over's blast), before the cue */
+  hit?: string
   muted?: number[]
   /** It interrupts play (danger): play carries on where it would have been afterwards */
   returns?: boolean

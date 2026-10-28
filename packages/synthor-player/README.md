@@ -91,6 +91,7 @@ conductor.stinger('unlock')               // any stinger by name
 conductor.nudge()                         // the player did something: a section past its time moves on
 conductor.drop('penalty', 0.5)            // cut a drop's tracks until the next bar
 conductor.setMood('danger')               // a mood that `returns`: play carries on after it
+conductor.setMood('blast')                // a mood with a `hit`: it cuts in at once, then the mood's cue
 conductor.setEnabled(false)               // silent (a music setting)
 conductor.snapshot()                      // section, the DJ's visit, energy… for a readout
 conductor.position()                      // the music clock while it plays

@@ -19,7 +19,7 @@ const complete: GameMusic = {
     ],
   },
   dj: { groups: { drums: [1, 2] }, phraseBars: 4, fadeBars: 2, stays: [4, 8] },
-  moods: { menu: { cue: 'menu' }, danger: { cue: 'sec_1', muted: [1], returns: true } },
+  moods: { menu: { cue: 'menu', hit: 'fill' }, danger: { cue: 'sec_1', muted: [1], returns: true } },
   fill: { cue: 'fill', minCascade: 3, minBarsApart: 8, minEnergy: 2 },
   levelUp: { cue: 'fill' },
   drops: { penalty: [1, 2] },
@@ -55,6 +55,7 @@ describe('completeGame', () => {
     raw.song.sections[1].toys = ['drums', 'strings']
     raw.song.sections[2].via = 'gone'
     raw.moods.gameOver = { cue: 'gone' }
+    raw.moods.menu.hit = 'gone'
     raw.moods.play = { cue: 'verse' }
     raw.fill.cue = 'gone'
     raw.levelUp = { cue: 7 }
@@ -66,6 +67,7 @@ describe('completeGame', () => {
     expect(game.song.sections[0]).toMatchObject({ next: ['chorus'], toys: ['drums'] })
     expect(game.song.sections[1].via).toBeUndefined()
     expect(Object.keys(game.moods)).toEqual(['menu', 'danger'])
+    expect(game.moods.menu).toEqual({ cue: 'menu' })
     expect(game.fill).toBeUndefined()
     expect(game.levelUp).toBeUndefined()
     expect(Object.keys(game.stingers)).toEqual(['unlock'])

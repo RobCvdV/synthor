@@ -23,6 +23,7 @@ const music: GameMusic = {
     danger: { cue: 'danger', returns: true },
     lastMove: { cue: 'lastMove', muted: [1], returns: true },
     gameOver: { cue: 'gameover' },
+    blast: { cue: 'gameover', hit: 'blast' },
   },
   fill: { cue: 'fill', minCascade: 3, minBarsApart: 8 },
   levelUp: { cue: 'levelup-fill' },
@@ -77,6 +78,14 @@ describe('game music plans', () => {
       kind: 'cues',
       steps: [{ cue: 'verse', timing: bar, resume: true }],
     })
+  })
+
+  it(`cuts to a mood's hit at once, then its cue; the next mood on that cue carries on`, () => {
+    expect(planChange(music, mood('lastMove'), mood('blast'))).toEqual({
+      kind: 'cues',
+      steps: [{ cue: 'blast', timing: 'now' }, { cue: 'gameover', timing: 'end' }],
+    })
+    expect(planChange(music, mood('blast'), mood('gameOver'))).toBeNull()
   })
 
   it('only changes layers within a cue, and nothing when they stay', () => {

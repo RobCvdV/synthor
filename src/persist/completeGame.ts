@@ -96,6 +96,7 @@ export function completeGame(raw: unknown, refs: GameRefs): GameMusic | undefine
     moods[name] = defined({
       ...m,
       cue: m.cue,
+      hit: resolves(m.hit) ? m.hit : undefined,
       muted: m.muted === undefined ? undefined : tracksOf(m.muted),
       returns: typeof m.returns === 'boolean' ? m.returns : undefined,
     })

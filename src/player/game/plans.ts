@@ -25,6 +25,8 @@ export interface MusicTarget {
   cue: string
   muted: number[]
   via?: string
+  /** A mood's hit: played at once before the cue */
+  hit?: string
   resume?: boolean
 }
 
@@ -44,7 +46,7 @@ export function sectionFor(music: GameMusic, cue: string): GameSection | undefin
 export function targetFor(music: GameMusic, state: GameMusicState): MusicTarget | null {
   if (state.mood !== PLAY_MOOD) {
     const mood = music.moods[state.mood]
-    return mood ? { mood: state.mood, cue: mood.cue, muted: mood.muted ?? [] } : null
+    return mood ? { mood: state.mood, cue: mood.cue, muted: mood.muted ?? [], ...(mood.hit ? { hit: mood.hit } : {}) } : null
   }
   const section = sectionFor(music, state.section)
   if (!section) return null
@@ -69,7 +71,11 @@ export function planChange(music: GameMusic, from: MusicTarget | null, to: Music
       ? { kind: 'cues', steps: [{ cue, timing: bar }, { cue: to.cue, timing: 'end', ...resume }] }
       : { kind: 'cues', steps: [{ cue: to.cue, timing: bar, ...resume }] }
 
-  if (to.mood !== PLAY_MOOD) return via(undefined)
+  if (to.mood !== PLAY_MOOD) {
+    return to.hit
+      ? { kind: 'cues', steps: [{ cue: to.hit, timing: 'now' }, { cue: to.cue, timing: 'end' }] }
+      : via(undefined)
+  }
   // the next section
   if (from.mood === PLAY_MOOD) return via(to.via)
   if (music.moods[from.mood]?.returns) {
