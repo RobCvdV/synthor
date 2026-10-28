@@ -73,7 +73,16 @@ export interface GameMusic {
   bar: number
   /** Played once when play starts (from a mood that doesn't return), before the first section */
   intro?: string
-  song: { start: string; sections: GameSection[] }
+  song: {
+    start: string
+    sections: GameSection[]
+    /**
+     * From `from` of a level's progress the song heads for `cue` (the way into
+     * its peak, a pre-chorus), once per level, so the peak lands around the
+     * level-up. A level-up never cuts a peak short: it celebrates in it
+     */
+    peak?: { cue: string; from: number }
+  }
   dj: DjRules
   /** The game's moods by name; `play` is the sections */
   moods: Record<string, GameMood>
@@ -114,7 +123,9 @@ export function mapGameCues(game: GameMusic, map: (cue: string) => string): Game
     ...game,
     ...(game.intro !== undefined ? { intro: map(game.intro) } : {}),
     song: {
+      ...game.song,
       start: map(game.song.start),
+      ...(game.song.peak ? { peak: { ...game.song.peak, cue: map(game.song.peak.cue) } } : {}),
       sections: game.song.sections.map((s) => ({
         ...s,
         cue: map(s.cue),

@@ -84,6 +84,8 @@ export class GameConductor {
   private heldLayers: number[] | null = null
   /** The fill playing lands on more (it doesn't go down) */
   private landing = true
+  /** The level the song last headed for its peak in: once per level */
+  private peakedLevel = 0
   private lastFillAt = -Infinity
   private enabled = true
   private timers = new Set<ReturnType<typeof setTimeout>>()
@@ -126,6 +128,15 @@ export class GameConductor {
   setProgress(level: number, progress: number): void {
     this.state.level = level
     this.state.progress = progress
+    // the end of the level is near (the player got it there): on the next bar, on to the peak
+    const section = sectionFor(this.music, this.state.section)
+    const peak = this.music.song.peak?.cue
+    const leadsThere = section && !section.transition && section.energy < PEAK_ENERGY
+      && (!section.next || section.next.includes(peak!))
+    if (this.headingForPeak && this.visit && leadsThere && section.cue !== peak) {
+      this.visit = { ...this.visit, stay: Math.min(this.visit.stay, this.visit.bars) }
+      this.nudged = true
+    }
     this.update()
   }
 
@@ -164,6 +175,13 @@ export class GameConductor {
     // another mood keeps its music; the section moves on later, by time and play
     const section = sectionFor(this.music, this.state.section)
     if (this.sounding?.mood !== PLAY_MOOD || !section) return
+    // a peak isn't cut short: the build into it plays out, the peak celebrates in place and plays on
+    if (section.transition) return
+    if (section.energy >= PEAK_ENERGY) {
+      this.run(levelUpPlan(this.music, this.sounding, undefined, this.random))
+      if (this.visit) this.visit = { ...this.visit, stay: Math.max(this.visit.stay, this.visit.bars + section.bars) }
+      return
+    }
     this.moveOn(section, (next) => levelUpPlan(this.music, this.sounding, next, this.random))
   }
 
@@ -224,6 +242,12 @@ export class GameConductor {
     this.energy = settled
     this.sectionNoise = 0
     this.lastMove = null
+  }
+
+  /** Near a level's end, until the song has headed for its peak in this level */
+  private get headingForPeak(): boolean {
+    const { peak } = this.music.song
+    return !!peak && this.state.progress >= peak.from && this.peakedLevel !== this.state.level
   }
 
   private get liveEnergy(): number {
@@ -301,7 +325,10 @@ export class GameConductor {
     if (section.energy >= PEAK_ENERGY) this.energy = onEvent(this.energy, { kind: 'peakEnded' })
     this.sectionNoise = (this.random() - 0.5) * 0.6
     const target = this.liveEnergy
-    const next = chooseSection(this.music.song.sections, section, target, this.recentSections, this.random)
+    const { peak } = this.music.song
+    const prefer = this.headingForPeak ? peak?.cue : undefined
+    const next = chooseSection(this.music.song.sections, section, target, this.recentSections, this.random, prefer)
+    if (next.cue === peak?.cue) this.peakedLevel = this.state.level
     this.recentSections = [section.cue, ...this.recentSections].slice(0, RECENT_SECTIONS)
     this.state.section = next.cue
     // after a build-up (a transition) the next section lands full

@@ -90,6 +90,7 @@ export function completeGame(raw: unknown, refs: GameRefs): GameMusic | undefine
   const cues = new Set(sections.map((s) => s.cue))
   for (const s of sections) if (s.next) s.next = s.next.filter((c) => cues.has(c))
   const start = typeof song.start === 'string' && cues.has(song.start) ? song.start : (sections[0]?.cue ?? '')
+  const peak = recOf(song.peak)
 
   const moods: Record<string, GameMood> = {}
   for (const [name, m] of Object.entries(recOf(raw.moods))) {
@@ -128,7 +129,14 @@ export function completeGame(raw: unknown, refs: GameRefs): GameMusic | undefine
     ...raw,
     bar: count(raw.bar, refs.linesPerBeat * 4),
     intro: resolves(raw.intro) ? raw.intro : undefined,
-    song: { ...song, start, sections },
+    song: defined({
+      ...song,
+      start,
+      sections,
+      peak: typeof peak.cue === 'string' && cues.has(peak.cue)
+        ? { ...peak, cue: peak.cue, from: clamp(num(peak.from, 0.85), 0, 1) }
+        : undefined,
+    }),
     dj,
     moods,
     fill: resolves(fill.cue)

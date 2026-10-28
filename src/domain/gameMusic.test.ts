@@ -5,7 +5,11 @@ import { cueNamed, instrumentNamed, mapGameCues, mapGameInstruments, renamed, ty
 const game: GameMusic = {
   bar: 16,
   intro: 'a',
-  song: { start: 'a', sections: [{ cue: 'a', energy: 2, bars: 4, next: ['b', 'a'], via: 'a' }, { cue: 'b', energy: 3, bars: 4 }] },
+  song: {
+    start: 'a',
+    sections: [{ cue: 'a', energy: 2, bars: 4, next: ['b', 'a'], via: 'a' }, { cue: 'b', energy: 3, bars: 4 }],
+    peak: { cue: 'a', from: 0.85 },
+  },
   dj: { groups: {}, phraseBars: 4, fadeBars: 2, stays: [4] },
   moods: { menu: { cue: 'a', hit: 'b' } },
   fill: { cue: 'a', minCascade: 3 },
@@ -20,6 +24,7 @@ describe('game music references', () => {
     const out = mapGameCues(game, renamed('a', 'c'))
     expect(out.intro).toBe('c')
     expect(out.song.start).toBe('c')
+    expect(out.song.peak).toEqual({ cue: 'c', from: 0.85 })
     expect(out.song.sections).toEqual([{ cue: 'c', energy: 2, bars: 4, next: ['b', 'c'], via: 'c' }, { cue: 'b', energy: 3, bars: 4 }])
     expect(out.moods.menu).toEqual({ cue: 'c', hit: 'b' })
     expect([out.fill?.cue, out.levelUp?.cue, out.fills?.[0].cue]).toEqual(['c', 'b', 'c'])

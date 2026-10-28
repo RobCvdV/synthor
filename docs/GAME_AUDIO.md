@@ -142,6 +142,12 @@ into. A cascade plays a `level` one, a level-up one going where the next
 section goes (a build-up into a fuller one, a falling fill into a quieter
 one, which doesn't land on more).
 
+**The peak lands at the level-up** (done): from `song.peak.from` of a level's
+progress the section moves on (the player's progress is the nudge) and heads
+for `song.peak.cue`, the way into the chorus, once per level. A level-up lets
+a transition play out and celebrates inside a peak section (a fill in place,
+another pass of it), so the breath comes after the chorus, not instead of it.
+
 Settings name cues and instruments by id or name; renaming a section, pattern
 or instrument rewrites the names that meant it (`mapGameCues`,
 `mapGameInstruments` from the rename ops), so a rename never drops part of

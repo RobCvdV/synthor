@@ -17,6 +17,7 @@ const complete: GameMusic = {
       { cue: 'verse', energy: 2, bars: 4, toys: ['drums'], next: ['chorus'] },
       { cue: 'chorus', energy: 5, bars: 8, via: 'fill', muted: [3], transition: false },
     ],
+    peak: { cue: 'chorus', from: 0.8 },
   },
   dj: { groups: { drums: [1, 2] }, phraseBars: 4, fadeBars: 2, stays: [4, 8] },
   moods: { menu: { cue: 'menu', hit: 'fill' }, danger: { cue: 'sec_1', muted: [1], returns: true } },
@@ -51,6 +52,7 @@ describe('completeGame', () => {
     const raw = clone(complete) as any
     raw.intro = 'gone'
     raw.song.start = 'gone'
+    raw.song.peak.cue = 'menu' // music, but not one of the sections
     raw.song.sections.unshift({ cue: 'gone', energy: 1, bars: 4 })
     raw.song.sections[1].next = ['chorus', 'gone']
     raw.song.sections[1].toys = ['drums', 'strings']
@@ -66,6 +68,7 @@ describe('completeGame', () => {
     expect(game.fills).toEqual([{ cue: 'fill', goes: 'down', minEnergy: 1, maxEnergy: 3 }])
     expect(game.intro).toBeUndefined()
     expect(game.song.start).toBe('verse')
+    expect(game.song.peak).toBeUndefined()
     expect(game.song.sections.map((s) => s.cue)).toEqual(['verse', 'chorus'])
     expect(game.song.sections[0]).toMatchObject({ next: ['chorus'], toys: ['drums'] })
     expect(game.song.sections[1].via).toBeUndefined()

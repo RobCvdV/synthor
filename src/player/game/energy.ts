@@ -70,9 +70,10 @@ export function energyRange(section: GameSection): [number, number] {
 }
 
 /**
- * The section to play after `current`: one its grammar allows whose energy
- * range is nearest the target; not one heard just now; a tiny random
- * tie-break (`random` returns 0..1).
+ * The section to play after `current`: `prefer` when its grammar allows it
+ * (heading for the peak), else one it allows whose energy range is nearest
+ * the target; not one heard just now; a tiny random tie-break (`random`
+ * returns 0..1).
  */
 export function chooseSection(
   sections: GameSection[],
@@ -80,10 +81,13 @@ export function chooseSection(
   target: number,
   recent: string[],
   random: () => number,
+  prefer?: string,
 ): GameSection {
   const allowed = current.next
     ? sections.filter((s) => current.next!.includes(s.cue))
     : sections.filter((s) => s.cue !== current.cue)
+  const preferred = allowed.find((s) => s.cue === prefer)
+  if (preferred) return preferred
   const candidates = allowed.length > 0 ? allowed : sections
   const distance = (s: GameSection) => {
     const [low, high] = energyRange(s)
