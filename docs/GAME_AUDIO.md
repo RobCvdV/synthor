@@ -133,6 +133,15 @@ into Zwap's `vendor/synthor-player/` and write this repo's commit to its
    follow, the DJ's parts, transition), mood cues, fills, drops, the DJ's
    part groups and timings, and stinger note sequences.
 
+Fills fit the music they break into (done): a fill keeps the mutes and the
+DJ's faded or cut parts as they were, the cascade fill skips sections below
+`fill.minEnergy`, and a fill lands on more (a cut slams back, else a faded
+part comes in on the downbeat). Next, once the score has them: **fills by
+direction**, a list of fills marked up / level / down and picked by where the
+music goes (a build-up into a fuller section, a falling fill such as a crash,
+toms down and the bass out into a quieter one, a soft hats-and-perc pickup
+staying low).
+
 ## Composing for Zwap
 
 > The ideas below shaped the score. What Zwap plays now — sections (calm,

@@ -66,9 +66,11 @@ export interface GameMusic {
   moods: Record<string, GameMood>
   /**
    * A cascade this long plays the fill once (in play), at most once every
-   * `minBarsApart` bars, so fills stay an accent
+   * `minBarsApart` bars, so fills stay an accent, and not in a section below
+   * `minEnergy` (a quiet one: the stingers carry the cascade). Fills play in
+   * the mix they break into and land on a part coming back
    */
-  fill?: { cue: string; minCascade: number; minBarsApart?: number }
+  fill?: { cue: string; minCascade: number; minBarsApart?: number; minEnergy?: number }
   /** Played on a level-up, into the next section */
   levelUp?: { cue: string }
   /** Track #s a game cuts until the next bar, by name (a penalty, a move in danger…) */

@@ -101,6 +101,12 @@ describe('game music plans', () => {
     expect(fillPlan(music, null, 3)).toBeNull()
   })
 
+  it('plays no fill in a section quieter than the fill asks for', () => {
+    const quiet = { ...music, fill: { cue: 'fill', minCascade: 3, minEnergy: 3 } }
+    expect(fillPlan(quiet, at('verse'), 3)).toBeNull()
+    expect(fillPlan(quiet, at('chorus'), 3)).not.toBeNull()
+  })
+
   it('plays the level-up fill into the next section, or in place of a bar', () => {
     expect(levelUpPlan(music, at('verse'), 'break')).toEqual({
       kind: 'cues',

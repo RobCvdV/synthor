@@ -125,6 +125,7 @@ export function completeGame(raw: unknown, refs: GameRefs): GameMusic | undefine
         cue: fill.cue,
         minCascade: count(fill.minCascade, 3),
         minBarsApart: isNum(fill.minBarsApart) ? Math.max(0, fill.minBarsApart) : undefined,
+        minEnergy: isNum(fill.minEnergy) ? fill.minEnergy : undefined,
       })
       : undefined,
     levelUp: resolves(levelUp.cue) ? { ...levelUp, cue: levelUp.cue } : undefined,

@@ -91,6 +91,8 @@ export function fillPlan(
   const fill = music.fill
   if (!fill || sounding?.mood !== PLAY_MOOD || reactions !== fill.minCascade) return null
   if (barsSinceFill < (fill.minBarsApart ?? 0)) return null
+  const section = sectionFor(music, sounding.cue)
+  if (section && section.energy < (fill.minEnergy ?? 0)) return null
   return {
     kind: 'cues',
     steps: [

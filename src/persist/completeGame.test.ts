@@ -20,7 +20,7 @@ const complete: GameMusic = {
   },
   dj: { groups: { drums: [1, 2] }, phraseBars: 4, fadeBars: 2, stays: [4, 8] },
   moods: { menu: { cue: 'menu' }, danger: { cue: 'sec_1', muted: [1], returns: true } },
-  fill: { cue: 'fill', minCascade: 3, minBarsApart: 8 },
+  fill: { cue: 'fill', minCascade: 3, minBarsApart: 8, minEnergy: 2 },
   levelUp: { cue: 'fill' },
   drops: { penalty: [1, 2] },
   stops: { tracks: [1], everyBars: 4, chance: 0.2, minEnergy: 2 },

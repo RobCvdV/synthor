@@ -7,7 +7,7 @@ import {
 import {
   afterBar, chooseSection, onEvent, PEAK_ENERGY, settled, stopDue, targetEnergy, type Energy,
 } from '../player/game/energy'
-import { applyMove, isDue, nextMove, startVisit, visitLevels, type DjMove, type DjVisit } from '../player/game/dj'
+import { applyMove, isDue, landingMove, nextMove, startVisit, visitLevels, type DjMove, type DjVisit } from '../player/game/dj'
 import type { Cue } from '../player/cues'
 import type { MusicPosition, NoteTiming, RowEvent } from './SongPlayer'
 
@@ -78,6 +78,10 @@ export class GameConductor {
   private heard: Cue | null = null
   /** Tracks cut until a timer brings them back */
   private dropped: number[] = []
+  /** The muted tracks heard last, without the drop */
+  private layers: number[] = []
+  /** While a fill plays: the mutes of the mix it broke into (its levels stay too) */
+  private heldLayers: number[] | null = null
   private lastFillAt = -Infinity
   private enabled = true
   private timers = new Set<ReturnType<typeof setTimeout>>()
@@ -266,10 +270,28 @@ export class GameConductor {
   }
 
   private onCue(cue: Cue): void {
+    const before = this.heard
     this.heard = cue
+    const fill = this.isFill(cue)
+    // a fill plays in the mix it breaks into: what is muted or faded out stays out
+    this.heldLayers = fill ? (this.heldLayers ?? this.layers) : null
+    if (this.isFill(before) && !fill) this.land()
     this.applyMutes()
     // a section starts with the DJ's parts set; anything else plays in full
-    this.playVisit()
+    if (!fill) this.playVisit()
+  }
+
+  private isFill(cue: Cue | null): boolean {
+    return cue !== null && (cue === this.music.fill?.cue || cue === this.music.levelUp?.cue)
+  }
+
+  /** A fill landed on the section: a part comes back (hard, on the downbeat) */
+  private land(): void {
+    if (!this.visit || this.sounding?.mood !== PLAY_MOOD || this.heard !== this.sounding.cue) return
+    const move = landingMove(this.visit, this.random)
+    this.visit = applyMove(this.visit, move)
+    this.lastMove = move
+    this.log('dj', this.visit.section, 'landing', move)
   }
 
   /** On to the next section: the one nearest the energy that may follow */
@@ -305,13 +327,16 @@ export class GameConductor {
    * else (a mood, a fill, the intro) playing with every part in.
    */
   private playVisit(before?: DjVisit): void {
-    const { player, visit, sounding } = this
-    const inSection = visit && sounding?.mood === PLAY_MOOD && this.heard === sounding.cue
-    const levels = inSection ? visitLevels(visit, this.music.dj) : new Map<number, number>()
+    const { player } = this
     const { groups } = this.music.dj
-    const hard = new Set([...(visit?.cut ?? []), ...(before?.cut ?? [])].flatMap((part) => groups[part] ?? []))
     const fadeSeconds = this.music.dj.fadeBars * this.barSeconds
     const apply = () => {
+      // a fill keeps the levels it broke into; the section's are set when it lands
+      if (this.heldLayers) return
+      const { visit, sounding } = this
+      const inSection = visit && sounding?.mood === PLAY_MOOD && this.heard === sounding.cue
+      const levels = inSection ? visitLevels(visit, this.music.dj) : new Map<number, number>()
+      const hard = new Set([...(visit?.cut ?? []), ...(before?.cut ?? [])].flatMap((part) => groups[part] ?? []))
       for (const track of this.djTracks) {
         const level = levels.get(track) ?? 1
         if (player.trackLevel(track) === level) continue
@@ -339,6 +364,7 @@ export class GameConductor {
       if (this.sounding) this.player.stop()
       this.sounding = null
       this.heard = null
+      this.heldLayers = null
       return
     }
     const target = targetFor(this.music, this.state)
@@ -361,7 +387,8 @@ export class GameConductor {
 
   /** The heard cue's mutes, with the drop on top */
   private applyMutes(): void {
-    this.player.setMutedTracks([...layersFor(this.sounding, this.heard), ...this.dropped])
+    this.layers = this.heldLayers ?? layersFor(this.sounding, this.heard)
+    this.player.setMutedTracks([...this.layers, ...this.dropped])
   }
 
   private playStinger(stinger: GameStinger, notes = stinger.notes): void {

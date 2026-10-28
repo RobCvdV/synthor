@@ -125,6 +125,29 @@ describe('GameConductor', () => {
     expect(player.queued.at(-1)![1]).toMatchObject({ resume: true })
   })
 
+  it('plays a fill in the mix it breaks into, and lands it on a part coming back', () => {
+    conductor.dispose()
+    conductor = new GameConductor(player, music, { random: () => 0.99 })
+    play()
+    player.bars(1)
+    player.sound('verse')
+    const out = conductor.snapshot().visit!.out
+    expect(out.length).toBeGreaterThan(0)
+    const silent = out.flatMap((part) => music.dj.groups[part])
+    conductor.reaction(1)
+    conductor.reaction(2)
+    conductor.reaction(3)
+    player.sound('fill')
+    for (const track of silent) expect(player.levels.get(track)).toBe(0)
+    player.bars(4) // a phrase passes under the fill: its parts wait for the landing
+    vi.advanceTimersByTime(1000)
+    for (const track of silent) expect(player.levels.get(track)).toBe(0)
+    player.sound('verse')
+    const { lastMove, visit } = conductor.snapshot()
+    expect(lastMove?.kind).toBe('in')
+    expect(visit!.out.length).toBe(out.length - 1)
+  })
+
   it('plays stingers by name, only while the music plays', () => {
     conductor.stinger('unlock')
     expect(player.notes).toEqual([])
