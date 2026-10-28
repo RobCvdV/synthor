@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildDrumKitSlotSequences, buildSequences } from '../engine/sequences'
+import { buildDrumKitSlotSequences, buildSequences, leadingHoldRows } from '../engine/sequences'
 import { emptyCells } from '../domain/factory'
 import type { DrumKitInstrument, Track } from '../domain/types'
 import { newDrumKitInstrument } from '../domain/factory'
@@ -249,41 +249,25 @@ describe('buildSequences', () => {
     expect(seq.volumeSeq[3]).toBe(0.25)
   })
 
-  // ── wrap-around sustain ────────────────────────────────────────
-  it('wraps gate=1 across the pattern loop boundary', () => {
+  // ── pattern start ──────────────────────────────────────────────
+  // Continuing a held note across the pattern boundary is buildPlaybackData's job.
+  it('leaves the rows before the first note silent, even when the last row is held', () => {
     const track = makeTrack(4)
     setNote(track, 2, 60)
     setHold(track, 3)
+    setHold(track, 0)
     const seq = buildSequences(track, 4)
-    // Last row gate=1 → wraps to start
-    expect(seq.gateSeq[0]).toBe(1) // wrapped
-    expect(seq.gateSeq[1]).toBe(1) // wrapped (no event to stop)
-    expect(seq.gateSeq[2]).toBe(1) // note
-    expect(seq.gateSeq[3]).toBe(1) // hold
+    expect(seq.gateSeq).toEqual([0, 0, 1, 1])
   })
 
-  it('wrap stops at a new note', () => {
-    const track = makeTrack(4)
-    setNote(track, 2, 60)
-    setHold(track, 3)
-    setNote(track, 0, 64) // note at position 0 breaks the wrap
-    const seq = buildSequences(track, 4)
-    expect(seq.gateSeq[0]).toBe(1) // new note — no wrap
-    expect(seq.gateSeq[1]).toBe(0) // silence (note has no holds, released immediately)
-    expect(seq.gateSeq[2]).toBe(1) // note 60
-    expect(seq.gateSeq[3]).toBe(1) // hold
-  })
-
-  it('wrap continues through hold signs at pattern start', () => {
-    const track = makeTrack(4)
-    setNote(track, 2, 60)
-    setHold(track, 3)
-    setHold(track, 0) // hold at start should extend the wrapped note
-    const seq = buildSequences(track, 4)
-    expect(seq.gateSeq[0]).toBe(1) // wrapped from end, through hold
-    expect(seq.gateSeq[1]).toBe(1) // wrapped
-    expect(seq.gateSeq[2]).toBe(1) // note 60
-    expect(seq.gateSeq[3]).toBe(1) // hold
+  it('counts the hold rows a pattern starts with', () => {
+    const track = makeTrack(6)
+    setHold(track, 0)
+    setHold(track, 1)
+    setNote(track, 3, 60)
+    setHold(track, 4)
+    expect(leadingHoldRows(track, 6)).toBe(2)
+    expect(leadingHoldRows(makeTrack(4), 4)).toBe(0)
   })
 
   // ── multiple chains ────────────────────────────────────────────
@@ -406,12 +390,12 @@ describe('buildDrumKitSlotSequences', () => {
     expect(slotGateSeqs.kick.slice(0, 3)).toEqual([1, 0, 1])
   })
 
-  it('sends a hit to its slot and wraps a held last note into the pattern start', () => {
+  it('sends a hit to its slot and releases a held last note at its pitch', () => {
     const t = makeTrack(4)
     setNote(t, 2, 38)
     setHold(t, 3)
     const { slotGateSeqs, slotFreqSeqs } = buildDrumKitSlotSequences(t, 4, kit)
-    expect(slotGateSeqs.snare).toEqual([1, 1, 1, 1])
+    expect(slotGateSeqs.snare).toEqual([0, 0, 1, 1])
     expect(slotFreqSeqs.snare[0]).toBe(midiToFreq(60))
     expect(slotGateSeqs.kick).toEqual([0, 0, 0, 0])
   })

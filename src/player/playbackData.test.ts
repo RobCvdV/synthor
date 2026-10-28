@@ -3,7 +3,7 @@ import { buildPlaybackData, slicePlaybackData } from '../player/playbackData'
 import { newModularInstrument, newDrumKitInstrument, newTrack } from '../domain/factory'
 import type { Doc, Id, Pattern, Track } from '../domain/types'
 import { MASTER_CHANNEL_ID } from '../domain/types'
-import { REGULAR_CH } from '../engine/voiceSlotLayout'
+import { DRUMKIT_CH, REGULAR_CH } from '../engine/voiceSlotLayout'
 
 /** A plain modular synth with its seeded eff inlets removed — keeps the
  *  11-channel layout the old osc instrument had. */
@@ -269,6 +269,92 @@ describe('buildPlaybackData', () => {
       { patternId: p2.id, startRow: 16 },
     ])
     expect(data.totalRows).toBe(48)
+  })
+})
+
+describe('buildPlaybackData: notes held across the pattern start', () => {
+  const synth = newSynth('Pad')
+  /** A 4-row pattern: a note on row 2, optionally held on row 3, plus hold rows at the start. */
+  const pattern = (id: string, opts: { holdEnd?: boolean; leadingHolds?: number; note?: number }) => {
+    const track = newTrack(synth.id, 4)
+    setNote(track, 2, opts.note ?? 60)
+    if (opts.holdEnd) track.cells[3].hold = true
+    for (let r = 0; r < (opts.leadingHolds ?? 0); r++) track.cells[r].hold = true
+    return { track, pattern: { id, name: id, length: 4, trackIds: [track.id] } as Pattern }
+  }
+  const play = (...parts: ReturnType<typeof pattern>[]) => {
+    const doc = makeDoc(
+      { [synth.id]: synth },
+      Object.fromEntries(parts.map((p) => [p.track.id, p.track])),
+      Object.fromEntries(parts.map((p) => [p.pattern.id, p.pattern])),
+    )
+    const data = buildPlaybackData(doc, parts.map((p, i) => ({ patternId: p.pattern.id, startRow: i * 4 })))
+    return data.slots[0].signals
+  }
+
+  it('releases a note held on the last row when the pattern starts without hold signs', () => {
+    expect(play(pattern('a', { holdEnd: true }))[REGULAR_CH.gate]).toEqual([0, 0, 1, 1])
+  })
+
+  it('keeps it sounding through hold signs when the pattern loops', () => {
+    const signals = play(pattern('a', { holdEnd: true, leadingHolds: 1 }))
+    expect(signals[REGULAR_CH.gate]).toEqual([1, 0, 1, 1])
+    expect(signals[REGULAR_CH.freq][0]).toBe(signals[REGULAR_CH.freq][3])
+  })
+
+  it('carries a held note into the next pattern only through its hold signs', () => {
+    const signals = play(pattern('a', { holdEnd: true, note: 48 }), pattern('b', { leadingHolds: 2, note: 72 }))
+    expect(signals[REGULAR_CH.gate]).toEqual([0, 0, 1, 1, 1, 1, 1, 0])
+    // The held note keeps its pitch from pattern a.
+    expect(signals[REGULAR_CH.freq][5]).toBe(signals[REGULAR_CH.freq][3])
+  })
+
+  it('leaves hold signs silent when the previous pattern released its note', () => {
+    const signals = play(pattern('a', {}), pattern('b', { leadingHolds: 2, holdEnd: true }))
+    expect(signals[REGULAR_CH.gate].slice(4)).toEqual([0, 0, 1, 1])
+  })
+
+  it('gives a note on the first row a gap to re-attack after a note held to the end', () => {
+    const b = pattern('b', {})
+    b.track.cells[0].note = 64
+    const signals = play(pattern('a', { holdEnd: true }), b)
+    expect(signals[REGULAR_CH.gate].slice(3, 5)).toEqual([1, 1])
+    expect(signals[REGULAR_CH.staccato][3]).toBe(0.85)
+    // A released note needs no gap.
+    expect(play(pattern('c', {}), b)[REGULAR_CH.staccato][3]).toBe(1)
+  })
+
+  it('retriggers when a held pattern loops onto a note on its first row', () => {
+    const a = pattern('a', { holdEnd: true })
+    a.track.cells[0].note = 55
+    expect(play(a)[REGULAR_CH.staccato][3]).toBe(0.85)
+  })
+
+  it('carries a drum kit sound held into the next pattern', () => {
+    const drums = newDrumKitInstrument('Drums')
+    drums.slots = [
+      { id: 'dkick', note: 36, sampleId: null, instrumentId: null, baseNote: 36, volume: 1, pan: 0 },
+      { id: 'dsnare', note: 38, sampleId: null, instrumentId: null, baseNote: 38, volume: 1, pan: 0 },
+    ]
+    const a = newTrack(drums.id, 4)
+    a.cells[3].note = 38
+    const b = newTrack(drums.id, 4)
+    b.cells[0].hold = true
+    b.cells[2].note = 36
+    const doc = makeDoc(
+      { [drums.id]: drums },
+      { [a.id]: a, [b.id]: b },
+      { a: { id: 'a', name: 'a', length: 4, trackIds: [a.id] }, b: { id: 'b', name: 'b', length: 4, trackIds: [b.id] } },
+    )
+    const { signals } = buildPlaybackData(doc, [{ patternId: 'a', startRow: 0 }, { patternId: 'b', startRow: 4 }]).slots[0]
+    expect(signals[1]).toEqual([0, 0, 0, 1, 1, 0, 0, 0]) // snare
+    expect(signals[0]).toEqual([0, 0, 0, 0, 0, 0, 1, 0]) // kick
+
+    // A snare hit on b's first row instead re-attacks: the shared staccato channel cuts row 3.
+    b.cells[0] = { ...b.cells[0], hold: false, note: 38 }
+    const again = buildPlaybackData(doc, [{ patternId: 'a', startRow: 0 }, { patternId: 'b', startRow: 4 }]).slots[0]
+    expect(again.signals[1].slice(3, 5)).toEqual([1, 1])
+    expect(again.signals[2 * 2 + DRUMKIT_CH.staccato][3]).toBe(0.85)
   })
 })
 
