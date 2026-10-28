@@ -18,6 +18,28 @@ export interface CueInfo {
   rows: number
 }
 
+/**
+ * When a cue takes over a playing one:
+ *   'now'  — restart on the new cue's top immediately.
+ *   'sync' — swap at once, keeping the row position (layered variations of equal length).
+ *   'end'  — when the current loop finishes.
+ *   { every: n } — on the next n-row boundary (n = rows per bar for bar-quantized changes).
+ * Boundaries count from the top of the cue sounding when the switch lands, so
+ * a cue asked for mid hand-over follows the cue that is taking over.
+ */
+export type CueTiming = 'now' | 'sync' | 'end' | { every: number }
+
+/** One step of `queue()`: a cue and when it takes over from the step before. */
+export interface CueStep {
+  cue: Cue
+  timing?: CueTiming
+  /**
+   * Carry on where the cue would be had it kept playing since it was left
+   * (e.g. a stage after a fill or a detour), instead of from its top.
+   */
+  resume?: boolean
+}
+
 /** Every section, then every pattern, as playable cues. */
 export function listCues(doc: Doc): CueInfo[] {
   const sections = doc.sectionIds.flatMap((id) => {

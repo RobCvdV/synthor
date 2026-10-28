@@ -66,3 +66,35 @@ music.stop()
   taken off. `beatsPerBar` (option, default 4) sets the bars.
 - **Shared audio**: pass `audioContext` (and optionally `destination`) to play
   through a game engine's context, e.g. Phaser's `game.sound.context`.
+
+## Conducting a song from a game
+
+`GameConductor` plays a song the way a game asks, from the song's game
+settings (`GameMusic`): sections chosen by energy, a DJ that plays with each
+one for a good while (fading parts, swapping them, cutting the drums for a
+phrase), moods such as menu or danger, fills, drops and stingers. The game
+only reports what happens:
+
+```ts
+import { GameConductor, SongPlayer, type GameMusic } from 'synthor-player'
+
+const conductor = new GameConductor(music /* a SongPlayer */, settings as GameMusic)
+
+conductor.setMood('menu')                 // a mood's cue; 'play' is the song's sections
+conductor.setMood('play')                 // from a mood that doesn't return: through the intro
+conductor.setProgress(level, progress)    // lifts the energy over a level (progress 0..1)
+conductor.reaction(nr, sets)              // a cascade's nr-th reaction: a climbing stinger, a fill on long ones
+conductor.levelUp(level)                  // a fill into a new, sparser section
+conductor.key(index)                      // a climbing note per collected key
+conductor.stinger('unlock')               // any stinger by name
+conductor.nudge()                         // the player did something: a section past its time moves on
+conductor.drop('penalty', 0.5)            // cut a drop's tracks until the next bar
+conductor.setMood('danger')               // a mood that `returns`: play carries on after it
+conductor.setEnabled(false)               // silent (a music setting)
+conductor.snapshot()                      // section, the DJ's visit, energy… for a readout
+conductor.position()                      // the music clock while it plays
+```
+
+Sections and moods name cues; stingers name instruments; the DJ's `groups`
+map part names to Track numbers. Randomness defaults to `Math.random`: pass
+your own (`{ random }`) but never a game's seeded random.
