@@ -13,6 +13,7 @@ import type { SongFile } from '../persist/serialize'
 import { clockRow, createClock, musicalTime, observeRow, sendDelay, setClockRate, type MusicalTime, type SongClock } from '../player/songClock'
 import { rowHz } from '../domain/notes'
 import { DEFAULT_TEMPO, type Doc, type Id, type Instrument } from '../domain/types'
+import type { GameMusic } from '../domain/gameMusic'
 
 export type { CueStep, CueTiming }
 
@@ -421,6 +422,11 @@ export class SongPlayer {
 
   get cues(): CueInfo[] {
     return this.doc ? listCues(this.doc) : []
+  }
+
+  /** The loaded song's game settings, if it has them (for a `GameConductor`) */
+  get game(): GameMusic | null {
+    return this.doc?.game ?? null
   }
 
   get instruments(): { id: Id; name: string }[] {

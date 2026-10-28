@@ -156,8 +156,9 @@ export class GameConductor {
     this.state.level = level
     this.state.progress = 0
     // another mood keeps its music; the section moves on later, by time and play
-    if (this.sounding?.mood !== PLAY_MOOD) return
-    this.moveOn(sectionFor(this.music, this.state.section), (next) => levelUpPlan(this.music, this.sounding, next))
+    const section = sectionFor(this.music, this.state.section)
+    if (this.sounding?.mood !== PLAY_MOOD || !section) return
+    this.moveOn(section, (next) => levelUpPlan(this.music, this.sounding, next))
   }
 
   /** Play a stinger by name (an unlock, an achievement…) */
@@ -242,8 +243,8 @@ export class GameConductor {
     const { bar } = this.music
     if (repeat || row % bar !== bar - SECTION_LEAD_ROWS) return
     this.energy = afterBar(this.energy)
-    if (this.sounding?.mood !== PLAY_MOOD) return
     const section = sectionFor(this.music, this.state.section)
+    if (this.sounding?.mood !== PLAY_MOOD || !section) return
     const visit = this.visit ?? startVisit(section, this.music.dj, this.liveEnergy, this.random)
     this.visit = { ...visit, bars: visit.bars + 1 }
 

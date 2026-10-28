@@ -39,11 +39,14 @@ const bar = { every: 16 }
 
 describe('game music plans', () => {
   it('plays the section the song is at, the song start when it names none', () => {
-    expect(sectionFor(music, 'pre').energy).toBe(3.5)
-    expect(sectionFor(music, 'nothing').cue).toBe('verse')
+    expect(sectionFor(music, 'pre')?.energy).toBe(3.5)
+    expect(sectionFor(music, 'nothing')?.cue).toBe('verse')
     expect(at('break')).toEqual({ mood: 'play', cue: 'break', muted: [1, 2], via: undefined })
     expect(mood('lastMove')).toEqual({ mood: 'lastMove', cue: 'lastMove', muted: [1] })
     expect(targetFor(music, playing({ mood: 'nothing' }))).toBeNull()
+    const empty = { ...music, song: { start: '', sections: [] } }
+    expect(sectionFor(empty, 'verse')).toBeUndefined()
+    expect(targetFor(empty, playing())).toBeNull()
   })
 
   it('starts the first music right away', () => {

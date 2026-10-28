@@ -34,8 +34,8 @@ export type MusicPlan =
   /** Same cue: only the layers change */
   | { kind: 'layers'; muted: number[] }
 
-/** The section by cue, or the song's first */
-export function sectionFor(music: GameMusic, cue: string): GameSection {
+/** The section by cue, or the song's first; undefined when the song has none */
+export function sectionFor(music: GameMusic, cue: string): GameSection | undefined {
   const { sections, start } = music.song
   return sections.find((s) => s.cue === cue) ?? sections.find((s) => s.cue === start) ?? sections[0]
 }
@@ -47,6 +47,7 @@ export function targetFor(music: GameMusic, state: GameMusicState): MusicTarget 
     return mood ? { mood: state.mood, cue: mood.cue, muted: mood.muted ?? [] } : null
   }
   const section = sectionFor(music, state.section)
+  if (!section) return null
   return { mood: PLAY_MOOD, cue: section.cue, muted: section.muted ?? [], via: section.via }
 }
 

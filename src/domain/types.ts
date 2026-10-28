@@ -8,6 +8,8 @@
  * rewrite.
  */
 
+import type { GameMusic } from './gameMusic'
+
 export type Id = string
 
 /** A single step in a track lane. */
@@ -320,4 +322,6 @@ export interface Doc {
   patternId: Id
   /** Ordered sections that form the song arrangement. */
   sectionIds: Id[]
+  /** How a game conducts the song; absent for a song no game plays */
+  game?: GameMusic
 }

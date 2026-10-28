@@ -59,8 +59,28 @@ describe('song serialization', () => {
     const doc = createDefaultDoc()
     doc.tempo = { bpm: 92, linesPerBeat: 6 }
     const restored = deserializeSong(serializeSong(makeSongFile(doc, META)))
-    expect(restored.schemaVersion).toBe(17)
+    expect(restored.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
     expect(restored.doc.tempo).toEqual({ bpm: 92, linesPerBeat: 6 })
+  })
+
+  it('loads a v17 song (no game settings) without them, and keeps saved ones', () => {
+    const v17 = JSON.parse(JSON.stringify({ ...makeSongFile(createDefaultDoc(), META), schemaVersion: 17 }))
+    expect(migrate(v17).doc).not.toHaveProperty('game')
+
+    const doc = createDefaultDoc()
+    const pattern = Object.values(doc.entities.patterns)[0]
+    const instrument = Object.values(doc.entities.instruments)[0]
+    doc.game = {
+      bar: 16,
+      song: { start: pattern.name, sections: [{ cue: pattern.name, energy: 2, bars: 4, toys: ['drums'] }] },
+      dj: { groups: { drums: [1] }, phraseBars: 4, fadeBars: 2, stays: [4, 6] },
+      moods: { menu: { cue: pattern.id } },
+      drops: { penalty: [1] },
+      stingers: { unlock: { instrument: instrument.name, notes: [69, 76], at: 'beat', rows: 2 } },
+    }
+    const restored = deserializeSong(serializeSong(makeSongFile(doc, META)))
+    expect(restored.schemaVersion).toBe(18)
+    expect(restored.doc.game).toEqual(doc.game)
   })
 
   it('repairs an out-of-range tempo', () => {

@@ -53,8 +53,9 @@ into Zwap's `vendor/synthor-player/` and write this repo's commit to its
   switched on. It runs the same conductor the game does, on the open song.
 - **A song carries its game settings** (`doc.game`): sections with their
   energy and grammar, the DJ's parts, mood cues, fills, drops and stingers,
-  referring to sections, patterns and instruments by id. A game loads the song
-  and gets the music's behaviour with it; its own code only maps game events
+  referring to sections, patterns and instruments by id or name (Zwap's score
+  uses names; the settings editors should write ids, so a rename keeps
+  working). A game loads the song and gets the music's behaviour with it; its own code only maps game events
   (moves, cascades, level-ups, danger) to the conductor.
 
 ## Phases
@@ -112,16 +113,18 @@ into Zwap's `vendor/synthor-player/` and write this repo's commit to its
 - Needs emsdk 3.1.52 and `vendor/elementary` (see
   [NATIVE_SEQUENCER_NODE.md](./NATIVE_SEQUENCER_NODE.md)).
 
-### 5. Game screen — open
-1. **The conductor moves here** from Zwap: section choice by energy
+### 5. Game screen — steps 1–2 done; the screen open
+1. **The conductor moves here** (done) from Zwap: section choice by energy
    (`MusicEnergy`), the DJ (`MusicDj`), plans for moods, fills and level-ups
    (`MusicConductor`) become pure modules in `src/player/`, and the stateful
    part of Zwap's `MusicService` a `GameConductor` in `src/headless/` around a
    `SongPlayer`, exported by the player package. Zwap keeps only its game
    hooks (scenes and bombs to moods, events to conductor calls, the mix).
-2. **Game settings in the song**: `doc.game` (schema bump, a `migrate` case,
-   defaults and dropped dangling ids in `completeDoc`). Zwap's current config
-   moves into its score; Zwap reads it from the song.
+2. **Game settings in the song** (done): `doc.game` (v18). `persist/completeGame`
+   gives missing fields their defaults and drops parts naming a cue or
+   instrument the song lacks; `SongPlayer.game` hands them to a game. Zwap's
+   score carries them, and Zwap plays from them (its `music.ts` copy is the
+   fallback for a score without them).
 3. **The Game screen, simulator**: buttons for game events (a move, cascades,
    level-up, danger on / off, last move, penalty, unlock, idle), sliders for
    level and progress, and a live readout: the section, its visit (bars,

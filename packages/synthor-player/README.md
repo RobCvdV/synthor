@@ -78,7 +78,8 @@ only reports what happens:
 ```ts
 import { GameConductor, SongPlayer, type GameMusic } from 'synthor-player'
 
-const conductor = new GameConductor(music /* a SongPlayer */, settings as GameMusic)
+// a song saved with game settings carries them: music.game (null without)
+const conductor = new GameConductor(music /* a SongPlayer */, music.game ?? (settings as GameMusic))
 
 conductor.setMood('menu')                 // a mood's cue; 'play' is the song's sections
 conductor.setMood('play')                 // from a mood that doesn't return: through the intro

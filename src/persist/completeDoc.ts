@@ -6,6 +6,7 @@
 import { createMasterChannel, fitCells } from '../domain/factory'
 import { defaultParams, MODULE_DEFS } from '../domain/moduleDefs'
 import { DEFAULT_EFFECT_SETTINGS, DEFAULT_TEMPO, MASTER_CHANNEL_ID, MAX_BPM, MIN_BPM, type ModuleType } from '../domain/types'
+import { completeGame } from './completeGame'
 
 type Rec = Record<string, unknown>
 
@@ -165,16 +166,27 @@ export function completeDoc(raw: any): any {
   }
 
   const tempo = recOf(doc.tempo)
+  const linesPerBeat = Math.max(1, Math.round(num(tempo.linesPerBeat, DEFAULT_TEMPO.linesPerBeat)))
+  const sectionIds = arrOf(doc.sectionIds).filter((sid): sid is string => typeof sid === 'string' && !!sections[sid])
+  // a game names cues as the player finds them: arranged sections and patterns, by id or name
+  const names = (ids: string[], map: Rec) => ids.flatMap((id) => [id, str((map[id] as Rec).name, '')])
+  const game = completeGame(doc.game, {
+    cues: new Set([...names(sectionIds, sections), ...names(Object.keys(patterns), patterns)]),
+    instruments: new Set(names(Object.keys(instruments), instruments)),
+    linesPerBeat,
+  })
   const mixerInstrumentOrder = arrOf(e.mixerInstrumentOrder).filter((iid): iid is string => typeof iid === 'string' && !!instruments[iid])
+  const { game: _rawGame, ...rest } = doc
   return {
     ...raw,
     doc: {
-      ...doc,
-      sectionIds: arrOf(doc.sectionIds).filter((sid) => typeof sid === 'string' && !!sections[sid]),
+      ...rest,
+      sectionIds,
       tempo: {
         bpm: Math.min(MAX_BPM, Math.max(MIN_BPM, num(tempo.bpm, DEFAULT_TEMPO.bpm))),
-        linesPerBeat: Math.max(1, Math.round(num(tempo.linesPerBeat, DEFAULT_TEMPO.linesPerBeat))),
+        linesPerBeat,
       },
+      ...(game ? { game } : {}),
       entities: {
         ...e,
         instruments,
