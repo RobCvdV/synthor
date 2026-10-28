@@ -7,7 +7,7 @@
  */
 
 import type { CueStep, CueTiming } from '../cues'
-import { PLAY_MOOD, type GameMusic, type GameSection, type GameStinger } from '../../domain/gameMusic'
+import { PLAY_MOOD, type GameFill, type GameMusic, type GameSection, type GameStinger } from '../../domain/gameMusic'
 
 export interface GameMusicState {
   /** `play` (the sections) or one of `moods` */
@@ -31,8 +31,8 @@ export interface MusicTarget {
 }
 
 export type MusicPlan =
-  /** Cues to play, each after the one before sounds */
-  | { kind: 'cues'; steps: CueStep[] }
+  /** Cues to play, each after the one before sounds; `lands`: a fill that lands on more */
+  | { kind: 'cues'; steps: CueStep[]; lands?: boolean }
   /** Same cue: only the layers change */
   | { kind: 'layers'; muted: number[] }
 
@@ -84,6 +84,24 @@ export function planChange(music: GameMusic, from: MusicTarget | null, to: Music
   return via(music.intro)
 }
 
+/** Where the music goes from one section to another */
+export function direction(from: GameSection | undefined, to: GameSection | undefined): GameFill['goes'] {
+  if (!from || !to || from === to || to.energy === from.energy) return 'level'
+  return to.energy > from.energy ? 'up' : 'down'
+}
+
+/** A fill from `fills` going that way and fitting a section of `energy`, at random among those that do */
+export function pickFill(
+  music: GameMusic,
+  goes: GameFill['goes'],
+  energy: number,
+  random: () => number,
+): string | undefined {
+  const fits = (music.fills ?? []).filter((f) =>
+    f.goes === goes && energy >= (f.minEnergy ?? -Infinity) && energy < (f.maxEnergy ?? Infinity))
+  return fits.length > 0 ? fits[Math.min(fits.length - 1, Math.floor(random() * fits.length))].cue : undefined
+}
+
 /**
  * A fill for a cascade of `reactions`, `barsSinceFill` after the last one,
  * standing in for a bar of the section; null when none fits
@@ -93,32 +111,51 @@ export function fillPlan(
   sounding: MusicTarget | null,
   reactions: number,
   barsSinceFill = Infinity,
+  random: () => number = Math.random,
 ): MusicPlan | null {
   const fill = music.fill
   if (!fill || sounding?.mood !== PLAY_MOOD || reactions !== fill.minCascade) return null
   if (barsSinceFill < (fill.minBarsApart ?? 0)) return null
-  const section = sectionFor(music, sounding.cue)
-  if (section && section.energy < (fill.minEnergy ?? 0)) return null
+  const energy = sectionFor(music, sounding.cue)?.energy ?? 0
+  const cue = pickFill(music, 'level', energy, random) ?? (energy >= (fill.minEnergy ?? -Infinity) ? fill.cue : undefined)
+  if (!cue) return null
   return {
     kind: 'cues',
     steps: [
-      { cue: fill.cue, timing: { every: music.bar } },
+      { cue, timing: { every: music.bar } },
       { cue: sounding.cue, timing: 'end', resume: true },
     ],
+    lands: true,
   }
 }
 
 /**
- * A level-up: the level-up fill on the next bar, then `next` (a new section,
- * from its top) or, without one, the section carrying on
+ * A level-up: a fill on the next bar going where the music goes (else the
+ * level-up's own), then `next` (a new section, from its top) or, without one,
+ * the section carrying on
  */
-export function levelUpPlan(music: GameMusic, sounding: MusicTarget | null, next?: string): MusicPlan | null {
-  const fill = music.levelUp
-  if (!fill || sounding?.mood !== PLAY_MOOD) return null
-  const after: CueStep = next && next !== sounding.cue
-    ? { cue: next, timing: 'end' }
-    : { cue: sounding.cue, timing: 'end', resume: true }
-  return { kind: 'cues', steps: [{ cue: fill.cue, timing: { every: music.bar } }, after] }
+export function levelUpPlan(
+  music: GameMusic,
+  sounding: MusicTarget | null,
+  next?: string,
+  random: () => number = Math.random,
+): MusicPlan | null {
+  if (sounding?.mood !== PLAY_MOOD) return null
+  const moving = next !== undefined && next !== sounding.cue
+  const from = sectionFor(music, sounding.cue)
+  const goes = moving ? direction(from, sectionFor(music, next)) : 'level'
+  const cue = pickFill(music, goes, from?.energy ?? 0, random) ?? music.levelUp?.cue
+  if (!cue) return null
+  const after: CueStep = moving ? { cue: next, timing: 'end' } : { cue: sounding.cue, timing: 'end', resume: true }
+  return { kind: 'cues', steps: [{ cue, timing: { every: music.bar } }, after], lands: goes !== 'down' }
+}
+
+/** Every cue a fill may play */
+export function fillCues(music: GameMusic): Set<string> {
+  const cues = (music.fills ?? []).map((f) => f.cue)
+  if (music.fill) cues.push(music.fill.cue)
+  if (music.levelUp) cues.push(music.levelUp.cue)
+  return new Set(cues)
 }
 
 /** Layers for a cue that just started sounding: the target's, or every track for a passing cue */

@@ -148,6 +148,22 @@ describe('GameConductor', () => {
     expect(visit!.out.length).toBe(out.length - 1)
   })
 
+  it('falls into a quieter section with a fill going down, which lands on no more', () => {
+    conductor.dispose()
+    conductor = new GameConductor(player, { ...music, fills: [{ cue: 'fall', goes: 'down' }] }, { random: () => 0.99 })
+    play()
+    conductor.levelUp(2) // into pre, then on to the chorus
+    player.sound('pre')
+    player.bars(1)
+    player.sound('chorus')
+    conductor.levelUp(3)
+    expect(player.lastCues).toEqual(['fall', 'verse'])
+    player.sound('fall')
+    const { visit } = conductor.snapshot()
+    player.sound('verse')
+    expect(conductor.snapshot()).toMatchObject({ lastMove: null, visit: { out: visit!.out } })
+  })
+
   it('plays stingers by name, only while the music plays', () => {
     conductor.stinger('unlock')
     expect(player.notes).toEqual([])

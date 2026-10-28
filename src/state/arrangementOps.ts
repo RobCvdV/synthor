@@ -1,5 +1,6 @@
 import type { Doc, Id, Pattern } from '../domain/types'
 import { emptyCells, fitCells, makeId, newSection } from '../domain/factory'
+import { cueNamed, mapGameCues, renamed } from '../domain/gameMusic'
 import { clamp } from './helpers'
 import type { DocState } from './docStore'
 
@@ -63,7 +64,7 @@ export function arrangementOps(get: () => DocState): ArrangementOps {
     renamePattern: (patternId, name) =>
       get().mutate((draft) => {
         const pattern = draft.entities.patterns[patternId]
-        if (pattern) pattern.name = name
+        if (pattern) renameCue(draft, patternId, pattern, name)
       }),
 
     addPattern: (name, length) => {
@@ -194,7 +195,7 @@ export function arrangementOps(get: () => DocState): ArrangementOps {
     renameSection: (sectionId, name) =>
       get().mutate((draft) => {
         const section = draft.entities.sections[sectionId]
-        if (section) section.name = name
+        if (section) renameCue(draft, sectionId, section, name)
       }),
 
     addPatternToSection: (sectionId, patternId, atIndex) =>
@@ -230,4 +231,10 @@ export function arrangementOps(get: () => DocState): ArrangementOps {
         ids.splice(toIdx, 0, id)
       }),
   }
+}
+
+/** Rename a section or pattern; game settings that named it by its name follow */
+function renameCue(draft: Doc, id: Id, entity: { name: string }, name: string): void {
+  if (draft.game && cueNamed(draft, entity.name) === id) draft.game = mapGameCues(draft.game, renamed(entity.name, name))
+  entity.name = name
 }

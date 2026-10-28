@@ -4,7 +4,7 @@
  * dropped (a section, a mood, a stinger…), so a conductor never asks for music the song lacks.
  * Cues and instruments are referenced by id or name, as the player resolves them.
  */
-import type { DjRules, GameMood, GameMusic, GameSection, GameStinger } from '../domain/gameMusic'
+import type { DjRules, GameFill, GameMood, GameMusic, GameSection, GameStinger } from '../domain/gameMusic'
 import { PLAY_MOOD } from '../domain/gameMusic'
 
 type Rec = Record<string, unknown>
@@ -21,6 +21,7 @@ export interface GameRefs {
 export const DEFAULT_DJ: DjRules = { groups: {}, phraseBars: 4, fadeBars: 2, stays: [4, 4, 6, 6, 8] }
 
 const AT: GameStinger['at'][] = ['row', 'beat', 'bar']
+const GOES: GameFill['goes'][] = ['up', 'level', 'down']
 
 const isRec = (v: unknown): v is Rec => typeof v === 'object' && v !== null && !Array.isArray(v)
 const recOf = (v: unknown): Rec => (isRec(v) ? v : {})
@@ -110,6 +111,16 @@ export function completeGame(raw: unknown, refs: GameRefs): GameMusic | undefine
     if (isRec(s) && typeof s.instrument === 'string' && refs.instruments.has(s.instrument)) stingers[name] = completeStinger(s)
   }
 
+  const fills = raw.fills === undefined ? undefined : arrOf(raw.fills)
+    .filter((f): f is Rec => isRec(f) && resolves(f.cue) && GOES.includes(f.goes as GameFill['goes']))
+    .map((f): GameFill => defined({
+      ...f,
+      cue: f.cue as string,
+      goes: f.goes as GameFill['goes'],
+      minEnergy: isNum(f.minEnergy) ? f.minEnergy : undefined,
+      maxEnergy: isNum(f.maxEnergy) ? f.maxEnergy : undefined,
+    }))
+
   const fill = recOf(raw.fill)
   const levelUp = recOf(raw.levelUp)
   const stops = recOf(raw.stops)
@@ -130,6 +141,7 @@ export function completeGame(raw: unknown, refs: GameRefs): GameMusic | undefine
       })
       : undefined,
     levelUp: resolves(levelUp.cue) ? { ...levelUp, cue: levelUp.cue } : undefined,
+    fills,
     drops,
     stops: isRec(raw.stops)
       ? {

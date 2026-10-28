@@ -22,6 +22,7 @@ const complete: GameMusic = {
   moods: { menu: { cue: 'menu', hit: 'fill' }, danger: { cue: 'sec_1', muted: [1], returns: true } },
   fill: { cue: 'fill', minCascade: 3, minBarsApart: 8, minEnergy: 2 },
   levelUp: { cue: 'fill' },
+  fills: [{ cue: 'fill', goes: 'down', minEnergy: 1, maxEnergy: 3 }],
   drops: { penalty: [1, 2] },
   stops: { tracks: [1], everyBars: 4, chance: 0.2, minEnergy: 2 },
   stingers: { unlock: { instrument: 'Stinger', notes: [69], at: 'bar', rows: 2, velocity: 100 } },
@@ -60,7 +61,9 @@ describe('completeGame', () => {
     raw.fill.cue = 'gone'
     raw.levelUp = { cue: 7 }
     raw.stingers.keys = { instrument: 'Piano', notes: [60], at: 'row', rows: 1 }
+    raw.fills.push({ cue: 'gone', goes: 'up' }, { cue: 'chorus', goes: 'sideways' })
     const game = completeGame(raw, refs)!
+    expect(game.fills).toEqual([{ cue: 'fill', goes: 'down', minEnergy: 1, maxEnergy: 3 }])
     expect(game.intro).toBeUndefined()
     expect(game.song.start).toBe('verse')
     expect(game.song.sections.map((s) => s.cue)).toEqual(['verse', 'chorus'])

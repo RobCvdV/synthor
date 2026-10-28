@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { GameMusic } from '../../domain/gameMusic'
 import {
-  cascadeNotes, fillPlan, layersFor, levelUpPlan, nthNote, planChange, sectionFor, targetFor,
+  cascadeNotes, direction, fillCues, fillPlan, pickFill, layersFor, levelUpPlan, nthNote, planChange, sectionFor, targetFor,
   type GameMusicState,
 } from './plans'
 
@@ -100,6 +100,7 @@ describe('game music plans', () => {
     expect(fillPlan(music, verse, 3)).toEqual({
       kind: 'cues',
       steps: [{ cue: 'fill', timing: bar }, { cue: 'verse', timing: 'end', resume: true }],
+      lands: true,
     })
     // fills stay an accent: not again within 8 bars
     expect(fillPlan(music, verse, 3, 5)).toBeNull()
@@ -108,6 +109,32 @@ describe('game music plans', () => {
     expect(fillPlan(music, verse, 4)).toBeNull()
     expect(fillPlan(music, mood('danger'), 3)).toBeNull()
     expect(fillPlan(music, null, 3)).toBeNull()
+  })
+
+  it('picks fills by where the music goes and the energy they break into', () => {
+    const fills = {
+      ...music,
+      fill: { cue: 'fill', minCascade: 3, minEnergy: 3 },
+      fills: [
+        { cue: 'fill-soft', goes: 'level' as const, maxEnergy: 3 },
+        { cue: 'build', goes: 'up' as const },
+        { cue: 'fill-down', goes: 'down' as const },
+      ],
+    }
+    const verse = sectionFor(music, 'verse')
+    expect(direction(verse, sectionFor(music, 'chorus'))).toBe('up')
+    expect(direction(verse, sectionFor(music, 'break'))).toBe('down')
+    expect(direction(verse, verse)).toBe('level')
+    expect(pickFill(fills, 'level', 2, () => 0)).toBe('fill-soft')
+    expect(pickFill(fills, 'level', 3, () => 0)).toBeUndefined()
+    expect(fillCues(fills)).toEqual(new Set(['fill-soft', 'build', 'fill-down', 'fill', 'levelup-fill']))
+    // a quiet section's cascade gets the soft fill; a lively one the fill's own
+    expect(fillPlan(fills, at('verse'), 3)).toMatchObject({ steps: [{ cue: 'fill-soft' }, { cue: 'verse' }], lands: true })
+    expect(fillPlan(fills, at('chorus'), 3)).toMatchObject({ steps: [{ cue: 'fill' }, { cue: 'chorus' }] })
+    // a level-up into a quieter section falls into it, and doesn't land on more
+    expect(levelUpPlan(fills, at('verse'), 'break')).toMatchObject({ steps: [{ cue: 'fill-down' }, { cue: 'break' }], lands: false })
+    expect(levelUpPlan(fills, at('verse'), 'chorus')).toMatchObject({ steps: [{ cue: 'build' }, { cue: 'chorus' }], lands: true })
+    expect(levelUpPlan(fills, at('chorus'))).toMatchObject({ steps: [{ cue: 'levelup-fill' }, { cue: 'chorus' }] })
   })
 
   it('plays no fill in a section quieter than the fill asks for', () => {
@@ -120,10 +147,12 @@ describe('game music plans', () => {
     expect(levelUpPlan(music, at('verse'), 'break')).toEqual({
       kind: 'cues',
       steps: [{ cue: 'levelup-fill', timing: bar }, { cue: 'break', timing: 'end' }],
+      lands: false,
     })
     expect(levelUpPlan(music, at('pre'))).toEqual({
       kind: 'cues',
       steps: [{ cue: 'levelup-fill', timing: bar }, { cue: 'pre', timing: 'end', resume: true }],
+      lands: true,
     })
     expect(levelUpPlan(music, mood('danger'))).toBeNull()
     expect(levelUpPlan(music, null)).toBeNull()

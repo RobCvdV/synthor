@@ -1,7 +1,7 @@
 import { PLAY_MOOD, type GameMusic, type GameSection, type GameStinger } from '../domain/gameMusic'
 import type { CueStep } from '../player/cues'
 import {
-  cascadeNotes, fillPlan, layersFor, levelUpPlan, nthNote, planChange, sectionFor, targetFor,
+  cascadeNotes, fillCues, fillPlan, layersFor, levelUpPlan, nthNote, planChange, sectionFor, targetFor,
   type GameMusicState, type MusicPlan, type MusicTarget,
 } from '../player/game/plans'
 import {
@@ -82,6 +82,8 @@ export class GameConductor {
   private layers: number[] = []
   /** While a fill plays: the mutes of the mix it broke into (its levels stay too) */
   private heldLayers: number[] | null = null
+  /** The fill playing lands on more (it doesn't go down) */
+  private landing = true
   private lastFillAt = -Infinity
   private enabled = true
   private timers = new Set<ReturnType<typeof setTimeout>>()
@@ -141,7 +143,7 @@ export class GameConductor {
     if (cascade) this.playStinger(cascade, cascadeNotes(cascade, nr, sets))
     const now = performance.now()
     const barsSinceFill = (now - this.lastFillAt) / 1000 / this.barSeconds
-    const fill = fillPlan(this.music, this.sounding, nr, barsSinceFill)
+    const fill = fillPlan(this.music, this.sounding, nr, barsSinceFill, this.random)
     if (fill) this.lastFillAt = now
     this.run(fill)
   }
@@ -162,7 +164,7 @@ export class GameConductor {
     // another mood keeps its music; the section moves on later, by time and play
     const section = sectionFor(this.music, this.state.section)
     if (this.sounding?.mood !== PLAY_MOOD || !section) return
-    this.moveOn(section, (next) => levelUpPlan(this.music, this.sounding, next))
+    this.moveOn(section, (next) => levelUpPlan(this.music, this.sounding, next, this.random))
   }
 
   /** Play a stinger by name (an unlock, an achievement…) */
@@ -282,12 +284,12 @@ export class GameConductor {
   }
 
   private isFill(cue: Cue | null): boolean {
-    return cue !== null && (cue === this.music.fill?.cue || cue === this.music.levelUp?.cue)
+    return typeof cue === 'string' && fillCues(this.music).has(cue)
   }
 
-  /** A fill landed on the section: a part comes back (hard, on the downbeat) */
+  /** A fill landed on the section: unless it went down, a part comes back (hard, on the downbeat) */
   private land(): void {
-    if (!this.visit || this.sounding?.mood !== PLAY_MOOD || this.heard !== this.sounding.cue) return
+    if (!this.landing || !this.visit || this.sounding?.mood !== PLAY_MOOD || this.heard !== this.sounding.cue) return
     const move = landingMove(this.visit, this.random)
     this.visit = applyMove(this.visit, move)
     this.lastMove = move
@@ -382,6 +384,7 @@ export class GameConductor {
       this.applyMutes()
       return
     }
+    if (plan.lands !== undefined) this.landing = plan.lands
     this.player.queue(plan.steps).catch((err) => this.log('cue failed', plan.steps, err))
   }
 

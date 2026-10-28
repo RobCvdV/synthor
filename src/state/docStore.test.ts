@@ -242,6 +242,32 @@ describe('docStore — pattern & section ops', () => {
     expect(useDocStore.getState().doc.entities.sections[id].name).toBe('Intro')
   })
 
+  it('renames the game settings along with a section or pattern their names meant', () => {
+    const store = useDocStore.getState()
+    const sid = firstSectionId()
+    const pid = firstPatternId()
+    store.renameSection(sid, 'pre')
+    store.renamePattern(pid, 'pre') // the section by that name comes first: the settings mean it
+    store.mutate((d) => {
+      d.game = {
+        bar: 16,
+        song: { start: 'pre', sections: [{ cue: 'pre', energy: 2, bars: 4, next: ['pre'] }] },
+        dj: { groups: {}, phraseBars: 4, fadeBars: 2, stays: [4] },
+        moods: { blast: { cue: 'pre', hit: 'pre' } },
+        fills: [{ cue: 'pre', goes: 'up' }],
+        drops: {},
+        stingers: {},
+      }
+    })
+    useDocStore.getState().renamePattern(pid, 'bridge')
+    expect(useDocStore.getState().doc.game!.song.start).toBe('pre')
+    useDocStore.getState().renameSection(sid, 'fill-in')
+    const game = useDocStore.getState().doc.game!
+    expect(game.song).toEqual({ start: 'fill-in', sections: [{ cue: 'fill-in', energy: 2, bars: 4, next: ['fill-in'] }] })
+    expect(game.moods.blast).toEqual({ cue: 'fill-in', hit: 'fill-in' })
+    expect(game.fills).toEqual([{ cue: 'fill-in', goes: 'up' }])
+  })
+
   /* ---- patterns ---- */
 
   it('creates a new pattern from the selected one with all lanes cleared', () => {
