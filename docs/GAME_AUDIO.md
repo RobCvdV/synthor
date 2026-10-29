@@ -53,9 +53,9 @@ into Zwap's `vendor/synthor-player/` and write this repo's commit to its
   switched on. It runs the same conductor the game does, on the open song.
 - **A song carries its game settings** (`doc.game`): sections with their
   energy and grammar, the DJ's parts, mood cues, fills, drops and stingers,
-  referring to sections, patterns and instruments by id or name (Zwap's score
-  uses names; the settings editors should write ids, so a rename keeps
-  working). A game loads the song and gets the music's behaviour with it; its own code only maps game events
+  referring to sections, patterns and instruments by id or name. The settings
+  editors write names, readable in a game's code too; renames rewrite them,
+  so they keep working. A game loads the song and gets the music's behaviour with it; its own code only maps game events
   (moves, cascades, level-ups, danger) to the conductor.
 
 ## Phases
@@ -113,7 +113,7 @@ into Zwap's `vendor/synthor-player/` and write this repo's commit to its
 - Needs emsdk 3.1.52 and `vendor/elementary` (see
   [NATIVE_SEQUENCER_NODE.md](./NATIVE_SEQUENCER_NODE.md)).
 
-### 5. Game screen — steps 1–3 done; the settings editors open
+### 5. Game screen — done
 1. **The conductor moves here** (done) from Zwap: section choice by energy
    (`MusicEnergy`), the DJ (`MusicDj`), plans for moods, fills and level-ups
    (`MusicConductor`) become pure modules in `src/player/`, and the stateful
@@ -135,9 +135,17 @@ into Zwap's `vendor/synthor-player/` and write this repo's commit to its
    pure): mood, section, visit (bars / stay, due), energy, level, the DJ's
    last move, the section's parts in / out / cut, and the conductor's log.
    Start reloads the song, so edits are heard on the next start.
-4. **The Game screen, settings**: a section table (energy, length, what may
-   follow, the DJ's parts, transition), mood cues, fills, drops, the DJ's
-   part groups and timings, and stinger note sequences.
+4. **The Game screen, settings** (done): the Settings tab (`ui/game/GameSettings`,
+   fields in `ui/game/fields`) edits every part of `doc.game`, one undo step
+   per change (`state/gameOps`: `createGame`, `editGame`, `removeGame`): the
+   song (start, intro, rows per bar, the peak), the section table (cue,
+   energy, bars, transition, DJ parts, next, via, muted), moods (cue, hit,
+   returns, muted), fills (the cascade's and the level-up's, and the list by
+   direction), the DJ (timings, parts by track #s), drops and stops, and
+   stingers (instrument, notes by name, timing). A song without settings
+   gets a starter from its sections (`domain/gameEdit.starterGame`); edits
+   that would leave dangling names (a section's cue, a DJ part renamed or
+   removed) take their references along (`gameEdit`).
 
 Fills fit the music they break into (done): a fill keeps the mutes and the
 DJ's faded or cut parts as they were, the cascade fill skips sections below
