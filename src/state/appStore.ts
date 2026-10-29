@@ -7,7 +7,7 @@ import type { StepRef } from '../engine/arrangement'
 export type PlayMode = 'song' | 'section' | 'pattern'
 export const PLAY_MODES: PlayMode[] = ['song', 'section', 'pattern']
 
-export type View = 'tracker' | 'instruments' | 'samples' | 'mixer'
+export type View = 'tracker' | 'instruments' | 'samples' | 'mixer' | 'game'
 
 export interface TrackerCursor {
   row: number

@@ -15,6 +15,7 @@ import { TrackerRightPane } from './ui/tracker/TrackerRightPane'
 import { InstrumentsView } from './ui/InstrumentsView'
 import { SampleLibraryView } from './ui/SampleLibraryView'
 import { MixerView } from './ui/mixer/MixerView'
+import { GameView } from './ui/game/GameView'
 import { DialogHost } from './ui/components/DialogHost'
 import { ErrorBoundary } from './ui/components/ErrorBoundary'
 import { StorageStatus } from './ui/StorageStatus'
@@ -134,6 +135,10 @@ export default function App() {
       ) : view === 'mixer' ? (
         <div className="layout">
           <MixerView />
+        </div>
+      ) : view === 'game' ? (
+        <div className="layout">
+          <GameView />
         </div>
       ) : (
         <div className="layout">

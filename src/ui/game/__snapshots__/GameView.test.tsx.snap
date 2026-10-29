@@ -1,0 +1,473 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`GameView > offers the settings' moods and events, waiting for a start 1`] = `
+<div>
+  <div
+    class="view"
+  >
+    <section
+      class="controls"
+    >
+      <div
+        class="row"
+      >
+        <button
+          class="button md"
+          type="button"
+        >
+          Start
+        </button>
+        <button
+          class="button md"
+          disabled=""
+          type="button"
+        >
+          Stop
+        </button>
+      </div>
+      <h3
+        class="heading"
+      >
+        Mood
+      </h3>
+      <div
+        class="row"
+      >
+        <button
+          class="button sm"
+          disabled=""
+          type="button"
+        >
+          play
+        </button>
+        <button
+          class="button sm"
+          disabled=""
+          type="button"
+        >
+          menu
+        </button>
+        <button
+          class="button sm"
+          disabled=""
+          type="button"
+        >
+          danger
+        </button>
+      </div>
+      <h3
+        class="heading"
+      >
+        Play
+      </h3>
+      <div
+        class="row"
+      >
+        <button
+          class="button sm"
+          disabled=""
+          type="button"
+        >
+          Cascade 
+          2
+        </button>
+        <button
+          class="button sm"
+          disabled=""
+          type="button"
+        >
+          Cascade 
+          3
+        </button>
+        <button
+          class="button sm"
+          disabled=""
+          type="button"
+        >
+          Cascade 
+          5
+        </button>
+        <button
+          class="button sm"
+          disabled=""
+          type="button"
+        >
+          Level up
+        </button>
+        <button
+          class="button sm"
+          disabled=""
+          type="button"
+        >
+          Keys
+        </button>
+        <button
+          class="button sm"
+          disabled=""
+          title="The player did something: a section past its time moves on"
+          type="button"
+        >
+          Nudge
+        </button>
+      </div>
+      <div
+        class="row"
+      >
+        <button
+          class="button sm"
+          disabled=""
+          type="button"
+        >
+          unlock
+        </button>
+        <button
+          class="button sm"
+          disabled=""
+          type="button"
+        >
+          penalty
+        </button>
+      </div>
+      <h3
+        class="heading"
+      >
+        Level
+      </h3>
+      <label
+        class="slider"
+      >
+        <span>
+          Level 
+          1
+        </span>
+        <span
+          class="slider"
+        >
+          <input
+            class="input"
+            disabled=""
+            max="20"
+            min="1"
+            step="1"
+            type="range"
+            value="1"
+          />
+        </span>
+      </label>
+      <label
+        class="slider"
+      >
+        <span>
+          Progress 
+          0
+          %
+        </span>
+        <span
+          class="slider"
+        >
+          <input
+            class="input"
+            disabled=""
+            max="1"
+            min="0"
+            step="0.01"
+            type="range"
+            value="0"
+          />
+        </span>
+      </label>
+    </section>
+    <section
+      class="readout"
+    >
+      <p
+        class="empty"
+      >
+        Start to hear the song as the game plays it.
+      </p>
+    </section>
+  </div>
+</div>
+`;
+
+exports[`GameView > says so when the song has no game settings 1`] = `
+<div>
+  <div
+    class="view"
+  >
+    <p
+      class="empty"
+    >
+      This song has no game settings. A game conducts a song from them: its sections by energy, the parts a DJ plays with, moods, fills and stingers.
+    </p>
+  </div>
+</div>
+`;
+
+exports[`GameView > shows what the conductor does while it plays, and passes the events on 1`] = `
+<div>
+  <div
+    class="view"
+  >
+    <section
+      class="controls"
+    >
+      <div
+        class="row"
+      >
+        <button
+          class="button md accent"
+          type="button"
+        >
+          Restart
+        </button>
+        <button
+          class="button md"
+          type="button"
+        >
+          Stop
+        </button>
+      </div>
+      <h3
+        class="heading"
+      >
+        Mood
+      </h3>
+      <div
+        class="row"
+      >
+        <button
+          class="button sm accent"
+          type="button"
+        >
+          play
+        </button>
+        <button
+          class="button sm"
+          type="button"
+        >
+          menu
+        </button>
+        <button
+          class="button sm"
+          type="button"
+        >
+          danger
+        </button>
+      </div>
+      <h3
+        class="heading"
+      >
+        Play
+      </h3>
+      <div
+        class="row"
+      >
+        <button
+          class="button sm"
+          type="button"
+        >
+          Cascade 
+          2
+        </button>
+        <button
+          class="button sm"
+          type="button"
+        >
+          Cascade 
+          3
+        </button>
+        <button
+          class="button sm"
+          type="button"
+        >
+          Cascade 
+          5
+        </button>
+        <button
+          class="button sm"
+          type="button"
+        >
+          Level up
+        </button>
+        <button
+          class="button sm"
+          type="button"
+        >
+          Keys
+        </button>
+        <button
+          class="button sm"
+          title="The player did something: a section past its time moves on"
+          type="button"
+        >
+          Nudge
+        </button>
+      </div>
+      <div
+        class="row"
+      >
+        <button
+          class="button sm"
+          type="button"
+        >
+          unlock
+        </button>
+        <button
+          class="button sm"
+          type="button"
+        >
+          penalty
+        </button>
+      </div>
+      <h3
+        class="heading"
+      >
+        Level
+      </h3>
+      <label
+        class="slider"
+      >
+        <span>
+          Level 
+          2
+        </span>
+        <span
+          class="slider"
+        >
+          <input
+            class="input"
+            max="20"
+            min="1"
+            step="1"
+            type="range"
+            value="2"
+          />
+        </span>
+      </label>
+      <label
+        class="slider"
+      >
+        <span>
+          Progress 
+          50
+          %
+        </span>
+        <span
+          class="slider"
+        >
+          <input
+            class="input"
+            max="1"
+            min="0"
+            step="0.01"
+            type="range"
+            value="0.5"
+          />
+        </span>
+      </label>
+    </section>
+    <section
+      class="readout"
+    >
+      <table
+        class="table"
+      >
+        <tbody>
+          <tr>
+            <th>
+              Mood
+            </th>
+            <td>
+              play
+            </td>
+          </tr>
+          <tr>
+            <th>
+              Section
+            </th>
+            <td>
+              verse
+            </td>
+          </tr>
+          <tr>
+            <th>
+              Playing
+            </th>
+            <td>
+              verse
+            </td>
+          </tr>
+          <tr>
+            <th>
+              Visit
+            </th>
+            <td>
+              5 / 16 bars
+            </td>
+          </tr>
+          <tr>
+            <th>
+              Energy
+            </th>
+            <td>
+              2.1 (heat 0.20, rest 0.00)
+            </td>
+          </tr>
+          <tr>
+            <th>
+              Level
+            </th>
+            <td>
+              2, 50%
+            </td>
+          </tr>
+          <tr>
+            <th>
+              Last move
+            </th>
+            <td>
+              − arp
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <h3
+        class="heading"
+      >
+        Parts
+      </h3>
+      <div
+        class="row"
+      >
+        <span
+          class="part in"
+          title="Tracks 1, 2"
+        >
+          drums
+           
+        </span>
+        <span
+          class="part out"
+          title="Tracks 10"
+        >
+          arp
+           
+          (out)
+        </span>
+      </div>
+      <h3
+        class="heading"
+      >
+        Log
+      </h3>
+      <pre
+        class="log"
+      >
+        dj verse {"kind":"out","part":"arp"}
+section verse energy 2.1 for 16 bars
+      </pre>
+    </section>
+  </div>
+</div>
+`;
