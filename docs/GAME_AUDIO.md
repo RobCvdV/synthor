@@ -126,7 +126,7 @@ into Zwap's `vendor/synthor-player/` and write this repo's commit to its
    score carries them, and Zwap plays from them (its `music.ts` copy is the
    fallback for a score without them).
 3. **The Game screen, simulator** (done): `ui/game/`. The Game view (in the
-   toolbar for songs with game settings) plays the open song, samples and
+   toolbar) plays the open song, samples and
    all, on a `SongPlayer` of its own conducted by a `GameConductor`
    (`GameSimulator`, one per app, the player's code loaded with the screen).
    Buttons for the settings' moods, cascades, level-up, keys, nudge, the
