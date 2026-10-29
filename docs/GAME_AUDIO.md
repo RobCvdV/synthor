@@ -113,7 +113,7 @@ into Zwap's `vendor/synthor-player/` and write this repo's commit to its
 - Needs emsdk 3.1.52 and `vendor/elementary` (see
   [NATIVE_SEQUENCER_NODE.md](./NATIVE_SEQUENCER_NODE.md)).
 
-### 5. Game screen — steps 1–2 done; the screen open
+### 5. Game screen — steps 1–3 done; the settings editors open
 1. **The conductor moves here** (done) from Zwap: section choice by energy
    (`MusicEnergy`), the DJ (`MusicDj`), plans for moods, fills and level-ups
    (`MusicConductor`) become pure modules in `src/player/`, and the stateful
@@ -125,10 +125,16 @@ into Zwap's `vendor/synthor-player/` and write this repo's commit to its
    instrument the song lacks; `SongPlayer.game` hands them to a game. Zwap's
    score carries them, and Zwap plays from them (its `music.ts` copy is the
    fallback for a score without them).
-3. **The Game screen, simulator**: buttons for game events (a move, cascades,
-   level-up, danger on / off, last move, penalty, unlock, idle), sliders for
-   level and progress, and a live readout: the section, its visit (bars,
-   stay, due), the parts in / out or cut, the energy and the DJ's last move.
+3. **The Game screen, simulator** (done): `ui/game/`. The Game view (in the
+   toolbar for songs with game settings) plays the open song, samples and
+   all, on a `SongPlayer` of its own conducted by a `GameConductor`
+   (`GameSimulator`, one per app, the player's code loaded with the screen).
+   Buttons for the settings' moods, cascades, level-up, keys, nudge, the
+   stingers a game plays by name and the drops (both nudge, as a game's
+   events do); sliders for level and progress; a readout (`gameReadout`,
+   pure): mood, section, visit (bars / stay, due), energy, level, the DJ's
+   last move, the section's parts in / out / cut, and the conductor's log.
+   Start reloads the song, so edits are heard on the next start.
 4. **The Game screen, settings**: a section table (energy, length, what may
    follow, the DJ's parts, transition), mood cues, fills, drops, the DJ's
    part groups and timings, and stinger note sequences.
