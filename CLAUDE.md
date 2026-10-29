@@ -47,7 +47,7 @@ Chains are ordered; each hop is verified. Skipping the tail is how features half
 | Sample import / edit / storage | `audio/sampleLoader.ts`, `audio/sampleEdit.ts` (pure edits + resampling), `audio/cycle.ts` (pitch detection, single cycles), `persist/sampleStorage.ts` (OPFS) |
 | Something should change audibly without a recompile | a `paramRefs` ref, not `compileGraph` |
 | Headless player API (games, embeds) | pure cue logic in `player/cues.ts` (+ its test, incl. the offline txSeq hand-over) → `headless/SongPlayer.ts` → export from `headless/index.ts`. The player must stay free of `state/`, `ui/` and storage-backed `persist/` modules — `npm run build:player` bundles whatever it imports |
-| Game music (how a game conducts a song) | settings type in `domain/gameMusic.ts` → pure logic in `player/game/` (`plans`, `energy`, `dj`, each with a test) → `headless/GameConductor.ts` (tested against a fake player) → export from `headless/index.ts`. Plan and status: `docs/GAME_AUDIO.md` |
+| Game music (how a game conducts a song) | settings type in `domain/gameMusic.ts` (stored as `doc.game`; a new field gets its default in `persist/completeGame.ts`, a schema bump if older apps would drop it; a new cue or instrument field also goes in `mapGameCues` / `mapGameInstruments`, which renames run) → pure logic in `player/game/` (`plans`, `energy`, `dj`, each with a test) → `headless/GameConductor.ts` (tested against a fake player) → export from `headless/index.ts`. Plan and status: `docs/GAME_AUDIO.md` |
 
 ## Why things exist
 

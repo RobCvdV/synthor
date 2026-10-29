@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { GameMusic } from '../../domain/gameMusic'
 import {
-  cascadeNotes, fillPlan, layersFor, levelUpPlan, nthNote, planChange, sectionFor, targetFor,
+  cascadeNotes, direction, fillCues, fillPlan, pickFill, layersFor, levelUpPlan, nthNote, planChange, sectionFor, targetFor,
   type GameMusicState,
 } from './plans'
 
@@ -23,6 +23,7 @@ const music: GameMusic = {
     danger: { cue: 'danger', returns: true },
     lastMove: { cue: 'lastMove', muted: [1], returns: true },
     gameOver: { cue: 'gameover' },
+    blast: { cue: 'gameover', hit: 'blast' },
   },
   fill: { cue: 'fill', minCascade: 3, minBarsApart: 8 },
   levelUp: { cue: 'levelup-fill' },
@@ -39,11 +40,14 @@ const bar = { every: 16 }
 
 describe('game music plans', () => {
   it('plays the section the song is at, the song start when it names none', () => {
-    expect(sectionFor(music, 'pre').energy).toBe(3.5)
-    expect(sectionFor(music, 'nothing').cue).toBe('verse')
+    expect(sectionFor(music, 'pre')?.energy).toBe(3.5)
+    expect(sectionFor(music, 'nothing')?.cue).toBe('verse')
     expect(at('break')).toEqual({ mood: 'play', cue: 'break', muted: [1, 2], via: undefined })
     expect(mood('lastMove')).toEqual({ mood: 'lastMove', cue: 'lastMove', muted: [1] })
     expect(targetFor(music, playing({ mood: 'nothing' }))).toBeNull()
+    const empty = { ...music, song: { start: '', sections: [] } }
+    expect(sectionFor(empty, 'verse')).toBeUndefined()
+    expect(targetFor(empty, playing())).toBeNull()
   })
 
   it('starts the first music right away', () => {
@@ -76,6 +80,14 @@ describe('game music plans', () => {
     })
   })
 
+  it(`cuts to a mood's hit at once, then its cue; the next mood on that cue carries on`, () => {
+    expect(planChange(music, mood('lastMove'), mood('blast'))).toEqual({
+      kind: 'cues',
+      steps: [{ cue: 'blast', timing: 'now' }, { cue: 'gameover', timing: 'end' }],
+    })
+    expect(planChange(music, mood('blast'), mood('gameOver'))).toBeNull()
+  })
+
   it('only changes layers within a cue, and nothing when they stay', () => {
     const verse = at('verse')
     expect(planChange(music, verse, { ...verse, muted: [3] })).toEqual({ kind: 'layers', muted: [3] })
@@ -88,6 +100,7 @@ describe('game music plans', () => {
     expect(fillPlan(music, verse, 3)).toEqual({
       kind: 'cues',
       steps: [{ cue: 'fill', timing: bar }, { cue: 'verse', timing: 'end', resume: true }],
+      lands: true,
     })
     // fills stay an accent: not again within 8 bars
     expect(fillPlan(music, verse, 3, 5)).toBeNull()
@@ -98,14 +111,48 @@ describe('game music plans', () => {
     expect(fillPlan(music, null, 3)).toBeNull()
   })
 
+  it('picks fills by where the music goes and the energy they break into', () => {
+    const fills = {
+      ...music,
+      fill: { cue: 'fill', minCascade: 3, minEnergy: 3 },
+      fills: [
+        { cue: 'fill-soft', goes: 'level' as const, maxEnergy: 3 },
+        { cue: 'build', goes: 'up' as const },
+        { cue: 'fill-down', goes: 'down' as const },
+      ],
+    }
+    const verse = sectionFor(music, 'verse')
+    expect(direction(verse, sectionFor(music, 'chorus'))).toBe('up')
+    expect(direction(verse, sectionFor(music, 'break'))).toBe('down')
+    expect(direction(verse, verse)).toBe('level')
+    expect(pickFill(fills, 'level', 2, () => 0)).toBe('fill-soft')
+    expect(pickFill(fills, 'level', 3, () => 0)).toBeUndefined()
+    expect(fillCues(fills)).toEqual(new Set(['fill-soft', 'build', 'fill-down', 'fill', 'levelup-fill']))
+    // a quiet section's cascade gets the soft fill; a lively one the fill's own
+    expect(fillPlan(fills, at('verse'), 3)).toMatchObject({ steps: [{ cue: 'fill-soft' }, { cue: 'verse' }], lands: true })
+    expect(fillPlan(fills, at('chorus'), 3)).toMatchObject({ steps: [{ cue: 'fill' }, { cue: 'chorus' }] })
+    // a level-up into a quieter section falls into it, and doesn't land on more
+    expect(levelUpPlan(fills, at('verse'), 'break')).toMatchObject({ steps: [{ cue: 'fill-down' }, { cue: 'break' }], lands: false })
+    expect(levelUpPlan(fills, at('verse'), 'chorus')).toMatchObject({ steps: [{ cue: 'build' }, { cue: 'chorus' }], lands: true })
+    expect(levelUpPlan(fills, at('chorus'))).toMatchObject({ steps: [{ cue: 'levelup-fill' }, { cue: 'chorus' }] })
+  })
+
+  it('plays no fill in a section quieter than the fill asks for', () => {
+    const quiet = { ...music, fill: { cue: 'fill', minCascade: 3, minEnergy: 3 } }
+    expect(fillPlan(quiet, at('verse'), 3)).toBeNull()
+    expect(fillPlan(quiet, at('chorus'), 3)).not.toBeNull()
+  })
+
   it('plays the level-up fill into the next section, or in place of a bar', () => {
     expect(levelUpPlan(music, at('verse'), 'break')).toEqual({
       kind: 'cues',
       steps: [{ cue: 'levelup-fill', timing: bar }, { cue: 'break', timing: 'end' }],
+      lands: false,
     })
     expect(levelUpPlan(music, at('pre'))).toEqual({
       kind: 'cues',
       steps: [{ cue: 'levelup-fill', timing: bar }, { cue: 'pre', timing: 'end', resume: true }],
+      lands: true,
     })
     expect(levelUpPlan(music, mood('danger'))).toBeNull()
     expect(levelUpPlan(music, null)).toBeNull()

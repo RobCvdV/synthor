@@ -125,6 +125,82 @@ describe('GameConductor', () => {
     expect(player.queued.at(-1)![1]).toMatchObject({ resume: true })
   })
 
+  it('plays a fill in the mix it breaks into, and lands it on a part coming back', () => {
+    conductor.dispose()
+    conductor = new GameConductor(player, music, { random: () => 0.99 })
+    play()
+    player.bars(1)
+    player.sound('verse')
+    const out = conductor.snapshot().visit!.out
+    expect(out.length).toBeGreaterThan(0)
+    const silent = out.flatMap((part) => music.dj.groups[part])
+    conductor.reaction(1)
+    conductor.reaction(2)
+    conductor.reaction(3)
+    player.sound('fill')
+    for (const track of silent) expect(player.levels.get(track)).toBe(0)
+    player.bars(4) // a phrase passes under the fill: its parts wait for the landing
+    vi.advanceTimersByTime(1000)
+    for (const track of silent) expect(player.levels.get(track)).toBe(0)
+    player.sound('verse')
+    const { lastMove, visit } = conductor.snapshot()
+    expect(lastMove?.kind).toBe('in')
+    expect(visit!.out.length).toBe(out.length - 1)
+  })
+
+  it('falls into a quieter section with a fill going down, which lands on no more', () => {
+    conductor.dispose()
+    const sections = [
+      { cue: 'verse', energy: 2, bars: 2, toys: ['drums', 'chords'], next: ['quiet'] },
+      { cue: 'quiet', energy: 1, bars: 2, toys: ['drums', 'chords'], next: ['verse'] },
+    ]
+    const falling = { ...music, song: { start: 'verse', sections }, fills: [{ cue: 'fall', goes: 'down' as const }] }
+    conductor = new GameConductor(player, falling, { random: () => 0.99 })
+    play()
+    conductor.levelUp(2)
+    expect(player.lastCues).toEqual(['fall', 'quiet'])
+    player.sound('fall')
+    const { visit } = conductor.snapshot()
+    player.sound('quiet')
+    expect(conductor.snapshot()).toMatchObject({ lastMove: null, visit: { out: visit!.out } })
+  })
+
+  it('heads for the peak near the end of a level, once', () => {
+    conductor.dispose()
+    const verse = { cue: 'verse', energy: 2, bars: 2, next: ['pre', 'verse2'] }
+    const verse2 = { ...verse, cue: 'verse2', next: ['pre', 'verse'] }
+    const song = { start: 'verse', sections: [verse, verse2, ...music.song.sections.slice(1)], peak: { cue: 'pre', from: 0.85 } }
+    conductor = new GameConductor(player, { ...music, song }, { random: () => 0 })
+    play()
+    player.bars(1)
+    conductor.setProgress(1, 0.5)
+    expect(conductor.snapshot().due).toBe(false)
+    conductor.setProgress(1, 0.9)
+    expect(conductor.snapshot().due).toBe(true)
+    player.bars(1) // the player got it there: no other nudge needed
+    expect(player.lastCues).toEqual(['pre'])
+  })
+
+  it(`doesn't cut a peak short on a level-up: it celebrates in it and plays on`, () => {
+    play()
+    conductor.levelUp(2) // verse → pre
+    player.sound('pre')
+    conductor.levelUp(3) // the build plays out
+    expect(player.lastCues).toEqual(['levelup-fill', 'pre'])
+    player.bars(1)
+    expect(player.lastCues).toEqual(['chorus'])
+    player.sound('chorus')
+    player.bars(1)
+    const stay = conductor.snapshot().visit!.stay
+    conductor.levelUp(4)
+    expect(player.queued.at(-1)).toEqual([
+      { cue: 'levelup-fill', timing: { every: 16 } },
+      { cue: 'chorus', timing: 'end', resume: true },
+    ])
+    expect(conductor.snapshot()).toMatchObject({ section: 'chorus', level: 4 })
+    expect(conductor.snapshot().visit!.stay).toBeGreaterThanOrEqual(Math.max(stay, 1 + 2))
+  })
+
   it('plays stingers by name, only while the music plays', () => {
     conductor.stinger('unlock')
     expect(player.notes).toEqual([])

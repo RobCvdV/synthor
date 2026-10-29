@@ -1,13 +1,13 @@
 import { PLAY_MOOD, type GameMusic, type GameSection, type GameStinger } from '../domain/gameMusic'
 import type { CueStep } from '../player/cues'
 import {
-  cascadeNotes, fillPlan, layersFor, levelUpPlan, nthNote, planChange, sectionFor, targetFor,
+  cascadeNotes, fillCues, fillPlan, layersFor, levelUpPlan, nthNote, planChange, sectionFor, targetFor,
   type GameMusicState, type MusicPlan, type MusicTarget,
 } from '../player/game/plans'
 import {
   afterBar, chooseSection, onEvent, PEAK_ENERGY, settled, stopDue, targetEnergy, type Energy,
 } from '../player/game/energy'
-import { applyMove, isDue, nextMove, startVisit, visitLevels, type DjMove, type DjVisit } from '../player/game/dj'
+import { applyMove, isDue, landingMove, nextMove, startVisit, visitLevels, type DjMove, type DjVisit } from '../player/game/dj'
 import type { Cue } from '../player/cues'
 import type { MusicPosition, NoteTiming, RowEvent } from './SongPlayer'
 
@@ -78,6 +78,14 @@ export class GameConductor {
   private heard: Cue | null = null
   /** Tracks cut until a timer brings them back */
   private dropped: number[] = []
+  /** The muted tracks heard last, without the drop */
+  private layers: number[] = []
+  /** While a fill plays: the mutes of the mix it broke into (its levels stay too) */
+  private heldLayers: number[] | null = null
+  /** The fill playing lands on more (it doesn't go down) */
+  private landing = true
+  /** The level the song last headed for its peak in: once per level */
+  private peakedLevel = 0
   private lastFillAt = -Infinity
   private enabled = true
   private timers = new Set<ReturnType<typeof setTimeout>>()
@@ -120,6 +128,15 @@ export class GameConductor {
   setProgress(level: number, progress: number): void {
     this.state.level = level
     this.state.progress = progress
+    // the end of the level is near (the player got it there): on the next bar, on to the peak
+    const section = sectionFor(this.music, this.state.section)
+    const peak = this.music.song.peak?.cue
+    const leadsThere = section && !section.transition && section.energy < PEAK_ENERGY
+      && (!section.next || section.next.includes(peak!))
+    if (this.headingForPeak && this.visit && leadsThere && section.cue !== peak) {
+      this.visit = { ...this.visit, stay: Math.min(this.visit.stay, this.visit.bars) }
+      this.nudged = true
+    }
     this.update()
   }
 
@@ -137,7 +154,7 @@ export class GameConductor {
     if (cascade) this.playStinger(cascade, cascadeNotes(cascade, nr, sets))
     const now = performance.now()
     const barsSinceFill = (now - this.lastFillAt) / 1000 / this.barSeconds
-    const fill = fillPlan(this.music, this.sounding, nr, barsSinceFill)
+    const fill = fillPlan(this.music, this.sounding, nr, barsSinceFill, this.random)
     if (fill) this.lastFillAt = now
     this.run(fill)
   }
@@ -156,8 +173,16 @@ export class GameConductor {
     this.state.level = level
     this.state.progress = 0
     // another mood keeps its music; the section moves on later, by time and play
-    if (this.sounding?.mood !== PLAY_MOOD) return
-    this.moveOn(sectionFor(this.music, this.state.section), (next) => levelUpPlan(this.music, this.sounding, next))
+    const section = sectionFor(this.music, this.state.section)
+    if (this.sounding?.mood !== PLAY_MOOD || !section) return
+    // a peak isn't cut short: the build into it plays out, the peak celebrates in place and plays on
+    if (section.transition) return
+    if (section.energy >= PEAK_ENERGY) {
+      this.run(levelUpPlan(this.music, this.sounding, undefined, this.random))
+      if (this.visit) this.visit = { ...this.visit, stay: Math.max(this.visit.stay, this.visit.bars + section.bars) }
+      return
+    }
+    this.moveOn(section, (next) => levelUpPlan(this.music, this.sounding, next, this.random))
   }
 
   /** Play a stinger by name (an unlock, an achievement…) */
@@ -219,6 +244,12 @@ export class GameConductor {
     this.lastMove = null
   }
 
+  /** Near a level's end, until the song has headed for its peak in this level */
+  private get headingForPeak(): boolean {
+    const { peak } = this.music.song
+    return !!peak && this.state.progress >= peak.from && this.peakedLevel !== this.state.level
+  }
+
   private get liveEnergy(): number {
     const { level, progress } = this.state
     return targetEnergy(this.energy, progress, level, this.sectionNoise)
@@ -242,8 +273,8 @@ export class GameConductor {
     const { bar } = this.music
     if (repeat || row % bar !== bar - SECTION_LEAD_ROWS) return
     this.energy = afterBar(this.energy)
-    if (this.sounding?.mood !== PLAY_MOOD) return
     const section = sectionFor(this.music, this.state.section)
+    if (this.sounding?.mood !== PLAY_MOOD || !section) return
     const visit = this.visit ?? startVisit(section, this.music.dj, this.liveEnergy, this.random)
     this.visit = { ...visit, bars: visit.bars + 1 }
 
@@ -265,10 +296,28 @@ export class GameConductor {
   }
 
   private onCue(cue: Cue): void {
+    const before = this.heard
     this.heard = cue
+    const fill = this.isFill(cue)
+    // a fill plays in the mix it breaks into: what is muted or faded out stays out
+    this.heldLayers = fill ? (this.heldLayers ?? this.layers) : null
+    if (this.isFill(before) && !fill) this.land()
     this.applyMutes()
     // a section starts with the DJ's parts set; anything else plays in full
-    this.playVisit()
+    if (!fill) this.playVisit()
+  }
+
+  private isFill(cue: Cue | null): boolean {
+    return typeof cue === 'string' && fillCues(this.music).has(cue)
+  }
+
+  /** A fill landed on the section: unless it went down, a part comes back (hard, on the downbeat) */
+  private land(): void {
+    if (!this.landing || !this.visit || this.sounding?.mood !== PLAY_MOOD || this.heard !== this.sounding.cue) return
+    const move = landingMove(this.visit, this.random)
+    this.visit = applyMove(this.visit, move)
+    this.lastMove = move
+    this.log('dj', this.visit.section, 'landing', move)
   }
 
   /** On to the next section: the one nearest the energy that may follow */
@@ -276,7 +325,10 @@ export class GameConductor {
     if (section.energy >= PEAK_ENERGY) this.energy = onEvent(this.energy, { kind: 'peakEnded' })
     this.sectionNoise = (this.random() - 0.5) * 0.6
     const target = this.liveEnergy
-    const next = chooseSection(this.music.song.sections, section, target, this.recentSections, this.random)
+    const { peak } = this.music.song
+    const prefer = this.headingForPeak ? peak?.cue : undefined
+    const next = chooseSection(this.music.song.sections, section, target, this.recentSections, this.random, prefer)
+    if (next.cue === peak?.cue) this.peakedLevel = this.state.level
     this.recentSections = [section.cue, ...this.recentSections].slice(0, RECENT_SECTIONS)
     this.state.section = next.cue
     // after a build-up (a transition) the next section lands full
@@ -304,13 +356,16 @@ export class GameConductor {
    * else (a mood, a fill, the intro) playing with every part in.
    */
   private playVisit(before?: DjVisit): void {
-    const { player, visit, sounding } = this
-    const inSection = visit && sounding?.mood === PLAY_MOOD && this.heard === sounding.cue
-    const levels = inSection ? visitLevels(visit, this.music.dj) : new Map<number, number>()
+    const { player } = this
     const { groups } = this.music.dj
-    const hard = new Set([...(visit?.cut ?? []), ...(before?.cut ?? [])].flatMap((part) => groups[part] ?? []))
     const fadeSeconds = this.music.dj.fadeBars * this.barSeconds
     const apply = () => {
+      // a fill keeps the levels it broke into; the section's are set when it lands
+      if (this.heldLayers) return
+      const { visit, sounding } = this
+      const inSection = visit && sounding?.mood === PLAY_MOOD && this.heard === sounding.cue
+      const levels = inSection ? visitLevels(visit, this.music.dj) : new Map<number, number>()
+      const hard = new Set([...(visit?.cut ?? []), ...(before?.cut ?? [])].flatMap((part) => groups[part] ?? []))
       for (const track of this.djTracks) {
         const level = levels.get(track) ?? 1
         if (player.trackLevel(track) === level) continue
@@ -338,6 +393,7 @@ export class GameConductor {
       if (this.sounding) this.player.stop()
       this.sounding = null
       this.heard = null
+      this.heldLayers = null
       return
     }
     const target = targetFor(this.music, this.state)
@@ -355,12 +411,14 @@ export class GameConductor {
       this.applyMutes()
       return
     }
+    if (plan.lands !== undefined) this.landing = plan.lands
     this.player.queue(plan.steps).catch((err) => this.log('cue failed', plan.steps, err))
   }
 
   /** The heard cue's mutes, with the drop on top */
   private applyMutes(): void {
-    this.player.setMutedTracks([...layersFor(this.sounding, this.heard), ...this.dropped])
+    this.layers = this.heldLayers ?? layersFor(this.sounding, this.heard)
+    this.player.setMutedTracks([...this.layers, ...this.dropped])
   }
 
   private playStinger(stinger: GameStinger, notes = stinger.notes): void {

@@ -72,6 +72,28 @@ describe('instrumentOps', () => {
     expect(doc().entities.instruments[instId].name).toBe('Renamed')
   })
 
+  it('renameInstrument takes stingers that named it along', () => {
+    const store = useDocStore.getState()
+    const instId = firstInstId()
+    store.renameInstrument(instId, 'Bell')
+    store.mutate((d) => {
+      d.game = {
+        bar: 16,
+        song: { start: '', sections: [] },
+        dj: { groups: {}, phraseBars: 4, fadeBars: 2, stays: [4] },
+        moods: {},
+        drops: {},
+        stingers: {
+          a: { instrument: 'Bell', notes: [60], at: 'row', rows: 1 },
+          b: { instrument: 'Piano', notes: [60], at: 'row', rows: 1 },
+        },
+      }
+    })
+    useDocStore.getState().renameInstrument(instId, 'Stinger')
+    const { stingers } = doc().game!
+    expect([stingers.a.instrument, stingers.b.instrument]).toEqual(['Stinger', 'Piano'])
+  })
+
   it('setTrackInstrument swaps the track instrument and guards unknown targets', () => {
     const store = useDocStore.getState()
     const tid = firstTrackId()

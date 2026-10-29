@@ -1,5 +1,6 @@
 import { MAX_LIVE_VOICES, type Id, type Instrument, type LibraryInfo } from '../domain/types'
 import { patchLibraryInfo } from '../domain/library'
+import { instrumentNamed, mapGameInstruments, renamed } from '../domain/gameMusic'
 import { cloneInstrument, newDrumKitInstrument, newEmptyModularInstrument, newModularInstrument } from '../domain/factory'
 import type { DocState } from './docStore'
 
@@ -57,7 +58,12 @@ export function instrumentOps(get: () => DocState): InstrumentOps {
     renameInstrument: (instrumentId, name) =>
       get().mutate((draft) => {
         const inst = draft.entities.instruments[instrumentId]
-        if (inst) inst.name = name
+        if (!inst) return
+        // game settings that named it by its name follow
+        if (draft.game && instrumentNamed(draft, inst.name) === instrumentId) {
+          draft.game = mapGameInstruments(draft.game, renamed(inst.name, name))
+        }
+        inst.name = name
       }),
 
     setEffectSetting: (instrumentId, key, value) =>

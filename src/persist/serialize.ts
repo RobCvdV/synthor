@@ -20,7 +20,7 @@ import { completeDoc } from './completeDoc'
 /**
  * Bump when the on-disk shape changes; add a matching `migrate` case.
  */
-export const CURRENT_SCHEMA_VERSION = 17
+export const CURRENT_SCHEMA_VERSION = 18
 
 export interface SongMeta {
   name: string
@@ -122,6 +122,8 @@ export function migrate(raw: unknown): SongFile {
 
   // v16→v17: the song carries its tempo (`doc.tempo`). completeDoc gives older files 120 BPM,
   // 4 lines per beat; the bump makes older app versions reject files instead of dropping it.
+
+  // v17→v18: a song may carry its game settings (`doc.game`). No data conversion, same reason.
 
   // v1→v1 migration: when the stereo output was added (commit b3917fc), the
   // output module's inlet changed from 'in' to 'inL'. Old modular instruments

@@ -145,6 +145,16 @@ export function applyMove(visit: DjVisit, move: DjMove): DjVisit {
   return { ...visit, out: [...out], cut: move.kind === 'cut' ? [move.part] : [], last }
 }
 
+/**
+ * A fill lands: the build-up pays off with more. A cut part slams back, else a
+ * faded one comes in; with everything in, the section just carries on
+ */
+export function landingMove(visit: DjVisit, random: () => number): DjMove {
+  // a hold ends the cut
+  if (visit.cut.length > 0 || visit.out.length === 0) return { kind: 'hold' }
+  return { kind: 'in', part: pick(visit.out, random) }
+}
+
 /** Every track's level (0 or 1) in a visit: the parts out or cut are silent */
 export function visitLevels(visit: DjVisit, rules: DjRules): Map<number, number> {
   const levels = new Map<number, number>()

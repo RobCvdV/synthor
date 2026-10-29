@@ -6,6 +6,7 @@ import {
   type DjVisit,
   fullness,
   isDue,
+  landingMove,
   nextMove,
   startVisit,
   visitLevels,
@@ -100,5 +101,13 @@ describe('MusicDj', () => {
 
   it('holds a section without parts to play with', () => {
     expect(nextMove(visit(), pre, 3, draws(0.1))).toEqual({ kind: 'hold' })
+  })
+
+  it('lands a fill on more: a cut slams back, else a faded part comes in', () => {
+    const cut = visit({ out: ['arp'], cut: ['drums'] })
+    expect(applyMove(cut, landingMove(cut, draws(0)))).toMatchObject({ out: ['arp'], cut: [] })
+    const thin = visit({ out: ['arp', 'chords'] })
+    expect(landingMove(thin, draws(0.9))).toEqual({ kind: 'in', part: 'chords' })
+    expect(landingMove(visit(), draws(0))).toEqual({ kind: 'hold' })
   })
 })

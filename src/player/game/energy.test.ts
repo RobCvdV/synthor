@@ -75,6 +75,11 @@ describe('MusicEnergy', () => {
     expect(chooseSection(all, at('calm'), 1.9, ['break'], even).cue).toBe('groove')
   })
 
+  it('heads for a preferred section when the grammar allows it, whatever the energy', () => {
+    expect(chooseSection(sections, at('calm'), 1, ['pre'], even, 'pre').cue).toBe('pre')
+    expect(chooseSection(sections, at('chorus'), 1, [], even, 'pre').cue).toBe('break')
+  })
+
   it(`stops a phrase's last beat now and then, when there's energy to stop`, () => {
     const stops = { everyBars: 4, chance: 0.3, minEnergy: 2 }
     expect(stopDue(stops, 4, 3, () => 0.1)).toBe(true)

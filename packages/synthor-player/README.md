@@ -78,7 +78,8 @@ only reports what happens:
 ```ts
 import { GameConductor, SongPlayer, type GameMusic } from 'synthor-player'
 
-const conductor = new GameConductor(music /* a SongPlayer */, settings as GameMusic)
+// a song saved with game settings carries them: music.game (null without)
+const conductor = new GameConductor(music /* a SongPlayer */, music.game ?? (settings as GameMusic))
 
 conductor.setMood('menu')                 // a mood's cue; 'play' is the song's sections
 conductor.setMood('play')                 // from a mood that doesn't return: through the intro
@@ -90,6 +91,7 @@ conductor.stinger('unlock')               // any stinger by name
 conductor.nudge()                         // the player did something: a section past its time moves on
 conductor.drop('penalty', 0.5)            // cut a drop's tracks until the next bar
 conductor.setMood('danger')               // a mood that `returns`: play carries on after it
+conductor.setMood('blast')                // a mood with a `hit`: it cuts in at once, then the mood's cue
 conductor.setEnabled(false)               // silent (a music setting)
 conductor.snapshot()                      // section, the DJ's visit, energy… for a readout
 conductor.position()                      // the music clock while it plays

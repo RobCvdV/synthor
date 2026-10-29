@@ -113,4 +113,29 @@ describe('completeDoc', () => {
     expect(out.sectionIds).toEqual([section.id])
     expect(out.entities.samples).toEqual({})
   })
+
+  it('keeps game settings that name what the song holds, by id or name', () => {
+    const raw = file(createDefaultDoc())
+    const section = Object.values(raw.doc.entities.sections)[0] as any
+    const pattern = Object.values(raw.doc.entities.patterns)[0] as any
+    const inst = Object.values(raw.doc.entities.instruments)[0] as any
+    // an arranged section, a pattern, and a section that isn't arranged
+    raw.doc.entities.sections.loose = { id: 'loose', name: 'Loose', patternIds: [pattern.id] }
+    raw.doc.game = {
+      song: { start: 'x', sections: [{ cue: section.name }, { cue: pattern.id }, { cue: 'Loose' }] },
+      moods: { menu: { cue: section.id } },
+      stingers: { a: { instrument: inst.name, notes: [60] }, b: { instrument: inst.id, notes: [60] } },
+    }
+    const game = completeDoc(raw).doc.game
+    expect(game.song.sections.map((s: any) => s.cue)).toEqual([section.name, pattern.id])
+    expect(game.song.start).toBe(section.name)
+    expect(game.moods.menu.cue).toBe(section.id)
+    expect(Object.keys(game.stingers)).toEqual(['a', 'b'])
+  })
+
+  it('drops game settings that are not an object', () => {
+    const raw = file(createDefaultDoc())
+    raw.doc.game = 'x'
+    expect(completeDoc(raw).doc).not.toHaveProperty('game')
+  })
 })
