@@ -33,6 +33,17 @@ export interface TrackSequences {
   staccatoSeq: number[]
 }
 
+/** Hold rows ('|') before the first note or note-off; whether they sound depends on what plays before the pattern. */
+export function leadingHoldRows(track: Track, length: number): number {
+  let row = 0
+  while (row < length) {
+    const cell = track.cells[row]
+    if (!cell?.hold || cell.note != null || cell.noteOff) break
+    row++
+  }
+  return row
+}
+
 export function buildSequences(track: Track, length: number): TrackSequences {
   const freqSeq: number[] = new Array(length)
   const gateSeq: number[] = new Array(length)
@@ -183,19 +194,6 @@ export function buildSequences(track: Track, length: number): TrackSequences {
     else freqSeq[row] = lastFreq
   }
 
-  // Wrap-around sustain: if the last row is gate=1, carry it forward
-  // to the start so the note sustains across the pattern loop boundary.
-  // Only a new note or legacy noteOff breaks the wrap — hold signs at the
-  // pattern start ARE the continuation (they extend the wrapped note).
-  if (gateSeq[length - 1] === 1) {
-    for (let row = 0; row < length; row++) {
-      const cell = track.cells[row]
-      if (cell?.note != null || cell?.noteOff) break
-      gateSeq[row] = 1
-      freqSeq[row] = freqSeq[length - 1]
-    }
-  }
-
   return { freqSeq, gateSeq, volumeSeq, noteSeq, effectLanes, laneDefs: track.effectLanes, staccatoSeq }
 }
 
@@ -208,7 +206,7 @@ export interface DrumKitSlotSequences {
 /**
  * Build per-slot gate and frequency sequences for a drumkit track.
  * Each note goes to one slot (nearest slot.note <= cell.note). The gate follows the regular
- * track gate — hold rows ('|'), retrigger gaps and wrap-around sustain — on the slot of the
+ * track gate — hold rows ('|') and retrigger gaps — on the slot of the
  * latest note, so an instrument slot's envelope sees the note's real length. Each slot keeps
  * its last frequency after its gate drops, so a release still sounds at pitch.
  */
@@ -231,7 +229,7 @@ export function buildDrumKitSlotSequences(
     return slot && note !== null ? { slot, freq: midiToFreq(slot.baseNote + (note - slot.note)) } : null
   }
 
-  // Rows before the first note continue the pattern's last note (wrap-around sustain).
+  // Rows before the first note release the pattern's last note at its pitch.
   let current: ReturnType<typeof hit> = null
   for (let row = length - 1; row >= 0 && !current; row--) {
     if (track.cells[row]?.note != null) current = hit(row)

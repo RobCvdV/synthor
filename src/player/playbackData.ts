@@ -10,7 +10,7 @@
  */
 
 import type { Doc, Id } from '../domain/types'
-import { buildSequences, buildDrumKitSlotSequences } from '../engine/sequences'
+import { buildSequences, buildDrumKitSlotSequences, leadingHoldRows } from '../engine/sequences'
 import { computeSlotLayouts, REGULAR_CH, DRUMKIT_CH, DRUMKIT_EXTRA_CHANNELS } from '../engine/voiceSlotLayout'
 import type { InstrumentSlotLayout } from '../engine/voiceSlotLayout'
 import type { ArrangementItem } from '../engine/arrangement'
@@ -211,6 +211,33 @@ export function mapPatternTracksToSlots(
   return map
 }
 
+/** Hold rows at a pattern's start keep sounding what the slot played on the row before — the
+ *  previous pattern's last row, or this pattern's own when it loops — and stay silent otherwise. */
+function continueHeldNote(slot: VoiceSlotData, startRow: number, rows: number, totalRows: number): void {
+  const prev = (startRow - 1 + totalRows) % totalRows
+  const gates = slot.drumGateCount > 0 ? slot.drumGateCount : 1
+  for (let g = 0; g < gates; g++) {
+    const gate = slot.drumGateCount > 0 ? g : REGULAR_CH.gate
+    const freq = slot.drumGateCount > 0 ? slot.drumGateCount + g : REGULAR_CH.freq
+    if (slot.signals[gate][prev] !== 1) continue
+    for (let r = startRow; r < startRow + rows; r++) {
+      slot.signals[gate][r] = 1
+      slot.signals[freq][r] = slot.signals[freq][prev]
+    }
+  }
+}
+
+/** A note on a pattern's first row while the slot still sounds the previous row: cut that row's
+ *  gate short (as within a pattern) so the new note gets a rising edge and re-attacks. */
+function retriggerAtStart(slot: VoiceSlotData, startRow: number, totalRows: number): void {
+  const prev = (startRow - 1 + totalRows) % totalRows
+  const drums = slot.drumGateCount
+  const gates = drums > 0 ? Array.from({ length: drums }, (_, g) => g) : [REGULAR_CH.gate]
+  if (!gates.some((g) => slot.signals[g][prev] === 1 && slot.signals[g][startRow] === 1)) return
+  const staccato = slot.signals[drums > 0 ? 2 * drums + DRUMKIT_CH.staccato : REGULAR_CH.staccato]
+  if (staccato && staccato[prev] >= 1) staccato[prev] = 0.85
+}
+
 /** Build the playback data for the given doc and arrangement. */
 export function buildPlaybackData(
   doc: Doc,
@@ -234,6 +261,9 @@ export function buildPlaybackData(
     }
   }
 
+  const continuations: { slot: VoiceSlotData; startRow: number; rows: number }[] = []
+  const startNotes: { slot: VoiceSlotData; startRow: number }[] = []
+
   // Assign tracks to slots per pattern window.
   for (const item of arrangement) {
     const pattern = doc.entities.patterns[item.patternId]
@@ -254,6 +284,9 @@ export function buildPlaybackData(
       if (!slot) continue
 
       const seq = buildSequences(track, pattern.length)
+      const holds = leadingHoldRows(track, pattern.length)
+      if (holds > 0) continuations.push({ slot, startRow: item.startRow, rows: holds })
+      if (track.cells[0]?.note != null) startNotes.push({ slot, startRow: item.startRow })
 
       if (layout.isDrumkit && inst.kind === 'drumkit') {
         const { slotGateSeqs, slotFreqSeqs } = buildDrumKitSlotSequences(track, pattern.length, inst)
@@ -301,6 +334,12 @@ export function buildPlaybackData(
       }
     }
   }
+
+  // The window at row 0 last: it continues from the arrangement's end, which may itself be continued.
+  for (const c of [...continuations.filter((c) => c.startRow > 0), ...continuations.filter((c) => c.startRow === 0)]) {
+    continueHeldNote(c.slot, c.startRow, c.rows, totalRows)
+  }
+  for (const n of startNotes) retriggerAtStart(n.slot, n.startRow, totalRows)
 
   // Diagnostic: log slot occupancy.
   if (allSlots.length > 0) {
