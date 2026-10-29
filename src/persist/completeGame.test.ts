@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { GameMusic } from '../domain/gameMusic'
-import { completeGame, DEFAULT_DJ, type GameRefs } from './completeGame'
+import { DEFAULT_DJ_RULES as DEFAULT_DJ } from '../domain/gameMusic'
+import { completeGame, type GameRefs } from './completeGame'
 
 const refs: GameRefs = {
   cues: new Set(['verse', 'chorus', 'menu', 'fill', 'sec_1']),

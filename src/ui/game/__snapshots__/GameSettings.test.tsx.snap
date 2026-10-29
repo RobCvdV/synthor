@@ -1,0 +1,948 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`GameSettings > shows every part of the settings 1`] = `
+<div>
+  <div
+    class="settings"
+  >
+    <p
+      class="hint"
+    >
+      Changes are saved with the song; restart the simulator to hear them.
+    </p>
+    <section
+      class="block"
+    >
+      <h3
+        class="heading"
+      >
+        Song
+      </h3>
+      <p
+        class="hint"
+      >
+        Where play starts, the way into it, and where the end of a level heads.
+      </p>
+      <div
+        class="row"
+      >
+        <span
+          class="label"
+        >
+          Starts at
+        </span>
+        <select
+          aria-label="First section"
+          class="select small"
+          title="First section"
+        >
+          <option
+            value="Intro"
+          >
+            Intro
+          </option>
+        </select>
+        <span
+          class="label"
+        >
+          Intro
+        </span>
+        <select
+          aria-label="Intro"
+          class="select small"
+          title="Intro"
+        >
+          <option
+            value=""
+          >
+            none
+          </option>
+          <option
+            value="Intro"
+          >
+            Intro
+          </option>
+          <option
+            value="Pattern 01"
+          >
+            Pattern 01
+          </option>
+        </select>
+        <span
+          class="label"
+        >
+          Rows per bar
+        </span>
+        <input
+          aria-label="Rows per bar"
+          class="field"
+          style="width: 52px;"
+          title="Rows per bar"
+          value="16"
+        />
+      </div>
+      <div
+        class="row"
+      >
+        <span
+          class="label"
+        >
+          Peak via
+        </span>
+        <select
+          aria-label="Section the end of a level heads for"
+          class="select small"
+          title="Section the end of a level heads for"
+        >
+          <option
+            value=""
+          >
+            none
+          </option>
+          <option
+            value="Intro"
+          >
+            Intro
+          </option>
+        </select>
+      </div>
+    </section>
+    <section
+      class="block"
+    >
+      <h3
+        class="heading"
+      >
+        Sections
+        <button
+          class="button xs"
+          type="button"
+        >
+          + add
+        </button>
+      </h3>
+      <p
+        class="hint"
+      >
+        What the game moves between. Energy 1 (sparse) to 5 (everything); a visit lasts a few times its bars. Next: what may follow (any when none).
+      </p>
+      <table
+        class="grid"
+      >
+        <thead>
+          <tr>
+            <th>
+              Cue
+            </th>
+            <th>
+              Energy
+            </th>
+            <th>
+              Bars
+            </th>
+            <th>
+              Transition
+            </th>
+            <th>
+              DJ parts
+            </th>
+            <th>
+              Next
+            </th>
+            <th>
+              Via
+            </th>
+            <th>
+              Muted
+            </th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>
+              <select
+                aria-label="Cue"
+                class="select small"
+                title="Cue"
+              >
+                <option
+                  value="Intro"
+                >
+                  Intro
+                </option>
+                <option
+                  value="Pattern 01"
+                >
+                  Pattern 01
+                </option>
+              </select>
+            </td>
+            <td>
+              <input
+                aria-label="Energy"
+                class="field"
+                style="width: 52px;"
+                title="Energy"
+                value="2"
+              />
+            </td>
+            <td>
+              <input
+                aria-label="Bars"
+                class="field"
+                style="width: 52px;"
+                title="Bars"
+                value="4"
+              />
+            </td>
+            <td>
+              <label
+                class="check"
+                title="Plays once and moves straight on"
+              >
+                <input
+                  type="checkbox"
+                />
+              </label>
+            </td>
+            <td>
+              <span
+                class="chips"
+                title="Parts the DJ plays with"
+              >
+                <button
+                  aria-pressed="true"
+                  class="chip chipOn"
+                  type="button"
+                >
+                  drums
+                </button>
+                <button
+                  aria-pressed="false"
+                  class="chip"
+                  type="button"
+                >
+                  arp
+                </button>
+              </span>
+            </td>
+            <td>
+              <span
+                class="chips"
+                title="Sections that may follow"
+              />
+            </td>
+            <td>
+              <select
+                aria-label="Played once on the way in"
+                class="select small"
+                title="Played once on the way in"
+              >
+                <option
+                  value=""
+                >
+                  —
+                </option>
+                <option
+                  value="Intro"
+                >
+                  Intro
+                </option>
+                <option
+                  value="Pattern 01"
+                >
+                  Pattern 01
+                </option>
+              </select>
+            </td>
+            <td>
+              <input
+                aria-label="Muted track #s"
+                class="field"
+                placeholder="—"
+                style="width: 90px;"
+                title="Muted track #s"
+                value=""
+              />
+            </td>
+            <td>
+              <button
+                aria-label="Remove Intro"
+                class="remove"
+                title="Remove Intro"
+                type="button"
+              >
+                ×
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+    <section
+      class="block"
+    >
+      <h3
+        class="heading"
+      >
+        Moods
+        <button
+          class="button xs"
+          type="button"
+        >
+          + add
+        </button>
+      </h3>
+      <p
+        class="hint"
+      >
+        Music for the game's moods (play is the sections). Returns: play carries on where it would have been afterwards. Hit: played at once, then the cue.
+      </p>
+      <table
+        class="grid"
+      >
+        <thead>
+          <tr>
+            <th>
+              Name
+            </th>
+            <th>
+              Cue
+            </th>
+            <th>
+              Hit
+            </th>
+            <th>
+              Returns
+            </th>
+            <th>
+              Muted
+            </th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>
+              <input
+                aria-label="Mood name"
+                class="field"
+                value="menu"
+              />
+            </td>
+            <td>
+              <select
+                aria-label="Cue"
+                class="select small"
+                title="Cue"
+              >
+                <option
+                  value="Intro"
+                >
+                  Intro
+                </option>
+                <option
+                  value="Pattern 01"
+                >
+                  Pattern 01
+                </option>
+              </select>
+            </td>
+            <td>
+              <select
+                aria-label="Hit"
+                class="select small"
+                title="Hit"
+              >
+                <option
+                  value=""
+                >
+                  —
+                </option>
+                <option
+                  value="Intro"
+                >
+                  Intro
+                </option>
+                <option
+                  value="Pattern 01"
+                >
+                  Pattern 01
+                </option>
+              </select>
+            </td>
+            <td>
+              <label
+                class="check"
+                title="Play carries on after it"
+              >
+                <input
+                  type="checkbox"
+                />
+              </label>
+            </td>
+            <td>
+              <input
+                aria-label="Muted track #s"
+                class="field"
+                placeholder="—"
+                style="width: 90px;"
+                title="Muted track #s"
+                value=""
+              />
+            </td>
+            <td>
+              <button
+                aria-label="Remove menu"
+                class="remove"
+                title="Remove menu"
+                type="button"
+              >
+                ×
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+    <section
+      class="block"
+    >
+      <h3
+        class="heading"
+      >
+        Fills
+        <button
+          class="button xs"
+          type="button"
+        >
+          + add
+        </button>
+      </h3>
+      <p
+        class="hint"
+      >
+        Picked by where the music goes and the energy of the section they break into: a cascade plays a level one, a level-up one going up or down. The cascade fill and the level-up fill play when none fits.
+      </p>
+      <div
+        class="row"
+      >
+        <span
+          class="label"
+        >
+          Cascade fill
+        </span>
+        <select
+          aria-label="Cascade fill"
+          class="select small"
+          title="Cascade fill"
+        >
+          <option
+            value=""
+          >
+            none
+          </option>
+          <option
+            value="Intro"
+          >
+            Intro
+          </option>
+          <option
+            value="Pattern 01"
+          >
+            Pattern 01
+          </option>
+        </select>
+      </div>
+      <div
+        class="row"
+      >
+        <span
+          class="label"
+        >
+          Level-up fill
+        </span>
+        <select
+          aria-label="Level-up fill"
+          class="select small"
+          title="Level-up fill"
+        >
+          <option
+            value=""
+          >
+            none
+          </option>
+          <option
+            value="Intro"
+          >
+            Intro
+          </option>
+          <option
+            value="Pattern 01"
+          >
+            Pattern 01
+          </option>
+        </select>
+      </div>
+      <table
+        class="grid"
+      >
+        <thead>
+          <tr>
+            <th>
+              Cue
+            </th>
+            <th>
+              Goes
+            </th>
+            <th>
+              Min energy
+            </th>
+            <th>
+              Max energy
+            </th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>
+              <select
+                aria-label="Cue"
+                class="select small"
+                title="Cue"
+              >
+                <option
+                  value="Intro"
+                >
+                  Intro
+                </option>
+                <option
+                  value="Pattern 01"
+                >
+                  Pattern 01
+                </option>
+              </select>
+            </td>
+            <td>
+              <select
+                aria-label="Goes"
+                class="select small"
+                title="Goes"
+              >
+                <option
+                  value="up"
+                >
+                  up
+                </option>
+                <option
+                  value="level"
+                >
+                  level
+                </option>
+                <option
+                  value="down"
+                >
+                  down
+                </option>
+              </select>
+            </td>
+            <td>
+              <input
+                aria-label="Min energy"
+                class="field"
+                placeholder="—"
+                style="width: 52px;"
+                title="Min energy"
+                value=""
+              />
+            </td>
+            <td>
+              <input
+                aria-label="Max energy"
+                class="field"
+                placeholder="—"
+                style="width: 52px;"
+                title="Max energy"
+                value="2"
+              />
+            </td>
+            <td>
+              <button
+                aria-label="Remove Intro"
+                class="remove"
+                title="Remove Intro"
+                type="button"
+              >
+                ×
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+    <section
+      class="block"
+    >
+      <h3
+        class="heading"
+      >
+        DJ
+        <button
+          class="button xs"
+          type="button"
+        >
+          + add
+        </button>
+      </h3>
+      <p
+        class="hint"
+      >
+        Parts the DJ fades in and out, swaps and cuts, by their track #s. One move per phrase; a visit lasts its section's bars times one of the stays.
+      </p>
+      <div
+        class="row"
+      >
+        <span
+          class="label"
+        >
+          Phrase bars
+        </span>
+        <input
+          aria-label="Bars per phrase"
+          class="field"
+          style="width: 52px;"
+          title="Bars per phrase"
+          value="4"
+        />
+        <span
+          class="label"
+        >
+          Fade bars
+        </span>
+        <input
+          aria-label="Bars a fade takes"
+          class="field"
+          style="width: 52px;"
+          title="Bars a fade takes"
+          value="2"
+        />
+        <span
+          class="label"
+        >
+          Stays
+        </span>
+        <input
+          aria-label="Visit lengths, in section lengths"
+          class="field"
+          style="width: 100px;"
+          title="Visit lengths, in section lengths"
+          value="4 6"
+        />
+      </div>
+      <table
+        class="grid"
+      >
+        <thead>
+          <tr>
+            <th>
+              Part
+            </th>
+            <th>
+              Tracks
+            </th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>
+              <input
+                aria-label="Part name"
+                class="field"
+                value="drums"
+              />
+            </td>
+            <td>
+              <input
+                aria-label="Track #s"
+                class="field"
+                placeholder="—"
+                style="width: 90px;"
+                title="Track #s"
+                value="1-2"
+              />
+            </td>
+            <td>
+              <button
+                aria-label="Remove drums"
+                class="remove"
+                title="Remove drums"
+                type="button"
+              >
+                ×
+              </button>
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <input
+                aria-label="Part name"
+                class="field"
+                value="arp"
+              />
+            </td>
+            <td>
+              <input
+                aria-label="Track #s"
+                class="field"
+                placeholder="—"
+                style="width: 90px;"
+                title="Track #s"
+                value="10"
+              />
+            </td>
+            <td>
+              <button
+                aria-label="Remove arp"
+                class="remove"
+                title="Remove arp"
+                type="button"
+              >
+                ×
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+    <section
+      class="block"
+    >
+      <h3
+        class="heading"
+      >
+        Drops and stops
+        <button
+          class="button xs"
+          type="button"
+        >
+          + add
+        </button>
+      </h3>
+      <p
+        class="hint"
+      >
+        Drops: tracks a game cuts until the next bar, by name (a penalty…). Stops: now and then a phrase's last beat without these tracks.
+      </p>
+      <table
+        class="grid"
+      >
+        <thead>
+          <tr>
+            <th>
+              Drop
+            </th>
+            <th>
+              Tracks
+            </th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>
+              <input
+                aria-label="Drop name"
+                class="field"
+                value="penalty"
+              />
+            </td>
+            <td>
+              <input
+                aria-label="Track #s"
+                class="field"
+                placeholder="—"
+                style="width: 90px;"
+                title="Track #s"
+                value="1-2"
+              />
+            </td>
+            <td>
+              <button
+                aria-label="Remove penalty"
+                class="remove"
+                title="Remove penalty"
+                type="button"
+              >
+                ×
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <div
+        class="row"
+      >
+        <label
+          class="check"
+          title="Stops"
+        >
+          <input
+            type="checkbox"
+          />
+          Stops
+        </label>
+      </div>
+    </section>
+    <section
+      class="block"
+    >
+      <h3
+        class="heading"
+      >
+        Stingers
+        <button
+          class="button xs"
+          type="button"
+        >
+          + add
+        </button>
+      </h3>
+      <p
+        class="hint"
+      >
+        Notes over the music. The conductor plays cascade (a climbing note per reaction), keys and levelUp itself; a game plays the others by name.
+      </p>
+      <table
+        class="grid"
+      >
+        <thead>
+          <tr>
+            <th>
+              Name
+            </th>
+            <th>
+              Instrument
+            </th>
+            <th>
+              Notes
+            </th>
+            <th>
+              At
+            </th>
+            <th>
+              Rows
+            </th>
+            <th>
+              Velocity
+            </th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>
+              <input
+                aria-label="Stinger name"
+                class="field"
+                value="unlock"
+              />
+            </td>
+            <td>
+              <select
+                aria-label="Instrument"
+                class="select small"
+                title="Instrument"
+              >
+                <option
+                  value="Lead Synth"
+                >
+                  Lead Synth
+                </option>
+                <option
+                  value="Drum Kit"
+                >
+                  Drum Kit
+                </option>
+              </select>
+            </td>
+            <td>
+              <input
+                aria-label="Notes (A-4 C-5 … or MIDI numbers)"
+                class="field"
+                style="width: 180px;"
+                title="Notes (A-4 C-5 … or MIDI numbers)"
+                value="A-4 E-5"
+              />
+            </td>
+            <td>
+              <select
+                aria-label="Lands on the next"
+                class="select small"
+                title="Lands on the next"
+              >
+                <option
+                  value="row"
+                >
+                  row
+                </option>
+                <option
+                  value="beat"
+                >
+                  beat
+                </option>
+                <option
+                  value="bar"
+                >
+                  bar
+                </option>
+              </select>
+            </td>
+            <td>
+              <input
+                aria-label="Rows each note is held"
+                class="field"
+                style="width: 52px;"
+                title="Rows each note is held"
+                value="2"
+              />
+            </td>
+            <td>
+              <input
+                aria-label="Velocity (0–127)"
+                class="field"
+                placeholder="—"
+                style="width: 52px;"
+                title="Velocity (0–127)"
+                value=""
+              />
+            </td>
+            <td>
+              <button
+                aria-label="Remove unlock"
+                class="remove"
+                title="Remove unlock"
+                type="button"
+              >
+                ×
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+    <div
+      class="row"
+    >
+      <button
+        class="button sm"
+        type="button"
+      >
+        Remove game settings
+      </button>
+    </div>
+  </div>
+</div>
+`;

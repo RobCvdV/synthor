@@ -47,6 +47,15 @@ describe('GameView', () => {
     expect(container).toMatchSnapshot()
   })
 
+  it('gives a song game settings to start from, and shows them', () => {
+    render(<GameView simulator={quietSimulator()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Add game settings' }))
+    expect(useDocStore.getState().doc.game?.song.sections.length).toBe(1)
+    expect(screen.getByText('Sections')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Simulator' }))
+    expect(screen.getByRole('button', { name: 'Start' })).toBeInTheDocument()
+  })
+
   it(`offers the settings' moods and events, waiting for a start`, () => {
     useDocStore.setState({ doc: { ...useDocStore.getState().doc, game } })
     const { container } = render(<GameView simulator={quietSimulator()} />)

@@ -68,6 +68,9 @@ export interface DjRules {
   stays: number[]
 }
 
+/** The DJ's timings when a song names none */
+export const DEFAULT_DJ_RULES: DjRules = { groups: {}, phraseBars: 4, fadeBars: 2, stays: [4, 4, 6, 6, 8] }
+
 export interface GameMusic {
   /** Rows per bar: every change lands on the next bar */
   bar: number

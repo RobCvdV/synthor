@@ -10,6 +10,7 @@ import { ParamSlider } from '../components/ParamSlider'
 import { cx } from '../components/cx'
 import { gameSimulator, type GameSimulator } from './GameSimulator'
 import { gameButtons, partRows, readoutRows } from './gameReadout'
+import { GameSettings } from './GameSettings'
 import s from './GameView.module.css'
 
 const POLL_MS = 250
@@ -22,10 +23,12 @@ async function songBytes(): Promise<ArrayBuffer> {
   return blob.arrayBuffer()
 }
 
+type Tab = 'simulator' | 'settings'
+
 /**
  * The Game screen: plays the open song the way a game conducts it, with
  * buttons for the game's events and a readout of what the conductor and its
- * DJ do, to tune a song's game music by ear.
+ * DJ do, to tune a song's game music by ear; and the settings to tune.
  */
 export function GameView({ simulator = gameSimulator() }: { simulator?: GameSimulator }) {
   const game = useDocStore((st) => st.doc.game)
@@ -33,6 +36,7 @@ export function GameView({ simulator = gameSimulator() }: { simulator?: GameSimu
   const [log, setLog] = useState<string[]>(simulator.log)
   const [error, setError] = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
+  const [tab, setTab] = useState<Tab>('simulator')
 
   useEffect(() => {
     simulator.preload()
@@ -50,10 +54,13 @@ export function GameView({ simulator = gameSimulator() }: { simulator?: GameSimu
   if (!game) {
     return (
       <div className={s.view}>
-        <p className={s.empty}>
-          This song has no game settings. A game conducts a song from them: its sections by energy,
-          the parts a DJ plays with, moods, fills and stingers.
-        </p>
+        <div className={s.intro}>
+          <p className={s.empty}>
+            This song has no game settings. A game conducts a song from them: its sections by energy,
+            the parts a DJ plays with, moods, fills and stingers.
+          </p>
+          <Button onClick={() => { useDocStore.getState().createGame(); setTab('settings') }}>Add game settings</Button>
+        </div>
       </div>
     )
   }
@@ -73,7 +80,25 @@ export function GameView({ simulator = gameSimulator() }: { simulator?: GameSimu
       .finally(() => setStarting(false))
   }
 
+  const tabs = (
+    <nav className={s.tabs}>
+      <Button size="sm" active={tab === 'simulator'} onClick={() => setTab('simulator')}>Simulator</Button>
+      <Button size="sm" active={tab === 'settings'} onClick={() => setTab('settings')}>Settings</Button>
+    </nav>
+  )
+
+  if (tab === 'settings') {
+    return (
+      <div className={s.column}>
+        {tabs}
+        <GameSettings game={game} />
+      </div>
+    )
+  }
+
   return (
+    <div className={s.column}>
+    {tabs}
     <div className={s.view}>
       <section className={s.controls}>
         <div className={s.row}>
@@ -157,6 +182,7 @@ export function GameView({ simulator = gameSimulator() }: { simulator?: GameSimu
           <p className={s.empty}>Start to hear the song as the game plays it.</p>
         )}
       </section>
+    </div>
     </div>
   )
 }

@@ -24,6 +24,15 @@ export function midiToName(midi: number): string {
   return name.length === 1 ? `${name}-${octave}` : `${name}${octave}`
 }
 
+/** A note name as MIDI: "C-4", "C4", "C#4", "Db4" (60 = C-4), case aside; null when it isn't one */
+export function nameToMidi(name: string): number | null {
+  const m = /^([A-Ga-g])([#b]?)-?(-?\d+)$/.exec(name.trim())
+  if (!m) return null
+  const base = NOTE_NAMES.indexOf(m[1].toUpperCase() as (typeof NOTE_NAMES)[number])
+  const shift = m[2] === '#' ? 1 : m[2] === 'b' ? -1 : 0
+  return (Number(m[3]) + 1) * 12 + base + shift
+}
+
 /** Nearest MIDI note and the remaining offset in cents (−50..50) for a frequency. */
 export function freqToNote(freq: number): { midi: number; cents: number } {
   const exact = 69 + 12 * Math.log2(freq / 440)

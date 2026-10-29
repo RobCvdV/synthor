@@ -5,7 +5,7 @@
  * Cues and instruments are referenced by id or name, as the player resolves them.
  */
 import type { DjRules, GameFill, GameMood, GameMusic, GameSection, GameStinger } from '../domain/gameMusic'
-import { PLAY_MOOD } from '../domain/gameMusic'
+import { DEFAULT_DJ_RULES, PLAY_MOOD } from '../domain/gameMusic'
 
 type Rec = Record<string, unknown>
 
@@ -18,7 +18,6 @@ export interface GameRefs {
   linesPerBeat: number
 }
 
-export const DEFAULT_DJ: DjRules = { groups: {}, phraseBars: 4, fadeBars: 2, stays: [4, 4, 6, 6, 8] }
 
 const AT: GameStinger['at'][] = ['row', 'beat', 'bar']
 const GOES: GameFill['goes'][] = ['up', 'level', 'down']
@@ -59,9 +58,9 @@ function completeDj(raw: Rec): DjRules {
   return {
     ...raw,
     groups,
-    phraseBars: count(raw.phraseBars, DEFAULT_DJ.phraseBars),
-    fadeBars: Math.max(0, num(raw.fadeBars, DEFAULT_DJ.fadeBars)),
-    stays: stays.length > 0 ? stays : DEFAULT_DJ.stays,
+    phraseBars: count(raw.phraseBars, DEFAULT_DJ_RULES.phraseBars),
+    fadeBars: Math.max(0, num(raw.fadeBars, DEFAULT_DJ_RULES.fadeBars)),
+    stays: stays.length > 0 ? stays : DEFAULT_DJ_RULES.stays,
   }
 }
 

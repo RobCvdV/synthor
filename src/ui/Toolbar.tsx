@@ -1,6 +1,5 @@
 import { memo } from 'react'
 import { PLAY_MODES, type PlayMode, type View } from '../state/appStore'
-import { useDocStore } from '../state/docStore'
 import type { AudioStatus } from '../state/audioStore'
 import type { Instrument } from '../domain/types'
 import { FreePlayToggle } from './FreePlayToggle'
@@ -50,8 +49,6 @@ export const Toolbar = memo(function Toolbar({
   view,
   onSetView,
 }: ToolbarProps) {
-  // the Game screen is for songs a game conducts
-  const hasGame = useDocStore((st) => st.doc.game !== undefined)
   return (
     <header className="toolbar">
       {/* Left: transport controls */}
@@ -137,13 +134,11 @@ export const Toolbar = memo(function Toolbar({
       >
         Mixer
       </Button>
-      {(hasGame || view === 'game') && (
-        <Button active={view === 'game'} onClick={() => onSetView('game')}
-          title="Game: hear the song as a game conducts it"
-        >
-          Game
-        </Button>
-      )}
+      <Button active={view === 'game'} onClick={() => onSetView('game')}
+        title="Game: how a game conducts the song"
+      >
+        Game
+      </Button>
     </header>
   )
 })
