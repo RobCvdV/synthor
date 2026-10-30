@@ -1,7 +1,7 @@
 /**
  * Auto-update from GitHub Releases (the `latest*.yml` feeds the release workflow uploads).
- * Checks on launch, every few hours and on focus; downloads in the background, but only
- * installs when the user agrees — through the toolbar's update button or the menu.
+ * Checks on launch, hourly and on focus; downloads in the background and reports its progress
+ * to the toolbar, but only installs when the user clicks the toolbar's button or agrees in the menu.
  */
 import { app, dialog, type BrowserWindow, type MessageBoxOptions, type MessageBoxSyncOptions } from 'electron'
 import electronUpdater from 'electron-updater'
@@ -10,16 +10,25 @@ import electronUpdater from 'electron-updater'
 const { autoUpdater } = electronUpdater
 
 const HOUR_MS = 60 * 60 * 1000
-const CHECK_INTERVAL_MS = 6 * HOUR_MS
-const FOCUS_CHECK_MIN_GAP_MS = HOUR_MS
+const CHECK_INTERVAL_MS = HOUR_MS
+const FOCUS_CHECK_MIN_GAP_MS = 15 * 60 * 1000
 
 type GetWindow = () => BrowserWindow | null
 type CheckResult = { kind: 'available'; version: string } | { kind: 'none' } | { kind: 'error'; error: unknown }
+/** Mirrors `UpdateStatus` in src/persist/electronBridge.ts. */
+export type UpdateStatus = { state: 'downloading'; version: string; percent: number } | { state: 'ready'; version: string } | null
 
 /** The downloaded update waiting for the user's OK, or null. */
 let downloadedVersion: string | null = null
+let status: UpdateStatus = null
 let lastCheckAt = 0
-let notifyRenderer: (version: string | null) => void = () => {}
+let notifyRenderer: (status: UpdateStatus) => void = () => {}
+
+function setStatus(next: UpdateStatus): void {
+  status = next
+  downloadedVersion = next?.state === 'ready' ? next.version : null
+  notifyRenderer(next)
+}
 
 /** Starts background checks. A no-op in development: updating needs the packaged, signed app. */
 export function setupUpdater(getWindow: GetWindow): void {
@@ -28,16 +37,22 @@ export function setupUpdater(getWindow: GetWindow): void {
   autoUpdater.autoDownload = true
   autoUpdater.autoInstallOnAppQuit = false
 
-  notifyRenderer = (version) => {
+  notifyRenderer = (next) => {
     const win = getWindow()
-    if (win && !win.isDestroyed()) win.webContents.send('update:downloaded', version)
+    if (win && !win.isDestroyed()) win.webContents.send('update:status', next)
   }
-  autoUpdater.on('update-downloaded', (info) => {
-    downloadedVersion = info.version
-    notifyRenderer(info.version)
+  autoUpdater.on('update-available', (info) => {
+    if (downloadedVersion !== info.version) setStatus({ state: 'downloading', version: info.version, percent: 0 })
   })
-  // Best-effort: a failed check (offline, rate limit) must never interrupt the app.
-  autoUpdater.on('error', (err) => console.error('[updater]', err instanceof Error ? err.message : err))
+  autoUpdater.on('download-progress', (progress) => {
+    if (status?.state === 'downloading') setStatus({ ...status, percent: Math.floor(progress.percent) })
+  })
+  autoUpdater.on('update-downloaded', (info) => setStatus({ state: 'ready', version: info.version }))
+  // Best-effort: a failed check or download (offline, rate limit) must never interrupt the app; the next check retries.
+  autoUpdater.on('error', (err) => {
+    console.error('[updater]', err instanceof Error ? err.message : err)
+    if (status?.state === 'downloading') setStatus(null)
+  })
 
   void check()
   setInterval(() => void check(), CHECK_INTERVAL_MS)
@@ -46,9 +61,9 @@ export function setupUpdater(getWindow: GetWindow): void {
   })
 }
 
-/** The current downloaded update, so a reloaded renderer can show its button again. */
-export function pendingUpdate(): string | null {
-  return downloadedVersion
+/** The current download or downloaded update, so a reloaded renderer can show it again. */
+export function updateStatus(): UpdateStatus {
+  return status
 }
 
 /** Always a fresh fetch; a download that is no longer the newest release is forgotten. */
@@ -70,12 +85,19 @@ async function check(): Promise<CheckResult> {
 }
 
 function forget(): void {
-  if (!downloadedVersion) return
-  downloadedVersion = null
-  notifyRenderer(null)
+  if (status) setStatus(null)
 }
 
-/** Asks to restart; on yes, runs `prepareQuit` (save the song) and relaunches into the update. */
+/** Runs `prepareQuit` (save the song) and relaunches into the downloaded update. */
+async function install(prepareQuit: () => Promise<void>): Promise<boolean> {
+  if (!downloadedVersion) return false
+  await prepareQuit()
+  // Show the brief installer on Windows, and always relaunch afterwards.
+  autoUpdater.quitAndInstall(false, true)
+  return true
+}
+
+/** Asks to restart; on yes, installs. */
 async function promptAndInstall(getWindow: GetWindow, prepareQuit: () => Promise<void>): Promise<boolean> {
   if (!downloadedVersion) return false
   const win = getWindow()
@@ -89,28 +111,19 @@ async function promptAndInstall(getWindow: GetWindow, prepareQuit: () => Promise
   }
   const choice = win ? dialog.showMessageBoxSync(win, opts) : dialog.showMessageBoxSync(opts)
   if (choice !== 0) return false
-  await prepareQuit()
-  // Show the brief installer on Windows, and always relaunch afterwards.
-  autoUpdater.quitAndInstall(false, true)
-  return true
+  return install(prepareQuit)
 }
 
 /**
- * The toolbar's update button. Re-checks first so a superseded download is never installed:
- * a newer release starts downloading instead. A failed re-check (offline) still installs.
+ * The toolbar's install button: installs right away, no questions. Re-checks first so a
+ * superseded download is never installed — the toolbar then shows the newer one downloading.
+ * A failed re-check (offline) still installs.
  */
-export async function installUpdate(getWindow: GetWindow, prepareQuit: () => Promise<void>): Promise<boolean> {
+export async function installUpdate(prepareQuit: () => Promise<void>): Promise<boolean> {
   const pending = downloadedVersion
   const result = await check()
-  if (result.kind === 'available' && result.version !== pending) {
-    box(getWindow, { type: 'info', message: `A newer update v${result.version} is available`, detail: "Downloading now — you'll be asked to restart when it's ready." })
-    return false
-  }
-  if (result.kind === 'none' && !downloadedVersion) {
-    box(getWindow, { type: 'info', message: "You're up to date", detail: `v${app.getVersion()} is the latest version.` })
-    return false
-  }
-  return promptAndInstall(getWindow, prepareQuit)
+  if (result.kind === 'available' && result.version !== pending) return false
+  return install(prepareQuit)
 }
 
 /** The menu's "Check for Updates…": reports the newest release, and offers to install it once downloaded. */
@@ -128,7 +141,7 @@ export async function checkForUpdatesInteractive(getWindow: GetWindow, prepareQu
   } else if (result.version === pending) {
     await promptAndInstall(getWindow, prepareQuit)
   } else {
-    box(getWindow, { type: 'info', message: `Update v${result.version} available`, detail: "Downloading now — you'll be asked to restart when it's ready." })
+    box(getWindow, { type: 'info', message: `Update v${result.version} available`, detail: 'Downloading now. When it is ready, click Install in the toolbar.' })
   }
 }
 
