@@ -5,6 +5,9 @@
   "description": "Modular web-based tracker synth on Elementary Audio",
   "author": "Rob Coenen",
   "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
   "main": "electron-dist/main.js",
   "scripts": {
     "dev": "vite",
