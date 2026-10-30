@@ -16,7 +16,7 @@ import { icloudDocumentsPath, loadICloudAddon } from './icloud.js'
 import { resolveLibrary, type LibraryLocation } from './libraryLocation.js'
 import { buildMenuTemplate } from './appMenu.js'
 import { createOpenFileQueue, songPathsFromArgv } from './openFiles.js'
-import { checkForUpdatesInteractive, installUpdate, pendingUpdate, setupUpdater } from './updater.js'
+import { checkForUpdatesInteractive, installUpdate, setupUpdater, updateStatus } from './updater.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -225,8 +225,8 @@ function registerIpc(settingsFile: SettingsFile): void {
     const icloud = await icloudPath
     if (icloud) await changeLibraryFolder(settingsFile, icloud)
   })
-  ipcMain.handle('update:pending', () => pendingUpdate())
-  ipcMain.handle('update:install', () => installUpdate(() => mainWindow, saveBeforeQuit))
+  ipcMain.handle('update:status', () => updateStatus())
+  ipcMain.handle('update:install', () => installUpdate(saveBeforeQuit))
   ipcMain.handle('files:take', () => openFiles.take())
 }
 
