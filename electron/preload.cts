@@ -45,8 +45,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   takeOpenedFiles: () => ipcRenderer.invoke('files:take'),
   onFileOpened: (listener: (file: { name: string; bytes: Uint8Array }) => void) => subscribe('files:open', listener),
 
-  pendingUpdate: () => ipcRenderer.invoke('update:pending'),
-  onUpdateDownloaded: (listener: (version: string | null) => void) => subscribe('update:downloaded', listener),
+  updateStatus: () => ipcRenderer.invoke('update:status'),
+  onUpdateStatus: (listener: (status: unknown) => void) => subscribe('update:status', listener),
   installUpdate: () => ipcRenderer.invoke('update:install'),
   onSaveBeforeQuit: (save: () => Promise<void>) => subscribe('app:save-before-quit', () => {
     void save().catch(() => {}).finally(() => ipcRenderer.send('app:saved'))

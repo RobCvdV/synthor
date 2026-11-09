@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 let latest: string | null = null
 // Handlers registered by setupUpdater, so tests can fire updater events.
 let handlers: Record<string, ((...args: unknown[]) => void)[]> = {}
-let sent: (string | null)[] = []
+let sent: unknown[] = []
 
 const checkForUpdates = vi.fn(async () =>
   latest
@@ -46,11 +46,15 @@ vi.mock('electron', () => ({
 const win = {
   isDestroyed: () => false,
   webContents: {
-    send: (_channel: string, version: string | null) => sent.push(version)
+    send: (_channel: string, status: unknown) => sent.push(status)
   }
 }
 const getWindow = (): never => win as never
 const prepareQuit = vi.fn()
+
+function fire(event: string, ...args: unknown[]): void {
+  for (const cb of handlers[event] ?? []) cb(...args)
+}
 
 /** Fresh module state with the updater running and, optionally, `downloaded`
  *  already sitting on disk waiting to install (the update button's state). */
@@ -65,7 +69,7 @@ async function boot(opts: {
   const mod = await import('./updater')
   mod.setupUpdater(getWindow)
   if (opts.downloaded) {
-    for (const cb of handlers['update-downloaded'] ?? []) cb({ version: opts.downloaded })
+    fire('update-downloaded', { version: opts.downloaded })
     sent = []
   }
   return mod
@@ -114,6 +118,15 @@ describe('manual "Check for Updates…"', () => {
     expect(quitAndInstall).toHaveBeenCalled()
   })
 
+  it('points to the toolbar while a found update downloads', async () => {
+    const mod = await boot({ feed: '1.1' })
+
+    await mod.checkForUpdatesInteractive(getWindow, prepareQuit)
+
+    expect(lastMessage()).toContain('1.1')
+    expect((showMessageBox.mock.calls.at(-1)?.[1] as { detail?: string }).detail).toContain('toolbar')
+  })
+
   it('says up to date and drops the button when the release is gone', async () => {
     const mod = await boot({ feed: '1.1', downloaded: '1.1' })
     latest = null
@@ -134,25 +147,51 @@ describe('manual "Check for Updates…"', () => {
   })
 })
 
-describe('toolbar update button', () => {
+describe('toolbar status', () => {
+  it('reports the download with its progress, then the update ready to install', async () => {
+    const mod = await boot({ feed: '1.1' })
+    fire('update-available', { version: '1.1' })
+    fire('download-progress', { percent: 41.7 })
+    expect(mod.updateStatus()).toEqual({ state: 'downloading', version: '1.1', percent: 41 })
+    fire('update-downloaded', { version: '1.1' })
+    expect(sent).toEqual([
+      { state: 'downloading', version: '1.1', percent: 0 },
+      { state: 'downloading', version: '1.1', percent: 41 },
+      { state: 'ready', version: '1.1' },
+    ])
+    expect(mod.updateStatus()).toEqual({ state: 'ready', version: '1.1' })
+  })
+
+  it('stays ready when a later check finds the same update again', async () => {
+    const mod = await boot({ feed: '1.1', downloaded: '1.1' })
+    fire('update-available', { version: '1.1' })
+    expect(mod.updateStatus()).toEqual({ state: 'ready', version: '1.1' })
+    expect(sent).toEqual([])
+  })
+
+  it('drops a failed download; the next check retries', async () => {
+    const mod = await boot({ feed: '1.1' })
+    fire('update-available', { version: '1.1' })
+    fire('error', new Error('offline'))
+    expect(mod.updateStatus()).toBeNull()
+  })
+})
+
+describe('toolbar install button', () => {
   it('re-checks first and refuses to install a superseded download', async () => {
     const mod = await boot({ feed: '1.1', downloaded: '1.1' })
     latest = '1.2'
 
-    expect(await mod.installUpdate(getWindow, prepareQuit)).toBe(false)
+    expect(await mod.installUpdate(prepareQuit)).toBe(false)
     expect(quitAndInstall).not.toHaveBeenCalled()
-    expect(lastMessage()).toContain('1.2')
+    expect(showMessageBox).not.toHaveBeenCalled()
   })
 
-  it('remembers the download for a reloaded renderer', async () => {
-    const mod = await boot({ feed: '1.1', downloaded: '1.1' })
-    expect(mod.pendingUpdate()).toBe('1.1')
-  })
-
-  it('installs when the download is confirmed newest', async () => {
+  it('installs right away, without asking, when the download is the newest', async () => {
     const mod = await boot({ feed: '1.1', downloaded: '1.1' })
 
-    expect(await mod.installUpdate(getWindow, prepareQuit)).toBe(true)
+    expect(await mod.installUpdate(prepareQuit)).toBe(true)
+    expect(showMessageBoxSync).not.toHaveBeenCalled()
     expect(prepareQuit).toHaveBeenCalled()
     expect(quitAndInstall).toHaveBeenCalled()
   })
@@ -161,7 +200,7 @@ describe('toolbar update button', () => {
     const mod = await boot({ feed: '1.1', downloaded: '1.1' })
     checkForUpdates.mockRejectedValueOnce(new Error('offline'))
 
-    expect(await mod.installUpdate(getWindow, prepareQuit)).toBe(true)
+    expect(await mod.installUpdate(prepareQuit)).toBe(true)
     expect(quitAndInstall).toHaveBeenCalled()
   })
 })

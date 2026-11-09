@@ -46,15 +46,21 @@ export interface ElectronApi {
   /** Files opened before the renderer was ready; later ones arrive through `onFileOpened`. */
   takeOpenedFiles(): Promise<OpenedFile[]>
   onFileOpened(listener: (file: OpenedFile) => void): () => void
-  /** The downloaded update waiting to be installed, if any. */
-  pendingUpdate(): Promise<string | null>
-  /** A downloaded update (its version), or null when it was superseded. */
-  onUpdateDownloaded(listener: (version: string | null) => void): () => void
-  /** Asks to restart into the downloaded update; resolves whether it is installing. */
+  /** The update downloading or waiting to be installed, if any. */
+  updateStatus(): Promise<UpdateStatus>
+  /** Every change of the update status; null when there is none (or it was superseded). */
+  onUpdateStatus(listener: (status: UpdateStatus) => void): () => void
+  /** Saves and restarts into the downloaded update; resolves whether it is installing. */
   installUpdate(): Promise<boolean>
   /** `save` runs before the app quits to install an update. */
   onSaveBeforeQuit(save: () => Promise<void>): () => void
 }
+
+/** An app update found by the updater: downloading, or ready to install. */
+export type UpdateStatus =
+  | { state: 'downloading'; version: string; percent: number }
+  | { state: 'ready'; version: string }
+  | null
 
 /** The Electron bridge, or null in the browser. */
 export function electronApi(): ElectronApi | null {

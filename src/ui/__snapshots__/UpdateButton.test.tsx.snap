@@ -1,3 +1,5 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`UpdateButton > shows an update downloaded before or after it mounted, and installs on click 1`] = `"<button class="update-btn" title="A new version is downloaded — restart to install it">⬆ Update v0.1.5</button>"`;
+exports[`UpdateButton > shows the download progress, then installs the ready update on click 1`] = `"<span class="update-btn downloading" title="Downloading update v0.1.5">⬇ v0.1.5 63%</span>"`;
+
+exports[`UpdateButton > shows the download progress, then installs the ready update on click 2`] = `"<button class="update-btn" title="Install v0.1.5: saves your song and restarts">⬆ Install v0.1.5</button>"`;
