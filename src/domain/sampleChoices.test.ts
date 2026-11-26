@@ -100,9 +100,9 @@ describe('wavetables', () => {
   })
 
   it('keys the params the graph is compiled from', () => {
-    expect(structuralParamsKey('wave', { cycle: 3, position: 0.5 })).toBe('cycle=3')
+    expect(structuralParamsKey('wave', { cycle: 3, position: 0.5 })).toBe('cycle=3,octave=0,semi=0,finetune=0')
     expect(structuralParamsKey('sample', {})).toBe('loop=0,pitchTrack=1')
     expect(structuralParamsKey('filter', { bypass: 1, cutoff: 300 })).toBe('bypass=1')
-    expect(structuralParamsKey('osc', {})).toBe('')
+    expect(structuralParamsKey('osc', { waveform: 2, gain: 0.5 })).toBe('waveform=2,detune=0,finetune=0')
   })
 })

@@ -122,11 +122,11 @@ describe('wave module structure', () => {
     expect(nodes.some((n) => n.kind === 'const' && String(n.props.key ?? '').includes(':rf:'))).toBe(false)
   })
 
-  it('registers live refs for finetune and gain', () => {
+  it('registers a live ref for gain; tuning is compiled in', () => {
     const refs = mockParamRefs()
     compile(makeWavePatch({ sampleIndex: 0, finetune: 0, gain: 1 }), 440, [META_SHORT], refs)
-    expect(refs.keys.has('i1:wv:finetune')).toBe(true)
     expect(refs.keys.has('i1:wv:gain')).toBe(true)
+    expect(refs.keys.has('i1:wv:finetune')).toBe(false)
   })
 
   it('falls back to silence without an eligible sample', () => {
@@ -224,10 +224,11 @@ describe('wave module as an oscillator', () => {
     expect(estimateFreq(await render(makeWavePatch({ semi: -12 }), 100), 44100)).toBeCloseTo(50, -1)
   })
 
-  it('registers live refs for tuning, depths and phase', () => {
+  it('registers live refs for depths and phase, not for the structural tuning', () => {
     const refs = mockParamRefs()
     compile(makeWavePatch({}, lfoInto('fm', {})), 440, [META_SHORT], refs)
-    for (const k of ['octave', 'semi', 'finetune', 'fmDepth', 'phase']) expect(refs.keys.has(`i1:wv:${k}`)).toBe(true)
+    for (const k of ['fmDepth', 'phase']) expect(refs.keys.has(`i1:wv:${k}`)).toBe(true)
+    for (const k of ['octave', 'semi', 'finetune']) expect(refs.keys.has(`i1:wv:${k}`)).toBe(false)
   })
 
   it('stays bounded under deep through-zero FM', async () => {

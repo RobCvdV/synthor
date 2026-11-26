@@ -179,6 +179,20 @@ export function compileModular(
     return el.mul(f, el.add(el.const({ value: 1 }), el.mul(fm, kconst(`${m.id}:fmDepth`, m.params.fmDepth ?? 1))))
   }
 
+  /** One osc waveform (0=saw,1=square,2=triangle,3=sine,4=pulse). Triangle and
+   *  pulse carry DC (polyBLEP integration, off-centre width), so only they get a dcblock. */
+  function oscShape(wf: number, tuned: NodeRepr_t, width: NodeRepr_t): NodeRepr_t {
+    switch (wf) {
+      case 0: return el.blepsaw(tuned)
+      case 2: return el.dcblock(el.bleptriangle(tuned))
+      case 3: return el.cycle(tuned)
+      default: {
+        // Square and pulse share the phasor pulse: width sets the duty cycle (0.5 = square).
+        return el.dcblock(el.sub(el.mul(el.le(el.phasor(tuned), width), el.const({ value: 2 })), el.const({ value: 1 })))
+      }
+    }
+  }
+
   function render(m: Module): Node {
     const p = m.params
     const key = (name: string) => `${m.id}:${name}`
@@ -213,36 +227,14 @@ export function compileModular(
 
       case 'osc': {
         const f = inlet(m.id, 'freq') ?? 440
-        // Separate detune/finetune refs; ratio computed in the audio graph so
-        // slider changes take effect instantly without a recompile.
-        const detuneRef = kconst(key('detune'), p.detune ?? 0)
-        const finetuneRef = kconst(key('finetune'), p.finetune ?? 0)
-        const ln2 = el.const({ value: Math.LN2 })
-        const exponent = el.add(el.div(detuneRef, 12), el.div(finetuneRef, 1200))
-        const ratio = el.exp(el.mul(ln2, exponent))
+        // Waveform and tuning are structural: only the chosen shape is built and
+        // the tuning ratio is a plain constant — every node costs CPU per voice.
+        const ratio = 2 ** ((p.detune ?? 0) / 12 + (p.finetune ?? 0) / 1200)
+        const base = typeof f === 'number' ? el.const({ value: f * ratio }) : ratio === 1 ? f : el.mul(f, el.const({ value: ratio }))
         // The blep oscillators only wrap upward, so FM below 0 Hz would run away.
-        const tuned = el.max(el.const({ value: 0 }), withFm(el.mul(f, ratio), m))
-        const width = kconst(key('pulseWidth'), p.pulseWidth ?? 0.5)
+        const tuned = el.max(el.const({ value: 0 }), withFm(base, m))
         const gain = kconst(key('gain'), p.gain ?? 1)
-        // Waveform selector ref: 0=saw,1=square,2=triangle,3=sine,4=pulse.
-        // All 5 oscillator types run in the graph so waveform changes are instant.
-        const wf = kconst(key('waveform'), p.waveform ?? 0)
-        const saw = el.blepsaw(tuned)
-        const triangle = el.bleptriangle(tuned)
-        const sine = el.cycle(tuned)
-        const phase = el.phasor(tuned)
-        // Phasor-based pulse: width controls duty cycle (0..1). width=0.5 = square.
-        const pulse = el.sub(el.mul(el.le(phase, width), el.const({ value: 2 })), el.const({ value: 1 }))
-        const oscOut = el.select(
-          el.le(wf, el.const({ value: 0.5 })), saw,
-          el.select(el.le(wf, el.const({ value: 1.5 })), pulse,
-            el.select(el.le(wf, el.const({ value: 2.5 })), triangle,
-              el.select(el.le(wf, el.const({ value: 3.5 })), sine, pulse),
-            ),
-          ),
-        )
-        // DC-block to prevent offset from polyBLEP oscillators (especially triangle)
-        return el.mul(el.dcblock(oscOut), gain)
+        return el.mul(oscShape(Math.round(p.waveform ?? 0), tuned, kconst(key('pulseWidth'), p.pulseWidth ?? 0.5)), gain)
       }
 
       case 'dxop': {
@@ -733,14 +725,11 @@ export function compileModular(
         if (!meta?.hash || !fitsWavetable(meta)) return SILENCE
 
         const gain = kconst(key('gain'), p.gain ?? 1)
-        const octaves = el.add(
-          kconst(key('octave'), p.octave ?? 0),
-          el.div(kconst(key('semi'), p.semi ?? 0), 12),
-          el.div(kconst(key('finetune'), p.finetune ?? 0), 1200),
-        )
-        const ratio = el.exp(el.mul(el.const({ value: Math.LN2 }), octaves))
+        // Tuning is structural, so the ratio is a constant, not a per-sample exp chain.
+        const ratio = 2 ** ((p.octave ?? 0) + (p.semi ?? 0) / 12 + (p.finetune ?? 0) / 1200)
+        const base = freqIn === null ? el.const({ value: 440 * ratio }) : ratio === 1 ? freqIn : el.mul(freqIn, el.const({ value: ratio }))
         // Through-zero FM is fine here: the phasor wraps both ways.
-        const rate = withFm(el.mul(freqIn ?? 440, ratio), m)
+        const rate = withFm(typeof base === 'number' ? el.const({ value: base }) : base, m)
         const sync = inlet(m.id, 'sync')
         const pm = inlet(m.id, 'pm')
         const ramp = sync === null ? el.phasor(rate) : el.syncphasor(rate, sync)
