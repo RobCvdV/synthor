@@ -31,7 +31,8 @@ export const ParamSlider = memo(function ParamSlider({
     if (!isNaN(v)) onChange(clamp(v, min, max))
   }, [onChange, min, max])
 
-  const handleMouseUp = useCallback((e: React.MouseEvent<HTMLInputElement>) => {
+  // Pointer covers mouse, touch and pen; keyup commits arrow-key steps.
+  const handleRelease = useCallback((e: React.SyntheticEvent<HTMLInputElement>) => {
     if (onCommit) {
       const v = parseFloat((e.target as HTMLInputElement).value)
       if (!isNaN(v)) onCommit(clamp(v, min, max))
@@ -50,7 +51,8 @@ export const ParamSlider = memo(function ParamSlider({
         disabled={disabled}
         title={title}
         onChange={handleChange}
-        onMouseUp={handleMouseUp}
+        onPointerUp={handleRelease}
+        onKeyUp={handleRelease}
         onMouseDown={(e) => e.stopPropagation()}
       />
       {formatValue && <span className={s.readout}>{formatValue(clampedVal)}</span>}

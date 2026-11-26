@@ -104,7 +104,7 @@ export const FACTORY_INSTRUMENTS: FactoryInstrument[] = [
     b.wire(f, drive, 'in')
     toOutput(b, vca(b, drive, env(b, 0.005, 0.2, 1, 0.15)))
   }),
-  patch('analog-bass', 'Analog Bass', 'Bass', ['house', 'funk', 'disco', 'mono'], { voices: 1, level: 0.92 }, (b) => {
+  patch('analog-bass', 'Analog Bass', 'Bass', ['house', 'funk', 'disco', 'mono'], { voices: 1, level: 0.85 }, (b) => {
     const sq = osc(b, { waveform: SQUARE, gain: 0.6 })
     const saw = osc(b, { waveform: SAW, detune: -12, gain: 0.6 })
     const f = b.add('filter', { mode: LOWPASS, cutoff: 300, q: 3, modDepth: 1, modDepthScale: 8 })

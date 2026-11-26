@@ -202,7 +202,7 @@ export function ModuleNode({ data }: NodeProps) {
 
           return (
             <ParamControl key={p.key} className="mod-param nodrag" param={p} value={value}
-              readout={readout} readOnly={isCcParam}
+              readout={readout} readOnly={isCcParam} deferred={p.structural}
               onChange={(v) => (p.structural ? setModuleParam : setModuleParamSilent)(instrumentId, moduleId, p.key, v)} />
           )
         })}

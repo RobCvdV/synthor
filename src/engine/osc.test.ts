@@ -86,7 +86,7 @@ describe('osc graph', () => {
   const generators = ['blepsaw', 'blepsquare', 'bleptriangle', 'sin', 'phasor']
   it.each([
     [0, ['blepsaw']],
-    [1, ['phasor']],
+    [1, ['blepsquare']],
     [2, ['bleptriangle']],
     [3, ['sin', 'phasor']],
     [4, ['phasor']],
@@ -97,10 +97,10 @@ describe('osc graph', () => {
     expect(kinds(left)).not.toContain('select')
   })
 
-  it('dc-blocks only triangle and the pulse shapes', () => {
+  it('dc-blocks only triangle and pulse', () => {
     // dcblock = pole(0.995, zero(...)): look for the pole.
     const poles = (waveform: number) => kinds(compileModular(plainPatch({ waveform }), el.const({ value: 220 }), el.const({ value: 1 }), 'v').left).includes('pole')
-    expect([0, 1, 2, 3, 4].map(poles)).toEqual([false, true, true, false, true])
+    expect([0, 1, 2, 3, 4].map(poles)).toEqual([false, false, true, false, true])
   })
 
   it('compiles detune and finetune into the pitch', async () => {

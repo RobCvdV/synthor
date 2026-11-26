@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import type { ParamDef } from '../../domain/moduleDefs'
 import { round } from '../format'
 import { cx } from './cx'
@@ -17,17 +17,26 @@ export interface ParamControlProps {
   readOnly?: boolean
   onChange: (v: number) => void
   onCommit?: (v: number) => void
+  /** Slider drags only move a local value; the change is sent once, on release
+   *  (through onCommit, else onChange). For params that recompile the graph. */
+  deferred?: boolean
   className?: string
 }
 
 /** A module param: a dropdown for choices, a slider for numbers. */
-export function ParamControl({ param, value, choices, readout, readOnly, onChange, onCommit, className }: ParamControlProps) {
+export function ParamControl({ param, value, choices, readout, readOnly, onChange, onCommit, deferred, className }: ParamControlProps) {
   const labels = choices ?? param.enumLabels
+  const [draft, setDraft] = useState<number | null>(null)
+  const shown = draft ?? value
+  const release = (v: number) => {
+    setDraft(null)
+    ;(onCommit ?? onChange)(v)
+  }
   return (
     <label className={cx(s.param, className)}>
       <span className={s.head}>
         {param.label}
-        <span className={s.value}>{readout ?? (labels ? null : round(value))}</span>
+        <span className={s.value}>{readout ?? (labels ? null : round(shown))}</span>
       </span>
       {readOnly ? null : labels ? (
         <Select block value={Math.round(value)}
@@ -35,8 +44,8 @@ export function ParamControl({ param, value, choices, readout, readOnly, onChang
           {(labels.length ? labels : ['(none)']).map((lbl, i) => <option key={i} value={i}>{lbl}</option>)}
         </Select>
       ) : (
-        <ParamSlider className={s.slider} value={value} min={param.min} max={param.max} step={param.step}
-          onChange={onChange} onCommit={onCommit} />
+        <ParamSlider className={s.slider} value={shown} min={param.min} max={param.max} step={param.step}
+          onChange={deferred ? setDraft : onChange} onCommit={deferred ? release : onCommit} />
       )}
     </label>
   )

@@ -136,10 +136,10 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     inlets: ['freq', 'mod'],
     outlets: ['out'],
     params: [
-      { key: 'freqMode', label: 'Freq mode', min: 0, max: 1, default: 0, step: 1, enumLabels: ['ratio', 'fixed'] },
+      { key: 'freqMode', label: 'Freq mode', min: 0, max: 1, default: 0, step: 1, enumLabels: ['ratio', 'fixed'], structural: true },
       { key: 'ratio', label: 'Ratio', min: 0.5, max: 16, default: 1, step: 0.01 },
       { key: 'fixedHz', label: 'Fixed (Hz)', min: 1, max: 1000, default: 440, step: 1 },
-      { key: 'waveform', label: 'Wave', min: 0, max: 4, default: 0, step: 1, enumLabels: [...DX_WAVEFORMS] },
+      { key: 'waveform', label: 'Wave', min: 0, max: 4, default: 0, step: 1, enumLabels: [...DX_WAVEFORMS], structural: true },
       { key: 'pulseWidth', label: 'Width', min: 0.05, max: 0.95, default: 0.5, step: 0.01 },
       { key: 'feedback', label: 'Feedback', min: 0, max: 0.99, default: 0, step: 0.01 },
       { key: 'level', label: 'Level', min: 0, max: 2, default: 1, step: 0.01 },

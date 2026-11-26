@@ -179,17 +179,37 @@ export function compileModular(
     return el.mul(f, el.add(el.const({ value: 1 }), el.mul(fm, kconst(`${m.id}:fmDepth`, m.params.fmDepth ?? 1))))
   }
 
-  /** One osc waveform (0=saw,1=square,2=triangle,3=sine,4=pulse). Triangle and
-   *  pulse carry DC (polyBLEP integration, off-centre width), so only they get a dcblock. */
+  /** One osc waveform (0=saw,1=square,2=triangle,3=sine,4=pulse). Square is the
+   *  band-limited 50% blep; only triangle (polyBLEP integration) and pulse
+   *  (off-centre width) carry DC, so only they get a dcblock. */
   function oscShape(wf: number, tuned: NodeRepr_t, width: NodeRepr_t): NodeRepr_t {
     switch (wf) {
       case 0: return el.blepsaw(tuned)
       case 2: return el.dcblock(el.bleptriangle(tuned))
       case 3: return el.cycle(tuned)
+      case 1: return el.blepsquare(tuned)
       default: {
-        // Square and pulse share the phasor pulse: width sets the duty cycle (0.5 = square).
+        // Pulse: width sets the duty cycle; off-centre widths carry DC.
         return el.dcblock(el.sub(el.mul(el.le(el.phasor(tuned), width), el.const({ value: 2 })), el.const({ value: 1 })))
       }
+    }
+  }
+
+  /** One DX operator shape (0=sine,1=saw,2=square,3=triangle,4=pulse) from its
+   *  ramp (0..1) plus phase modulation in radians. Naive shapes (no blep) — PM
+   *  jitters the phase, so band-limiting wouldn't stay alias-free anyway. */
+  function dxShape(wf: number, ramp: NodeRepr_t, pm: NodeRepr_t, width: () => NodeRepr_t): NodeRepr_t {
+    if (wf === 0) return el.sin(el.add(el.mul(ramp, el.const({ value: 2 * Math.PI })), pm))
+    // PM can push the phase outside one cycle: wrap it so every shape stays in −1..1.
+    const shifted = el.add(ramp, el.mul(pm, el.const({ value: 1 / (2 * Math.PI) })))
+    const norm = el.sub(shifted, el.floor(shifted))
+    const one = el.const({ value: 1 })
+    const two = el.const({ value: 2 })
+    switch (wf) {
+      case 1: return el.sub(el.mul(norm, two), one)
+      case 2: return el.sub(el.mul(el.le(norm, el.const({ value: 0.5 })), two), one)
+      case 3: return el.sub(one, el.mul(two, el.abs(el.sub(el.mul(norm, two), one))))
+      default: return el.sub(el.mul(el.le(norm, width()), two), one)
     }
   }
 
@@ -241,40 +261,21 @@ export function compileModular(
         // Unwired freq inlet falls back to the voice's note Hz — ratio mode is
         // note-relative by default, exactly like a DX operator.
         const baseFreq = inlet(m.id, 'freq') ?? freq
-        const modSum = inlet(m.id, 'mod') ?? SILENCE
-        const modeRef = kconst(key('freqMode'), p.freqMode ?? 0)
-        const ratioRef = kconst(key('ratio'), p.ratio ?? 1)
-        const fixedRef = kconst(key('fixedHz'), p.fixedHz ?? 440)
+        const modSum = inlet(m.id, 'mod')
         const fbRef = kconst(key('feedback'), p.feedback ?? 0)
         const levelRef = kconst(key('level'), p.level ?? 1)
-        const opFreq = el.select(el.le(modeRef, el.const({ value: 0.5 })), el.mul(baseFreq, ratioRef), fixedRef)
-        const phase = el.mul(el.phasor(opFreq), el.const({ value: 2 * Math.PI }))
+        // Frequency mode and waveform are structural: only the chosen branch is built.
+        const opFreq = Math.round(p.freqMode ?? 0) === 1
+          ? kconst(key('fixedHz'), p.fixedHz ?? 440)
+          : el.mul(baseFreq, kconst(key('ratio'), p.ratio ?? 1))
+        const ramp = el.phasor(opFreq)
         // PM feedback via tapIn/tapOut (implicit block-size delay). The tap
         // wraps the raw operator output so level/EG stay out of the loop, as
         // on the DX. All shapes stay bounded, so the loop stays stable.
         const fbTap = `${keyPrefix}:${m.id}:fb`
-        const pmPhase = el.add(phase, modSum, el.mul(fbRef, el.tapIn({ name: fbTap })))
-        // All 5 shapes run in the graph from the same PM'd phase; the waveform
-        // ref picks. Naive phase shapes (no blep) — PM jitters the phase so
-        // band-limited wavetable playback wouldn't stay alias-free anyway.
-        const wf = kconst(key('waveform'), p.waveform ?? 0)
-        const norm = el.div(pmPhase, el.const({ value: 2 * Math.PI }))
-        const one = el.const({ value: 1 })
-        const two = el.const({ value: 2 })
-        const sine = el.sin(pmPhase)
-        const saw = el.sub(el.mul(norm, two), one)
-        const square = el.sub(el.mul(el.le(norm, el.const({ value: 0.5 })), two), one)
-        const triangle = el.sub(one, el.mul(two, el.abs(el.sub(el.mul(norm, two), one))))
-        const width = kconst(key('pulseWidth'), p.pulseWidth ?? 0.5)
-        const pulse = el.sub(el.mul(el.le(norm, width), two), one)
-        const out = el.select(
-          el.le(wf, el.const({ value: 0.5 })), sine,
-          el.select(el.le(wf, el.const({ value: 1.5 })), saw,
-            el.select(el.le(wf, el.const({ value: 2.5 })), square,
-              el.select(el.le(wf, el.const({ value: 3.5 })), triangle, pulse),
-            ),
-          ),
-        )
+        const fb = el.mul(fbRef, el.tapIn({ name: fbTap }))
+        const pm = modSum === null ? fb : el.add(modSum, fb)
+        const out = dxShape(Math.round(p.waveform ?? 0), ramp, pm, () => kconst(key('pulseWidth'), p.pulseWidth ?? 0.5))
         return el.mul(el.tapOut({ name: fbTap }, out), levelRef)
       }
 
