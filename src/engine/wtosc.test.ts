@@ -69,9 +69,20 @@ describe('wtosc native node', () => {
     for (let i = 0; i < fwd.length; i++) dot += fwd[i] * back[i]
     expect(dot).toBeLessThan(0)
 
-    const half = await render(wtosc(wavetableShapeIndex('sine'), el.const({ value: 200 }), el.const({ value: 0.5 })))
+    const half = await render(wtosc(wavetableShapeIndex('sine'), el.const({ value: 200 }), { phase: el.const({ value: 0.5 }) }))
     const plain = await render(wtosc(wavetableShapeIndex('sine'), el.const({ value: 200 })))
     for (let i = 0; i < 200; i++) expect(half[i]).toBeCloseTo(-plain[i], 2)
+  })
+
+  it('restarts the cycle on a rising reset edge', async () => {
+    // A 37 Hz sine reset by a 10 Hz train: after each rising edge it starts over from sin(0).
+    const f = 37
+    const out = await render(wtosc(wavetableShapeIndex('sine'), el.const({ value: f }), { reset: el.train(10) }), 40)
+    // The train rises every 4410 samples; the rendered window starts 2048 samples in.
+    for (let k = 1; k < 4; k++) {
+      const start = k * 4410 - 2048
+      for (const j of [0, 50, 300, 1000]) expect(out[start + j]).toBeCloseTo(Math.sin((2 * Math.PI * f * j) / SR), 2)
+    }
   })
 
   it('stays silent for an unknown shape', async () => {

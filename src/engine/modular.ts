@@ -218,17 +218,18 @@ export function compileModular(
     }
   }
 
-  /** One LFO shape (see LFO_WAVEFORMS) from its 0..1 ramp. */
-  function lfoShape(wf: number, phase: NodeRepr_t, width: () => NodeRepr_t): NodeRepr_t {
-    const one = el.const({ value: 1 })
-    const two = el.const({ value: 2 })
-    switch (LFO_WAVEFORMS[wf]) {
-      case 'triangle': return el.sub(one, el.mul(two, el.abs(el.sub(el.mul(phase, two), one))))
-      case 'saw': return el.sub(el.mul(phase, two), one)
-      case 'square': return el.sub(el.mul(el.le(phase, el.const({ value: 0.5 })), two), one)
-      case 'pulse': return el.sub(el.mul(el.le(phase, width()), two), one)
-      default: return el.sin(el.mul(phase, el.const({ value: 2 * Math.PI })))
+  /** One LFO shape (see LFO_WAVEFORMS). Pulse keeps a live width, so it stays a
+   *  phasor pulse; the rest play the exact wavetable shape (no band-limiting —
+   *  its edge ringing would show at LFO rates). `reset` restarts the cycle. */
+  function lfoShape(wf: number, rate: NodeRepr_t, reset: NodeRepr_t | null, width: () => NodeRepr_t): NodeRepr_t {
+    const name = LFO_WAVEFORMS[wf]
+    if (name === 'pulse') {
+      const phase = reset === null ? el.phasor(rate) : el.syncphasor(rate, reset)
+      return el.sub(el.mul(el.le(phase, width()), el.const({ value: 2 })), el.const({ value: 1 }))
     }
+    // Unknown index (a newer song): shape −1, which the node plays as silence.
+    const shape = WAVETABLE_SHAPES.indexOf(name as WavetableShape)
+    return wtosc(shape, rate, { bandlimit: false, ...(reset === null ? {} : { reset }) })
   }
 
   function render(m: Module): Node {
@@ -401,11 +402,11 @@ export function compileModular(
         const rate = kconst(key('rate'), p.rate ?? 4)
         const amount = kconst(key('amount'), p.amount ?? 1)
         const amountScale = kconst(key('amountScale'), p.amountScale ?? 1)
-        // Sync mode and waveform are structural: only the chosen phase and shape are built.
-        const phase = Math.round(p.sync ?? 0) === 1
-          ? el.syncphasor(rate, el.sub(el.const({ value: 1 }), inlet(m.id, 'gate') ?? SILENCE))
-          : el.phasor(rate)
-        const shape = lfoShape(Math.round(p.waveform ?? 0), phase, () => kconst(key('pulseWidth'), p.pulseWidth ?? 0.5))
+        // Sync mode and waveform are structural: only the chosen shape is built.
+        // Gate sync restarts the cycle on each note-on (the gate's rising edge).
+        const gateIn = inlet(m.id, 'gate')
+        const reset = Math.round(p.sync ?? 0) === 1 ? (typeof gateIn === 'object' && gateIn !== null ? gateIn : el.const({ value: 0 })) : null
+        const shape = lfoShape(Math.round(p.waveform ?? 0), rate, reset, () => kconst(key('pulseWidth'), p.pulseWidth ?? 0.5))
         return el.mul(shape, amount, amountScale)
       }
 

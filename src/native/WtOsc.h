@@ -16,9 +16,12 @@ namespace elem
     // wtosc: band-limited wavetable oscillator for the built-in shapes.
     //
     // Inputs: [0] frequency in Hz (negative runs backwards: through-zero FM),
-    //         [1] optional phase offset in cycles (phase modulation / offset).
+    //         [1] optional phase offset in cycles (phase modulation / offset),
+    //         [2] optional reset: a rising edge (a jump up by more than 0.5,
+    //             as el.syncphasor) restarts the cycle at phase 0.
     // Props:  shape (int, see WtShape — the order is the contract with
-    //         src/engine/wavetableShapes.ts).
+    //         src/engine/wavetableShapes.ts); bandlimit (bool, default true —
+    //         false plays the exact shape, for LFOs).
     //
     // Each shape is defined once in the time domain, analysed into its first
     // MAX_HARMONICS harmonics and resynthesized into one table per octave
@@ -38,8 +41,11 @@ namespace elem
             NumShapes
         };
 
-        // Each level has a guard sample at TABLE_SIZE so reads can interpolate without wrapping.
-        using Bank = std::array<std::array<float, TABLE_SIZE + 1>, NUM_LEVELS>;
+        // Level RAW_LEVEL is the shape itself, unfiltered (for LFOs, where the
+        // band-limited edges would ring). Each level has a guard sample at
+        // TABLE_SIZE so reads can interpolate without wrapping.
+        constexpr int RAW_LEVEL = NUM_LEVELS;
+        using Bank = std::array<std::array<float, TABLE_SIZE + 1>, NUM_LEVELS + 1>;
 
         inline double frac(double x) { return x - std::floor(x); }
 
@@ -141,6 +147,14 @@ namespace elem
                 for (int k = 0; k < N; ++k) (*bank)[level][k] = float(levels[level][k] * gain);
                 (*bank)[level][N] = (*bank)[level][0];
             }
+            double rawPeak = 0;
+            std::vector<double> raw(N);
+            for (int k = 0; k < N; ++k) {
+                raw[k] = shapeAt(shape, double(k) / N);
+                rawPeak = std::max(rawPeak, std::abs(raw[k]));
+            }
+            for (int k = 0; k < N; ++k) (*bank)[RAW_LEVEL][k] = float(rawPeak > 1e-9 ? raw[k] / rawPeak : 0.0);
+            (*bank)[RAW_LEVEL][N] = (*bank)[RAW_LEVEL][0];
             return bank;
         }
 
@@ -172,6 +186,10 @@ namespace elem
                 // rather than failing the whole render.
                 bank.store(wt::bankFor(static_cast<int>((js::Number) val)), std::memory_order_release);
             }
+            if (key == "bandlimit") {
+                if (!val.isBool()) return ReturnCode::InvalidPropertyType();
+                raw.store(!static_cast<js::Boolean>(val), std::memory_order_relaxed);
+            }
             return GraphNode<FloatType>::setProperty(key, val);
         }
 
@@ -186,11 +204,19 @@ namespace elem
 
             double const sr = GraphNode<FloatType>::getSampleRate();
             FloatType const* pm = ctx.numInputChannels > 1 ? inputData[1] : nullptr;
+            FloatType const* reset = ctx.numInputChannels > 2 ? inputData[2] : nullptr;
 
             auto const& tables = *b;
+            bool const unfiltered = raw.load(std::memory_order_relaxed);
+            if (unfiltered) { level = nextLevel = wt::RAW_LEVEL; mix = 0; lastInc = -1e9; }
             for (size_t i = 0; i < numSamples; ++i) {
                 double const inc = double(inputData[0][i]) / sr;
-                if (inc != lastInc) pickLevels(inc);
+                if (!unfiltered && inc != lastInc) pickLevels(inc);
+                if (reset != nullptr) {
+                    double const r = double(reset[i]);
+                    if (r - lastReset > 0.5) phase = 0.0;
+                    lastReset = r;
+                }
 
                 double const t = pm == nullptr ? phase : wt::frac(phase + double(pm[i]));
                 double const pos = t * wt::TABLE_SIZE;
@@ -229,8 +255,10 @@ namespace elem
         }
 
         std::atomic<wt::Bank const*> bank { nullptr };
+        std::atomic<bool> raw { false };
         double phase = 0;
         double lastInc = -1e9;
+        double lastReset = 0;
         int level = 0;
         int nextLevel = 0;
         float mix = 0;

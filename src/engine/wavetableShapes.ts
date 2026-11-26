@@ -1,4 +1,4 @@
-import { createNode, type NodeRepr_t } from '@elemaudio/core'
+import { createNode, el, type NodeRepr_t } from '@elemaudio/core'
 
 /** The native `wtosc` node's built-in shapes, in its `WtShape` order
  *  (src/native/WtOsc.h). Append only: songs store the index. */
@@ -14,9 +14,16 @@ export function wavetableShapeIndex(name: WavetableShape): number {
 }
 
 /** Band-limited (mipmapped) wavetable oscillator. `freq` in Hz — negative runs
- *  backwards; `phase` is an optional offset in cycles (phase modulation). */
-export function wtosc(shape: number, freq: NodeRepr_t, phase?: NodeRepr_t, key?: string): NodeRepr_t {
+ *  backwards; `phase` is an optional offset in cycles (phase modulation);
+ *  a rising edge on `reset` restarts the cycle (as `el.syncphasor`). */
+export function wtosc(
+  shape: number, freq: NodeRepr_t,
+  { phase, reset, key, bandlimit = true }: { phase?: NodeRepr_t; reset?: NodeRepr_t; key?: string; bandlimit?: boolean } = {},
+): NodeRepr_t {
   const props: Record<string, unknown> = { shape }
+  // Unfiltered: the exact shape, for modulation (band-limited edges ring at LFO rates).
+  if (!bandlimit) props.bandlimit = false
   if (key) props.key = key
-  return createNode('wtosc', props, phase ? [freq, phase] : [freq]) as NodeRepr_t
+  const inputs = reset ? [freq, phase ?? el.const({ value: 0 }), reset] : phase ? [freq, phase] : [freq]
+  return createNode('wtosc', props, inputs) as NodeRepr_t
 }
