@@ -236,12 +236,12 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     inlets: ['gate'],
     outlets: ['out'],
     params: [
-      { key: 'waveform', label: 'Wave', min: 0, max: 4, default: 0, step: 1, enumLabels: [...LFO_WAVEFORMS] },
+      { key: 'waveform', label: 'Wave', min: 0, max: 4, default: 0, step: 1, enumLabels: [...LFO_WAVEFORMS], structural: true },
       { key: 'rate', label: 'Rate (Hz)', min: 0.1, max: 50, default: 4, step: 0.1 },
       { key: 'amount', label: 'Amount', min: 0, max: 1, default: 1, step: 0.01, showScale: true },
       { key: 'amountScale', label: '×', min: 1, max: 99, default: 1, step: 1 },
       { key: 'pulseWidth', label: 'Width', min: 0.05, max: 0.95, default: 0.5, step: 0.01 },
-      { key: 'sync', label: 'Sync', min: 0, max: 1, default: 0, step: 1, enumLabels: ['free', 'gate'] },
+      { key: 'sync', label: 'Sync', min: 0, max: 1, default: 0, step: 1, enumLabels: ['free', 'gate'], structural: true },
     ],
   },
   tanh: {

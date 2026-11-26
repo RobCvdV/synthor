@@ -5,7 +5,7 @@ import { midiToFreq } from '../domain/notes'
 import { cycleLength, fitsWavetable, wavetableFrameCount } from '../domain/sampleChoices'
 import { makeFdnReverb } from './reverbFdn'
 import { WAVETABLE_SHAPES, wtosc, type WavetableShape } from './wavetableShapes'
-import { WAVEFORMS } from '../domain/moduleDefs'
+import { LFO_WAVEFORMS, WAVEFORMS } from '../domain/moduleDefs'
 import type { SampleMeta } from './instruments'
 
 type Node = NodeRepr_t | number
@@ -218,6 +218,19 @@ export function compileModular(
     }
   }
 
+  /** One LFO shape (see LFO_WAVEFORMS) from its 0..1 ramp. */
+  function lfoShape(wf: number, phase: NodeRepr_t, width: () => NodeRepr_t): NodeRepr_t {
+    const one = el.const({ value: 1 })
+    const two = el.const({ value: 2 })
+    switch (LFO_WAVEFORMS[wf]) {
+      case 'triangle': return el.sub(one, el.mul(two, el.abs(el.sub(el.mul(phase, two), one))))
+      case 'saw': return el.sub(el.mul(phase, two), one)
+      case 'square': return el.sub(el.mul(el.le(phase, el.const({ value: 0.5 })), two), one)
+      case 'pulse': return el.sub(el.mul(el.le(phase, width()), two), one)
+      default: return el.sin(el.mul(phase, el.const({ value: 2 * Math.PI })))
+    }
+  }
+
   function render(m: Module): Node {
     const p = m.params
     const key = (name: string) => `${m.id}:${name}`
@@ -386,37 +399,13 @@ export function compileModular(
 
       case 'lfo': {
         const rate = kconst(key('rate'), p.rate ?? 4)
-        const width = kconst(key('pulseWidth'), p.pulseWidth ?? 0.5)
         const amount = kconst(key('amount'), p.amount ?? 1)
         const amountScale = kconst(key('amountScale'), p.amountScale ?? 1)
-
-        // Sync mode ref: 0=free, 1=gate.
-        const sync = kconst(key('sync'), p.sync ?? 0)
-        const g = inlet(m.id, 'gate')
-        const freePhase = el.phasor(rate)
-        const syncPhase = el.syncphasor(rate, el.sub(el.const({ value: 1 }), g ?? SILENCE))
-        const phase = el.select(el.le(sync, el.const({ value: 0.5 })), freePhase, syncPhase)
-
-        // Waveform ref: 0=sine,1=tri,2=saw,3=square,4=pulse.
-        // All 5 shapes run in the graph so waveform changes are instant.
-        const wf = kconst(key('waveform'), p.waveform ?? 0)
-        const one = el.const({ value: 1 })
-        const two = el.const({ value: 2 })
-        const pi2 = el.const({ value: 2 * Math.PI })
-        const lfoSine = el.sin(el.mul(phase, pi2))
-        const lfoTri = el.sub(one, el.mul(two, el.abs(el.sub(el.mul(phase, two), one))))
-        const lfoSaw = el.sub(el.mul(phase, two), one)
-        // Phasor-based pulse: width controls duty cycle. width=0.5 = square.
-        const lfoPulse = el.sub(el.mul(el.le(phase, width), two), one)
-        const shape = el.select(
-          el.le(wf, el.const({ value: 0.5 })), lfoSine,
-          el.select(el.le(wf, el.const({ value: 1.5 })), lfoTri,
-            el.select(el.le(wf, el.const({ value: 2.5 })), lfoSaw,
-              el.select(el.le(wf, el.const({ value: 3.5 })), lfoPulse, lfoPulse),
-            ),
-          ),
-        )
-
+        // Sync mode and waveform are structural: only the chosen phase and shape are built.
+        const phase = Math.round(p.sync ?? 0) === 1
+          ? el.syncphasor(rate, el.sub(el.const({ value: 1 }), inlet(m.id, 'gate') ?? SILENCE))
+          : el.phasor(rate)
+        const shape = lfoShape(Math.round(p.waveform ?? 0), phase, () => kconst(key('pulseWidth'), p.pulseWidth ?? 0.5))
         return el.mul(shape, amount, amountScale)
       }
 
