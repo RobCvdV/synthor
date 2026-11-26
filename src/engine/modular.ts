@@ -4,6 +4,8 @@ import type { Connection, Id, Module, ModularInstrument } from '../domain/types'
 import { midiToFreq } from '../domain/notes'
 import { cycleLength, fitsWavetable, wavetableFrameCount } from '../domain/sampleChoices'
 import { makeFdnReverb } from './reverbFdn'
+import { WAVETABLE_SHAPES, wtosc, type WavetableShape } from './wavetableShapes'
+import { WAVEFORMS } from '../domain/moduleDefs'
 import type { SampleMeta } from './instruments'
 
 type Node = NodeRepr_t | number
@@ -179,18 +181,21 @@ export function compileModular(
     return el.mul(f, el.add(el.const({ value: 1 }), el.mul(fm, kconst(`${m.id}:fmDepth`, m.params.fmDepth ?? 1))))
   }
 
-  /** One osc waveform (0=saw,1=square,2=triangle,3=sine,4=pulse). Square is the
-   *  band-limited 50% blep; only triangle (polyBLEP integration) and pulse
-   *  (off-centre width) carry DC, so only they get a dcblock. */
-  function oscShape(wf: number, tuned: NodeRepr_t, width: NodeRepr_t): NodeRepr_t {
-    switch (wf) {
-      case 0: return el.blepsaw(tuned)
-      case 2: return el.dcblock(el.bleptriangle(tuned))
-      case 3: return el.cycle(tuned)
-      case 1: return el.blepsquare(tuned)
+  /** One osc waveform (see WAVEFORMS). Saw and square are the cheapest as
+   *  native bleps (they only run forward, hence the clamp at 0 Hz); pulse keeps a
+   *  live width and so a phasor pulse with a dcblock. Everything else is a
+   *  band-limited wavetable, which runs through zero and carries no DC. */
+  function oscShape(wf: number, freqHz: NodeRepr_t, width: NodeRepr_t): NodeRepr_t {
+    const forward = () => el.max(el.const({ value: 0 }), freqHz)
+    switch (WAVEFORMS[wf]) {
+      case 'saw': return el.blepsaw(forward())
+      case 'square': return el.blepsquare(forward())
+      case 'pulse':
+        return el.dcblock(el.sub(el.mul(el.le(el.phasor(forward()), width), el.const({ value: 2 })), el.const({ value: 1 })))
       default: {
-        // Pulse: width sets the duty cycle; off-centre widths carry DC.
-        return el.dcblock(el.sub(el.mul(el.le(el.phasor(tuned), width), el.const({ value: 2 })), el.const({ value: 1 })))
+        // Unknown index (a newer song): the shape index is -1, which the node plays as silence.
+        const shape = WAVETABLE_SHAPES.indexOf(WAVEFORMS[wf] as WavetableShape)
+        return wtosc(shape, freqHz)
       }
     }
   }
@@ -251,8 +256,7 @@ export function compileModular(
         // the tuning ratio is a plain constant — every node costs CPU per voice.
         const ratio = 2 ** ((p.detune ?? 0) / 12 + (p.finetune ?? 0) / 1200)
         const base = typeof f === 'number' ? el.const({ value: f * ratio }) : ratio === 1 ? f : el.mul(f, el.const({ value: ratio }))
-        // The blep oscillators only wrap upward, so FM below 0 Hz would run away.
-        const tuned = el.max(el.const({ value: 0 }), withFm(base, m))
+        const tuned = withFm(base, m)
         const gain = kconst(key('gain'), p.gain ?? 1)
         return el.mul(oscShape(Math.round(p.waveform ?? 0), tuned, kconst(key('pulseWidth'), p.pulseWidth ?? 0.5)), gain)
       }

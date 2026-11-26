@@ -45,8 +45,14 @@ export interface ModuleDef {
   samplePicker?: string
 }
 
-/** Waveform selector values for the oscillator. */
-export const WAVEFORMS = ['saw', 'square', 'triangle', 'sine', 'pulse'] as const
+/** Waveform selector values for the oscillator. Append only — songs store the
+ *  index. Every name but saw/square/pulse plays from the native band-limited
+ *  wavetable oscillator under the same name (`engine/wavetableShapes.ts`). */
+export const WAVEFORMS = [
+  'saw', 'square', 'triangle', 'sine', 'pulse',
+  'pulse 25%', 'pulse 12%', 'half sine', 'abs sine', 'organ', 'trapezoid',
+  'sync saw', 'stairs', 'soft saw', 'hollow', 'shark fin', 'double saw',
+] as const
 /** DX operator waveforms — sine first so old patches (no waveform param → 0) stay sine. */
 export const DX_WAVEFORMS = ['sine', 'saw', 'square', 'triangle', 'pulse'] as const
 /** LFO waveform selector — all shapes, ordered so old sine/triangle patches
@@ -121,7 +127,7 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     inlets: ['freq', 'fm'],
     outlets: ['out'],
     params: [
-      { key: 'waveform', label: 'Wave', min: 0, max: 4, default: 0, step: 1, enumLabels: [...WAVEFORMS], structural: true },
+      { key: 'waveform', label: 'Wave', min: 0, max: WAVEFORMS.length - 1, default: 0, step: 1, enumLabels: [...WAVEFORMS], structural: true },
       { key: 'detune', label: 'Detune (st)', min: -24, max: 24, default: 0, step: 1, structural: true },
       { key: 'finetune', label: 'Fine (ct)', min: -100, max: 100, default: 0, step: 1, structural: true },
       { key: 'pulseWidth', label: 'Width', min: 0.05, max: 0.95, default: 0.5, step: 0.01 },

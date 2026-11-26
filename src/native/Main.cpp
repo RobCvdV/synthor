@@ -8,6 +8,7 @@
 #include "Metro.h"
 #include "SampleTime.h"
 #include "TxSeq.h"
+#include "WtOsc.h"
 
 
 using namespace emscripten;
@@ -63,6 +64,10 @@ public:
 
         runtime->registerNodeType("txseq", [](elem::NodeId const id, double fs, int const bs) {
             return std::make_shared<elem::TxSeqNode<double>>(id, fs, bs);
+        });
+
+        runtime->registerNodeType("wtosc", [](elem::NodeId const id, double fs, int const bs) {
+            return std::make_shared<elem::WtOscNode<double>>(id, fs, bs);
         });
 
     }
