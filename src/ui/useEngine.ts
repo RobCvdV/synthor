@@ -1,11 +1,13 @@
 import { useEffect, useRef } from 'react'
 import { AudioHost, OUTPUT_WARMUP_MS } from '../audio/host'
-import { compileGraph, type DecodedSize } from '../engine/compile'
+import { buildSampleMeta, compileGraph, type DecodedSize } from '../engine/compile'
 import { buildArrangement, resolveStep, type StepRef } from '../engine/arrangement'
 import { buildPlaybackData, slicePlaybackData, type PlaybackData } from '../player/playbackData'
 import { trackMuteValues } from '../player/cues'
 import { buildTxSeqData } from '../player/txSeqData'
 import { syncSamplesToVfs } from '../audio/vfsLoader'
+import { createWavetableVfs } from '../audio/wavetableVfs'
+import { wavetableMipRequests } from '../engine/wavetableMips'
 import { withAudition } from '../engine/audition'
 import { syncAudition } from './auditionSync'
 import { computeSlotLayouts } from '../engine/voiceSlotLayout'
@@ -101,6 +103,8 @@ export function useEngine(): AudioHost {
       return o ? { ...l1SumsRef.current, [o.key]: audition.l1() ?? 0 } : l1SumsRef.current
     }
     const engineDoc = () => withAudition(useDocStore.getState().doc, audition.override())
+    // Band-limited tables for the wave modules, built from the decoded samples.
+    const mips = createWavetableVfs(host, () => schedule())
     const loadedHashes = () => {
       const o = audition.override()
       return o ? new Set([...vfsLoadedRef.current, o.key]) : vfsLoadedRef.current
@@ -167,6 +171,8 @@ export function useEngine(): AudioHost {
         const fx = c.effects.map((e) => `${e.type}:${e.id}` + (e.sampleId ? `:s${e.sampleId}` : '')).join(',')
         parts.push(`chan:${id}:${c.kind}:${fx}`)
       }
+
+      parts.push(`mips:${mips.revision()}`)
 
       // Samples.
       for (const s of Object.values(doc.entities.samples)) {
@@ -243,7 +249,7 @@ export function useEngine(): AudioHost {
       rowOffsetRef.current = offset
 
       // Safe now: the node holds the new data; drop superseded uploads.
-      void host.pruneVfs()
+      void host.pruneVfs().then(() => mips.invalidate())
     }
 
     const render = () => {
@@ -262,13 +268,14 @@ export function useEngine(): AudioHost {
           useAudioStore.getState().setStatus('warming')
           const seq = ++vfsSeqRef.current
           vfsSyncRef.current = syncSamplesToVfs(host, samples, slug).then(
-            ({ loaded, l1Sums, decodedSizes }) => {
+            ({ loaded, l1Sums, decodedSizes, pcm }) => {
               // A newer sync has started: its result (and pending promise) wins.
               if (seq !== vfsSeqRef.current) return
               vfsSyncRef.current = null
               vfsLoadedRef.current = loaded
               l1SumsRef.current = l1Sums
               decodedSizesRef.current = decodedSizes
+              mips.setPcm(pcm)
               useDocStore.getState().setVfsLoaded(loaded)
               // Samples compiled while still loading were silenced; recompile now they are in.
               schedule()
@@ -308,6 +315,7 @@ export function useEngine(): AudioHost {
       }
 
       const doRecompile = () => {
+        mips.want(wavetableMipRequests(doc, buildSampleMeta(doc.entities.samples, loadedHashes(), undefined, decodedSizesRef.current)))
         const { playing, startRow, playEpoch } = useTransportStore.getState()
         const { bpm, linesPerBeat } = doc.tempo
         const { playMode, currentStep } = useAppStore.getState()
@@ -339,6 +347,7 @@ export function useEngine(): AudioHost {
             vfsLoadedHashes: loadedHashes(),
             l1Sums: auditionL1Sums(),
             decodedSizes: decodedSizesRef.current,
+            wavetableMips: mips.keys(),
             midiCcValues: useMidiStore.getState().ccValues,
             paramRefs: host.paramRefs,
             ccBindings: host.ccBindings,

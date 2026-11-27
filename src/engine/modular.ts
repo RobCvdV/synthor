@@ -4,10 +4,14 @@ import type { Connection, Id, Module, ModularInstrument } from '../domain/types'
 import { midiToFreq } from '../domain/notes'
 import { cycleLength, fitsWavetable, wavetableFrameCount } from '../domain/sampleChoices'
 import { makeFdnReverb } from './reverbFdn'
+import { WAVETABLE_SHAPES, wtosc, wtoscTable, type WavetableShape } from './wavetableShapes'
+import { wavetableMipKey } from './wavetableMips'
+import { LFO_WAVEFORMS, WAVEFORMS } from '../domain/moduleDefs'
 import type { SampleMeta } from './instruments'
 
 type Node = NodeRepr_t | number
 const SILENCE = 0
+const toNode = (n: Node): NodeRepr_t => (typeof n === 'number' ? el.const({ value: n }) : n)
 
 export interface StereoOut {
   left: NodeRepr_t
@@ -179,6 +183,85 @@ export function compileModular(
     return el.mul(f, el.add(el.const({ value: 1 }), el.mul(fm, kconst(`${m.id}:fmDepth`, m.params.fmDepth ?? 1))))
   }
 
+  /** One osc waveform (see WAVEFORMS). Saw and square are the cheapest as
+   *  native bleps (they only run forward, hence the clamp at 0 Hz); pulse keeps a
+   *  live width and so a phasor pulse with a dcblock. Everything else is a
+   *  band-limited wavetable, which runs through zero and carries no DC. */
+  function oscShape(wf: number, freqHz: NodeRepr_t, width: NodeRepr_t): NodeRepr_t {
+    const forward = () => el.max(el.const({ value: 0 }), freqHz)
+    switch (WAVEFORMS[wf]) {
+      case 'saw': return el.blepsaw(forward())
+      case 'square': return el.blepsquare(forward())
+      case 'pulse':
+        return el.dcblock(el.sub(el.mul(el.le(el.phasor(forward()), width), el.const({ value: 2 })), el.const({ value: 1 })))
+      default: {
+        // Unknown index (a newer song): the shape index is -1, which the node plays as silence.
+        const shape = WAVETABLE_SHAPES.indexOf(WAVEFORMS[wf] as WavetableShape)
+        return wtosc(shape, freqHz)
+      }
+    }
+  }
+
+  /** One DX operator shape (0=sine,1=saw,2=square,3=triangle,4=pulse) from its
+   *  ramp (0..1) plus phase modulation in radians. Naive shapes (no blep) — PM
+   *  jitters the phase, so band-limiting wouldn't stay alias-free anyway. */
+  function dxShape(wf: number, ramp: NodeRepr_t, pm: NodeRepr_t, width: () => NodeRepr_t): NodeRepr_t {
+    if (wf === 0) return el.sin(el.add(el.mul(ramp, el.const({ value: 2 * Math.PI })), pm))
+    // PM can push the phase outside one cycle: wrap it so every shape stays in −1..1.
+    const shifted = el.add(ramp, el.mul(pm, el.const({ value: 1 / (2 * Math.PI) })))
+    const norm = el.sub(shifted, el.floor(shifted))
+    const one = el.const({ value: 1 })
+    const two = el.const({ value: 2 })
+    switch (wf) {
+      case 1: return el.sub(el.mul(norm, two), one)
+      case 2: return el.sub(el.mul(el.le(norm, el.const({ value: 0.5 })), two), one)
+      case 3: return el.sub(one, el.mul(two, el.abs(el.sub(el.mul(norm, two), one))))
+      default: return el.sub(el.mul(el.le(norm, width()), two), one)
+    }
+  }
+
+  /** One LFO shape (see LFO_WAVEFORMS). Pulse keeps a live width, so it stays a
+   *  phasor pulse; the rest play the exact wavetable shape (no band-limiting —
+   *  its edge ringing would show at LFO rates). `reset` restarts the cycle. */
+  function lfoShape(wf: number, rate: NodeRepr_t, reset: NodeRepr_t | null, width: () => NodeRepr_t): NodeRepr_t {
+    const name = LFO_WAVEFORMS[wf]
+    if (name === 'pulse') {
+      const phase = reset === null ? el.phasor(rate) : el.syncphasor(rate, reset)
+      return el.sub(el.mul(el.le(phase, width()), el.const({ value: 2 })), el.const({ value: 1 }))
+    }
+    // Unknown index (a newer song): shape −1, which the node plays as silence.
+    const shape = WAVETABLE_SHAPES.indexOf(name as WavetableShape)
+    return wtosc(shape, rate, { bandlimit: false, ...(reset === null ? {} : { reset }) })
+  }
+
+  /** The wave module's raw cycle read: table lookups into the sample itself. */
+  function rawWaveRead(
+    id: Id, meta: SampleMeta, size: number, count: number, rate: NodeRepr_t,
+    sync: Node | null, phaseShift: NodeRepr_t, position: () => NodeRepr_t,
+  ): NodeRepr_t[] {
+    const ramp = sync === null ? el.phasor(rate) : el.syncphasor(rate, sync)
+    const shifted = el.add(ramp, phaseShift)
+    const phase = el.sub(shifted, el.floor(shifted))
+    // The table index is normalized over the whole buffer: frame k spans
+    // [k·size, k·size + size − 1] of its frames − 1 steps.
+    const span = Math.max(1, meta.frames - 1)
+    const read = (frame: NodeRepr_t | number, tag: string) => el.mc.table({
+      key: `${keyPrefix}:${id}:${tag}:${meta.hash}`,
+      path: meta.hash,
+      channels: meta.channels,
+    }, el.div(el.add(el.mul(frame, size), el.mul(phase, size - 1)), span)) as unknown as NodeRepr_t[]
+    if (count === 1) return read(0, 'tbl')
+    // Position (plus the pos inlet) picks a point between frames; the two
+    // neighbouring frames are crossfaded so sweeps morph smoothly.
+    const at = el.mul(position(), count - 1)
+    const lo = el.floor(at)
+    const hi = el.min(count - 1, el.add(lo, 1))
+    const frac = el.sub(at, lo)
+    const a = read(lo, 'tblA')
+    const b = read(hi, 'tblB')
+    return a.map((x, i) => el.add(x, el.mul(el.sub(b[i], x), frac)))
+  }
+
   function render(m: Module): Node {
     const p = m.params
     const key = (name: string) => `${m.id}:${name}`
@@ -213,76 +296,34 @@ export function compileModular(
 
       case 'osc': {
         const f = inlet(m.id, 'freq') ?? 440
-        // Separate detune/finetune refs; ratio computed in the audio graph so
-        // slider changes take effect instantly without a recompile.
-        const detuneRef = kconst(key('detune'), p.detune ?? 0)
-        const finetuneRef = kconst(key('finetune'), p.finetune ?? 0)
-        const ln2 = el.const({ value: Math.LN2 })
-        const exponent = el.add(el.div(detuneRef, 12), el.div(finetuneRef, 1200))
-        const ratio = el.exp(el.mul(ln2, exponent))
-        // The blep oscillators only wrap upward, so FM below 0 Hz would run away.
-        const tuned = el.max(el.const({ value: 0 }), withFm(el.mul(f, ratio), m))
-        const width = kconst(key('pulseWidth'), p.pulseWidth ?? 0.5)
+        // Waveform and tuning are structural: only the chosen shape is built and
+        // the tuning ratio is a plain constant — every node costs CPU per voice.
+        const ratio = 2 ** ((p.detune ?? 0) / 12 + (p.finetune ?? 0) / 1200)
+        const base = typeof f === 'number' ? el.const({ value: f * ratio }) : ratio === 1 ? f : el.mul(f, el.const({ value: ratio }))
+        const tuned = withFm(base, m)
         const gain = kconst(key('gain'), p.gain ?? 1)
-        // Waveform selector ref: 0=saw,1=square,2=triangle,3=sine,4=pulse.
-        // All 5 oscillator types run in the graph so waveform changes are instant.
-        const wf = kconst(key('waveform'), p.waveform ?? 0)
-        const saw = el.blepsaw(tuned)
-        const triangle = el.bleptriangle(tuned)
-        const sine = el.cycle(tuned)
-        const phase = el.phasor(tuned)
-        // Phasor-based pulse: width controls duty cycle (0..1). width=0.5 = square.
-        const pulse = el.sub(el.mul(el.le(phase, width), el.const({ value: 2 })), el.const({ value: 1 }))
-        const oscOut = el.select(
-          el.le(wf, el.const({ value: 0.5 })), saw,
-          el.select(el.le(wf, el.const({ value: 1.5 })), pulse,
-            el.select(el.le(wf, el.const({ value: 2.5 })), triangle,
-              el.select(el.le(wf, el.const({ value: 3.5 })), sine, pulse),
-            ),
-          ),
-        )
-        // DC-block to prevent offset from polyBLEP oscillators (especially triangle)
-        return el.mul(el.dcblock(oscOut), gain)
+        return el.mul(oscShape(Math.round(p.waveform ?? 0), tuned, kconst(key('pulseWidth'), p.pulseWidth ?? 0.5)), gain)
       }
 
       case 'dxop': {
         // Unwired freq inlet falls back to the voice's note Hz — ratio mode is
         // note-relative by default, exactly like a DX operator.
         const baseFreq = inlet(m.id, 'freq') ?? freq
-        const modSum = inlet(m.id, 'mod') ?? SILENCE
-        const modeRef = kconst(key('freqMode'), p.freqMode ?? 0)
-        const ratioRef = kconst(key('ratio'), p.ratio ?? 1)
-        const fixedRef = kconst(key('fixedHz'), p.fixedHz ?? 440)
+        const modSum = inlet(m.id, 'mod')
         const fbRef = kconst(key('feedback'), p.feedback ?? 0)
         const levelRef = kconst(key('level'), p.level ?? 1)
-        const opFreq = el.select(el.le(modeRef, el.const({ value: 0.5 })), el.mul(baseFreq, ratioRef), fixedRef)
-        const phase = el.mul(el.phasor(opFreq), el.const({ value: 2 * Math.PI }))
+        // Frequency mode and waveform are structural: only the chosen branch is built.
+        const opFreq = Math.round(p.freqMode ?? 0) === 1
+          ? kconst(key('fixedHz'), p.fixedHz ?? 440)
+          : el.mul(baseFreq, kconst(key('ratio'), p.ratio ?? 1))
+        const ramp = el.phasor(opFreq)
         // PM feedback via tapIn/tapOut (implicit block-size delay). The tap
         // wraps the raw operator output so level/EG stay out of the loop, as
         // on the DX. All shapes stay bounded, so the loop stays stable.
         const fbTap = `${keyPrefix}:${m.id}:fb`
-        const pmPhase = el.add(phase, modSum, el.mul(fbRef, el.tapIn({ name: fbTap })))
-        // All 5 shapes run in the graph from the same PM'd phase; the waveform
-        // ref picks. Naive phase shapes (no blep) — PM jitters the phase so
-        // band-limited wavetable playback wouldn't stay alias-free anyway.
-        const wf = kconst(key('waveform'), p.waveform ?? 0)
-        const norm = el.div(pmPhase, el.const({ value: 2 * Math.PI }))
-        const one = el.const({ value: 1 })
-        const two = el.const({ value: 2 })
-        const sine = el.sin(pmPhase)
-        const saw = el.sub(el.mul(norm, two), one)
-        const square = el.sub(el.mul(el.le(norm, el.const({ value: 0.5 })), two), one)
-        const triangle = el.sub(one, el.mul(two, el.abs(el.sub(el.mul(norm, two), one))))
-        const width = kconst(key('pulseWidth'), p.pulseWidth ?? 0.5)
-        const pulse = el.sub(el.mul(el.le(norm, width), two), one)
-        const out = el.select(
-          el.le(wf, el.const({ value: 0.5 })), sine,
-          el.select(el.le(wf, el.const({ value: 1.5 })), saw,
-            el.select(el.le(wf, el.const({ value: 2.5 })), square,
-              el.select(el.le(wf, el.const({ value: 3.5 })), triangle, pulse),
-            ),
-          ),
-        )
+        const fb = el.mul(fbRef, el.tapIn({ name: fbTap }))
+        const pm = modSum === null ? fb : el.add(modSum, fb)
+        const out = dxShape(Math.round(p.waveform ?? 0), ramp, pm, () => kconst(key('pulseWidth'), p.pulseWidth ?? 0.5))
         return el.mul(el.tapOut({ name: fbTap }, out), levelRef)
       }
 
@@ -389,37 +430,12 @@ export function compileModular(
 
       case 'lfo': {
         const rate = kconst(key('rate'), p.rate ?? 4)
-        const width = kconst(key('pulseWidth'), p.pulseWidth ?? 0.5)
         const amount = kconst(key('amount'), p.amount ?? 1)
         const amountScale = kconst(key('amountScale'), p.amountScale ?? 1)
-
-        // Sync mode ref: 0=free, 1=gate.
-        const sync = kconst(key('sync'), p.sync ?? 0)
-        const g = inlet(m.id, 'gate')
-        const freePhase = el.phasor(rate)
-        const syncPhase = el.syncphasor(rate, el.sub(el.const({ value: 1 }), g ?? SILENCE))
-        const phase = el.select(el.le(sync, el.const({ value: 0.5 })), freePhase, syncPhase)
-
-        // Waveform ref: 0=sine,1=tri,2=saw,3=square,4=pulse.
-        // All 5 shapes run in the graph so waveform changes are instant.
-        const wf = kconst(key('waveform'), p.waveform ?? 0)
-        const one = el.const({ value: 1 })
-        const two = el.const({ value: 2 })
-        const pi2 = el.const({ value: 2 * Math.PI })
-        const lfoSine = el.sin(el.mul(phase, pi2))
-        const lfoTri = el.sub(one, el.mul(two, el.abs(el.sub(el.mul(phase, two), one))))
-        const lfoSaw = el.sub(el.mul(phase, two), one)
-        // Phasor-based pulse: width controls duty cycle. width=0.5 = square.
-        const lfoPulse = el.sub(el.mul(el.le(phase, width), two), one)
-        const shape = el.select(
-          el.le(wf, el.const({ value: 0.5 })), lfoSine,
-          el.select(el.le(wf, el.const({ value: 1.5 })), lfoTri,
-            el.select(el.le(wf, el.const({ value: 2.5 })), lfoSaw,
-              el.select(el.le(wf, el.const({ value: 3.5 })), lfoPulse, lfoPulse),
-            ),
-          ),
-        )
-
+        // Sync mode and waveform are structural: only the chosen shape is built.
+        // Gate sync restarts the cycle on each note-on (the gate's rising edge).
+        const reset = Math.round(p.sync ?? 0) === 1 ? toNode(inlet(m.id, 'gate') ?? SILENCE) : null
+        const shape = lfoShape(Math.round(p.waveform ?? 0), rate, reset, () => kconst(key('pulseWidth'), p.pulseWidth ?? 0.5))
         return el.mul(shape, amount, amountScale)
       }
 
@@ -733,48 +749,34 @@ export function compileModular(
         if (!meta?.hash || !fitsWavetable(meta)) return SILENCE
 
         const gain = kconst(key('gain'), p.gain ?? 1)
-        const octaves = el.add(
-          kconst(key('octave'), p.octave ?? 0),
-          el.div(kconst(key('semi'), p.semi ?? 0), 12),
-          el.div(kconst(key('finetune'), p.finetune ?? 0), 1200),
-        )
-        const ratio = el.exp(el.mul(el.const({ value: Math.LN2 }), octaves))
+        // Tuning is structural, so the ratio is a constant, not a per-sample exp chain.
+        const ratio = 2 ** ((p.octave ?? 0) + (p.semi ?? 0) / 12 + (p.finetune ?? 0) / 1200)
+        const base = freqIn === null ? el.const({ value: 440 * ratio }) : ratio === 1 ? freqIn : el.mul(freqIn, el.const({ value: ratio }))
         // Through-zero FM is fine here: the phasor wraps both ways.
-        const rate = withFm(el.mul(freqIn ?? 440, ratio), m)
+        const rate = withFm(typeof base === 'number' ? el.const({ value: base }) : base, m)
         const sync = inlet(m.id, 'sync')
         const pm = inlet(m.id, 'pm')
-        const ramp = sync === null ? el.phasor(rate) : el.syncphasor(rate, sync)
         const offset = kconst(key('phase'), p.phase ?? 0)
-        const shifted = pm === null ? el.add(ramp, offset) : el.add(ramp, offset, el.mul(pm, kconst(key('pmDepth'), p.pmDepth ?? 1)))
-        const phase = el.sub(shifted, el.floor(shifted))
-
+        const phaseShift = pm === null ? offset : el.add(offset, el.mul(pm, kconst(key('pmDepth'), p.pmDepth ?? 1)))
         const size = cycleLength(meta, p.cycle ?? 0)
         const count = wavetableFrameCount(meta.frames, size)
-        // The table index is normalized over the whole buffer: frame k spans
-        // [k·size, k·size + size − 1] of its frames − 1 steps.
-        const span = Math.max(1, meta.frames - 1)
-        const read = (frame: NodeRepr_t | number, tag: string) => el.mc.table({
-          key: `${keyPrefix}:${m.id}:${tag}:${meta.hash}`,
-          path: meta.hash,
-          channels: meta.channels,
-        }, el.div(el.add(el.mul(frame, size), el.mul(phase, size - 1)), span)) as unknown as NodeRepr_t[]
+        const posIn = inlet(m.id, 'pos')
+        const posRef = kconst(key('position'), p.position ?? 0)
+        const position = () => el.min(1, el.max(0, posIn === null ? posRef : el.add(posRef, posIn)))
 
         let ch: NodeRepr_t[]
-        if (count === 1) {
-          ch = read(0, 'tbl')
+        const mipKeys = Array.from({ length: meta.channels }, (_, c) => wavetableMipKey(meta.hash, size, c))
+        if (mipKeys.every((k) => meta.mipKeys?.has(k))) {
+          // Band-limited tables are in: one native node per channel does the
+          // phase, octave levels and frame morph.
+          ch = mipKeys.map((path) => wtoscTable(path, rate, {
+            phase: phaseShift,
+            ...(sync === null ? {} : { reset: toNode(sync) }),
+            ...(count > 1 ? { position: position() } : {}),
+          }))
         } else {
-          // Position (plus the pos inlet) picks a point between frames; the two
-          // neighbouring frames are crossfaded so sweeps morph smoothly.
-          const posIn = inlet(m.id, 'pos')
-          const posRef = kconst(key('position'), p.position ?? 0)
-          const pos = el.min(1, el.max(0, posIn === null ? posRef : el.add(posRef, posIn)))
-          const at = el.mul(pos, count - 1)
-          const lo = el.floor(at)
-          const hi = el.min(count - 1, el.add(lo, 1))
-          const frac = el.sub(at, lo)
-          const a = read(lo, 'tblA')
-          const b = read(hi, 'tblB')
-          ch = a.map((x, i) => el.add(x, el.mul(el.sub(b[i], x), frac)))
+          // Raw cycles until the tables are built (and for auditioned audio, which has none).
+          ch = rawWaveRead(m.id, meta, size, count, rate, sync, phaseShift, position)
         }
         const outL = el.mul(ch[0], gain)
         if (meta.channels === 2) memo.set(`${m.id}:outR`, el.mul(ch[1], gain))

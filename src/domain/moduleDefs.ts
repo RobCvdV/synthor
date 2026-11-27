@@ -45,13 +45,22 @@ export interface ModuleDef {
   samplePicker?: string
 }
 
-/** Waveform selector values for the oscillator. */
-export const WAVEFORMS = ['saw', 'square', 'triangle', 'sine', 'pulse'] as const
+/** Shapes beyond the basic five, shared by the oscillator and the LFO. Append
+ *  only — songs store the index. Each one is the wavetable shape of that name. */
+const EXTRA_WAVEFORMS = [
+  'pulse 25%', 'pulse 12%', 'half sine', 'abs sine', 'organ', 'trapezoid',
+  'sync saw', 'stairs', 'soft saw', 'hollow', 'shark fin', 'double saw',
+] as const
+/** Waveform selector values for the oscillator. Append only — songs store the
+ *  index. Every name but saw/square/pulse plays from the native band-limited
+ *  wavetable oscillator under the same name (`engine/wavetableShapes.ts`). */
+export const WAVEFORMS = ['saw', 'square', 'triangle', 'sine', 'pulse', ...EXTRA_WAVEFORMS] as const
 /** DX operator waveforms — sine first so old patches (no waveform param → 0) stay sine. */
 export const DX_WAVEFORMS = ['sine', 'saw', 'square', 'triangle', 'pulse'] as const
-/** LFO waveform selector — all shapes, ordered so old sine/triangle patches
- *  keep their index (0=sine, 1=triangle, then the rest). */
-export const LFO_WAVEFORMS = ['sine', 'triangle', 'saw', 'square', 'pulse'] as const
+/** LFO waveform selector — ordered so old sine/triangle patches keep their
+ *  index (0=sine, 1=triangle, then the rest). Pulse is a live-width phasor
+ *  pulse; every other shape is the unfiltered wavetable shape of that name. */
+export const LFO_WAVEFORMS = ['sine', 'triangle', 'saw', 'square', 'pulse', ...EXTRA_WAVEFORMS] as const
 /** Filter mode selector values. */
 export const FILTER_MODES = ['lowpass', 'highpass', 'bandpass'] as const
 /** Mix combine modes. */
@@ -121,9 +130,9 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     inlets: ['freq', 'fm'],
     outlets: ['out'],
     params: [
-      { key: 'waveform', label: 'Wave', min: 0, max: 4, default: 0, step: 1, enumLabels: [...WAVEFORMS] },
-      { key: 'detune', label: 'Detune (st)', min: -24, max: 24, default: 0, step: 1 },
-      { key: 'finetune', label: 'Fine (ct)', min: -100, max: 100, default: 0, step: 1 },
+      { key: 'waveform', label: 'Wave', min: 0, max: WAVEFORMS.length - 1, default: 0, step: 1, enumLabels: [...WAVEFORMS], structural: true },
+      { key: 'detune', label: 'Detune (st)', min: -24, max: 24, default: 0, step: 1, structural: true },
+      { key: 'finetune', label: 'Fine (ct)', min: -100, max: 100, default: 0, step: 1, structural: true },
       { key: 'pulseWidth', label: 'Width', min: 0.05, max: 0.95, default: 0.5, step: 0.01 },
       { key: 'fmDepth', label: 'FM depth', min: 0, max: 8, default: 1, step: 0.01 },
       { key: 'gain', label: 'Level', min: 0, max: 2, default: 1, step: 0.01 },
@@ -136,10 +145,10 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     inlets: ['freq', 'mod'],
     outlets: ['out'],
     params: [
-      { key: 'freqMode', label: 'Freq mode', min: 0, max: 1, default: 0, step: 1, enumLabels: ['ratio', 'fixed'] },
+      { key: 'freqMode', label: 'Freq mode', min: 0, max: 1, default: 0, step: 1, enumLabels: ['ratio', 'fixed'], structural: true },
       { key: 'ratio', label: 'Ratio', min: 0.5, max: 16, default: 1, step: 0.01 },
       { key: 'fixedHz', label: 'Fixed (Hz)', min: 1, max: 1000, default: 440, step: 1 },
-      { key: 'waveform', label: 'Wave', min: 0, max: 4, default: 0, step: 1, enumLabels: [...DX_WAVEFORMS] },
+      { key: 'waveform', label: 'Wave', min: 0, max: 4, default: 0, step: 1, enumLabels: [...DX_WAVEFORMS], structural: true },
       { key: 'pulseWidth', label: 'Width', min: 0.05, max: 0.95, default: 0.5, step: 0.01 },
       { key: 'feedback', label: 'Feedback', min: 0, max: 0.99, default: 0, step: 0.01 },
       { key: 'level', label: 'Level', min: 0, max: 2, default: 1, step: 0.01 },
@@ -230,12 +239,12 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     inlets: ['gate'],
     outlets: ['out'],
     params: [
-      { key: 'waveform', label: 'Wave', min: 0, max: 4, default: 0, step: 1, enumLabels: [...LFO_WAVEFORMS] },
+      { key: 'waveform', label: 'Wave', min: 0, max: LFO_WAVEFORMS.length - 1, default: 0, step: 1, enumLabels: [...LFO_WAVEFORMS], structural: true },
       { key: 'rate', label: 'Rate (Hz)', min: 0.1, max: 50, default: 4, step: 0.1 },
       { key: 'amount', label: 'Amount', min: 0, max: 1, default: 1, step: 0.01, showScale: true },
       { key: 'amountScale', label: '×', min: 1, max: 99, default: 1, step: 1 },
       { key: 'pulseWidth', label: 'Width', min: 0.05, max: 0.95, default: 0.5, step: 0.01 },
-      { key: 'sync', label: 'Sync', min: 0, max: 1, default: 0, step: 1, enumLabels: ['free', 'gate'] },
+      { key: 'sync', label: 'Sync', min: 0, max: 1, default: 0, step: 1, enumLabels: ['free', 'gate'], structural: true },
     ],
   },
   tanh: {
@@ -418,9 +427,9 @@ export const MODULE_DEFS: Record<ModuleType, ModuleDef> = {
     params: [
       { key: 'cycle', label: 'Cycle', min: 0, max: CYCLE_SIZE_CHOICES.length - 1, default: 0, step: 1, enumLabels: [...CYCLE_SIZE_CHOICES], structural: true },
       { key: 'position', label: 'Position', min: 0, max: 1, default: 0, step: 0.001 },
-      { key: 'octave', label: 'Octave', min: -4, max: 4, default: 0, step: 1 },
-      { key: 'semi', label: 'Coarse (st)', min: -24, max: 24, default: 0, step: 1 },
-      { key: 'finetune', label: 'Fine (ct)', min: -100, max: 100, default: 0, step: 1 },
+      { key: 'octave', label: 'Octave', min: -4, max: 4, default: 0, step: 1, structural: true },
+      { key: 'semi', label: 'Coarse (st)', min: -24, max: 24, default: 0, step: 1, structural: true },
+      { key: 'finetune', label: 'Fine (ct)', min: -100, max: 100, default: 0, step: 1, structural: true },
       { key: 'fmDepth', label: 'FM depth', min: 0, max: 8, default: 1, step: 0.01 },
       { key: 'pmDepth', label: 'PM depth', min: 0, max: 4, default: 1, step: 0.01 },
       { key: 'phase', label: 'Phase', min: 0, max: 1, default: 0, step: 0.01 },

@@ -106,12 +106,30 @@ describe('dxop module', () => {
     )
   })
 
-  it('registers live refs for all params', () => {
-    const refs = mockParamRefs()
-    compile(makeDxPatch({}), 440, refs)
-    for (const p of ['freqMode', 'ratio', 'fixedHz', 'waveform', 'pulseWidth', 'feedback', 'level']) {
-      expect(refs.keys.has(`i1:op:${p}`)).toBe(true)
+  it('registers live refs for the continuous params of the built branch only', () => {
+    const live = (params: Record<string, number>) => {
+      const refs = mockParamRefs()
+      compile(makeDxPatch(params), 440, refs)
+      return ['freqMode', 'ratio', 'fixedHz', 'waveform', 'pulseWidth', 'feedback', 'level'].filter((p) => refs.keys.has(`i1:op:${p}`))
     }
+    expect(live({})).toEqual(['ratio', 'feedback', 'level'])
+    expect(live({ freqMode: 1, waveform: 4 })).toEqual(['fixedHz', 'pulseWidth', 'feedback', 'level'])
+  })
+
+  it.each([
+    [0, 'sin'], [1, 'floor'], [2, 'le'], [3, 'abs'], [4, 'le'],
+  ])('builds only the selected waveform (%i)', (waveform, marker) => {
+    const kinds = new Set<string>()
+    walkAll(compile(makeDxPatch({ waveform })).left, (n) => kinds.add(n.kind as string))
+    expect(kinds).toContain(marker)
+    expect(kinds.has('select')).toBe(false)
+    expect(kinds.has('sin')).toBe(waveform === 0)
+  })
+
+  it('wraps phase-modulated shapes so they stay within ±1', async () => {
+    // Deep feedback drives the PM well past one cycle; unwrapped, the saw ramps out of range.
+    const out = await renderBlocks(compile(makeDxPatch({ waveform: 1, feedback: 0.95 })))
+    expect(Math.max(...Array.from(out, Math.abs))).toBeLessThanOrEqual(1.0001)
   })
 
   it('ratio mode scales the voice frequency (ratio 2 → one octave up)', async () => {

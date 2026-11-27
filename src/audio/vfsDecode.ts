@@ -1,6 +1,15 @@
 import type { SampleEntity } from '../domain/types'
 import type { DecodedSize } from '../engine/compile'
 import type { AudioHost } from './host'
+import { WAVETABLE_MAX_FRAMES } from '../domain/moduleDefs'
+
+export interface DecodedSamples {
+  loaded: Set<string>
+  l1Sums: Record<string, number>
+  decodedSizes: Record<string, DecodedSize>
+  /** Decoded channels of the samples short enough to be wavetables, by hash. */
+  pcm: Map<string, Float32Array[]>
+}
 
 /** Shared AudioContext reused for all VFS decoding — avoids hitting browser limits. */
 let _sharedCtx: AudioContext | null = null
@@ -27,8 +36,9 @@ export async function decodeSamplesToVfs(
   host: AudioHost,
   samples: SampleEntity[],
   read: (hash: string) => Promise<ArrayBuffer | null | undefined>,
-): Promise<{ loaded: Set<string>; l1Sums: Record<string, number>; decodedSizes: Record<string, DecodedSize> }> {
+): Promise<DecodedSamples> {
   const vfs: Record<string, Float32Array | Float32Array[]> = {}
+  const pcm = new Map<string, Float32Array[]>()
   const loaded = new Set<string>()
   const l1Sums: Record<string, number> = {}
   const decodedSizes: Record<string, DecodedSize> = {}
@@ -62,6 +72,11 @@ export async function decodeSamplesToVfs(
         }
         vfs[s.hash] = chData
       }
+      // Short enough to be a wavetable: keep a copy to build its band-limited
+      // tables from (the upload hands the arrays over to the audio thread).
+      if (buffer.length <= WAVETABLE_MAX_FRAMES) {
+        pcm.set(s.hash, Array.from({ length: buffer.numberOfChannels }, (_, ch) => new Float32Array(buffer.getChannelData(ch))))
+      }
       loaded.add(s.hash)
     } catch (err) {
       console.error('Failed to decode sample for VFS:', s.name, err)
@@ -72,5 +87,5 @@ export async function decodeSamplesToVfs(
     await host.updateVfs(vfs)
   }
 
-  return { loaded, l1Sums, decodedSizes }
+  return { loaded, l1Sums, decodedSizes, pcm }
 }

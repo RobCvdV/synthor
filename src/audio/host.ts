@@ -502,6 +502,18 @@ export class AudioHost {
     }
   }
 
+  /** Names of the shared resources in the VFS right now (pruning drops some). */
+  async listVfs(): Promise<Set<string>> {
+    if (!this.core) return new Set()
+    try {
+      const names = (await this.core.listVirtualFileSystem()) as unknown
+      return new Set(Array.isArray(names) ? (names as string[]) : Object.keys(names ?? {}))
+    } catch (err) {
+      console.error('Elementary VFS list error:', err)
+      return new Set()
+    }
+  }
+
   /** Drop shared resources no node references (superseded txSeq uploads). */
   async pruneVfs(): Promise<void> {
     if (!this.core) return

@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import OfflineRenderer from '@elemaudio/offline-renderer'
 import { el } from '@elemaudio/core'
 import { compileModular } from './modular'
+import { WAVETABLE_SHAPES } from './wavetableShapes'
+import { WAVEFORMS } from '../domain/moduleDefs'
 import { DEFAULT_EFFECT_SETTINGS, MASTER_CHANNEL_ID, type ModularInstrument } from '../domain/types'
 
 /** note → osc.freq, a fast LFO (×scale) → osc.fm, osc → output. */
@@ -48,5 +50,92 @@ describe('osc FM', () => {
     expect(out.every(Number.isFinite)).toBe(true)
     expect(Math.max(...Array.from(out, Math.abs))).toBeLessThan(2.5)
     expect(Math.max(...Array.from(out, Math.abs))).toBeGreaterThan(0.3)
+  })
+})
+
+/** note → osc → output, no FM. */
+function plainPatch(params: Record<string, number>): ModularInstrument {
+  const inst = fmPatch(0, 0)
+  const { lfo: _lfo, ...modules } = inst.modules
+  const { c2: _c2, ...connections } = inst.connections
+  return { ...inst, modules: { ...modules, osc: { ...modules.osc, params } }, connections }
+}
+
+/** Visit every node in a repr tree (children are arrays or hd/tl cons lists). */
+function walk(n: unknown, visit: (node: Record<string, unknown>) => void): void {
+  if (!n || typeof n !== 'object') return
+  const node = n as Record<string, unknown>
+  if (node.symbol === '__ELEM_NODE__') visit(node)
+  const children = node.children
+  if (Array.isArray(children)) for (const c of children) walk(c, visit)
+  else if (children && children !== 0) {
+    walk((children as Record<string, unknown>).hd, visit)
+    walk((children as Record<string, unknown>).tl, visit)
+  } else {
+    walk(node.hd, visit)
+    walk(node.tl, visit)
+  }
+}
+
+function kinds(n: unknown): string[] {
+  const out: string[] = []
+  walk(n, (node) => out.push(node.kind as string))
+  return out
+}
+
+function zeroCrossingHz(samples: Float32Array, sampleRate = 44100, skip = 2000): number {
+  let ups = 0
+  for (let i = skip + 1; i < samples.length; i++) if (samples[i - 1] < 0 && samples[i] >= 0) ups++
+  return ups / ((samples.length - skip - 1) / sampleRate)
+}
+
+describe('osc graph', () => {
+  const generators = ['blepsaw', 'blepsquare', 'bleptriangle', 'sin', 'phasor', 'wtosc']
+  it.each([
+    [0, ['blepsaw']],
+    [1, ['blepsquare']],
+    [2, ['wtosc']],
+    [3, ['wtosc']],
+    [4, ['phasor']],
+  ])('builds only the selected waveform (%i)', (waveform, expected) => {
+    const { left } = compileModular(plainPatch({ waveform }), el.const({ value: 220 }), el.const({ value: 1 }), 'voice')
+    const used = kinds(left).filter((k) => generators.includes(k))
+    expect([...new Set(used)].sort()).toEqual([...expected].sort())
+    expect(kinds(left)).not.toContain('select')
+  })
+
+  it('dc-blocks only pulse', () => {
+    // dcblock = pole(0.995, zero(...)): look for the pole.
+    const poles = (waveform: number) => kinds(compileModular(plainPatch({ waveform }), el.const({ value: 220 }), el.const({ value: 1 }), 'v').left).includes('pole')
+    expect([0, 1, 2, 3, 4, 9].map(poles)).toEqual([false, false, false, false, true, false])
+  })
+
+  it('compiles detune and finetune into the pitch', async () => {
+    const hz = zeroCrossingHz(await render(plainPatch({ waveform: 3, detune: 12, finetune: -100 })))
+    // 220 Hz, +12 st −100 ct = 440 · 2^(−1/12) ≈ 415 Hz.
+    expect(hz).toBeGreaterThan(408)
+    expect(hz).toBeLessThan(422)
+  })
+
+  it('plays every non-blep waveform from the wavetable shape of the same name', () => {
+    WAVEFORMS.forEach((name, waveform) => {
+      const nodes: Array<Record<string, unknown>> = []
+      walk(compileModular(plainPatch({ waveform }), el.const({ value: 220 }), el.const({ value: 1 }), 'v').left, (n) => nodes.push(n))
+      const wt = nodes.find((n) => n.kind === 'wtosc')
+      if (['saw', 'square', 'pulse'].includes(name)) expect(wt).toBeUndefined()
+      else expect((wt?.props as { shape: number }).shape).toBe(WAVETABLE_SHAPES.indexOf(name as never))
+    })
+  })
+
+  it('lets wavetable shapes run through zero but clamps the forward-only bleps', () => {
+    const hasMax = (waveform: number) => kinds(compileModular(plainPatch({ waveform }), el.const({ value: 220 }), el.const({ value: 1 }), 'v').left).includes('max')
+    expect([0, 1, 2, 3, 4].map(hasMax)).toEqual([true, true, false, false, true])
+  })
+
+  it.each(WAVEFORMS.map((_, i) => i))('waveform %i sounds at full scale', async (waveform) => {
+    const out = await render(plainPatch({ waveform }))
+    const peak = Math.max(...Array.from(out.subarray(4000), Math.abs))
+    expect(peak).toBeGreaterThan(0.7)
+    expect(peak).toBeLessThan(1.3)
   })
 })

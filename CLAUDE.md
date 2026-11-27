@@ -20,7 +20,7 @@ Product intent and planned work live in `docs/` (`VISION`, `FEATURES`, `ROADMAP`
 | Engine | `src/engine/` | Pure `compileGraph(doc, ctx) → Elementary nodes` — no React/AudioContext imports |
 | Audio | `src/audio/` | `AudioHost` (AudioContext + WebRenderer), `paramRefs`, `KeyboardPlayer` |
 | Player | `src/player/` | `playbackData` (track→slot mapping), `txSeqData` (packing for the native node), `cues` (hand-overs), `game/` (pure game-music logic: plans, energy, DJ) |
-| Native | `src/native/` | `TxSeq` sequencer + node registration, compiled into the Elementary wasm |
+| Native | `src/native/` | `TxSeq` sequencer, `WtOsc` wavetable oscillator + node registration, compiled into the Elementary wasm |
 | UI | `src/ui/` | Views, tracker grid, keymap, `useEngine` (store→host wiring) |
 | Persist | `src/persist/` | OPFS autosave/serialize, sample storage, export |
 | MIDI | `src/midi/` | `useMidi` Web MIDI |
@@ -33,6 +33,7 @@ Chains are ordered; each hop is verified. Skipping the tail is how features half
 | Feature request sounds like… | Touch, in order |
 |---|---|
 | New module type (osc / filter / fx node in the modular editor) | `domain/types.ts` `ModuleType` → `domain/moduleDefs.ts` `MODULE_DEFS` entry (`group` is what puts it in the Add palette) → `engine/modular.ts` `render` case → `persist/serialize.ts` version bump. `ModularEditor` renders from `MODULE_DEFS` — only touch it for a control that isn't a slider |
+| New oscillator waveform | a shape in `src/native/WtOsc.h` (`WtShape` + `shapeAt`, appended) → the same name appended to `engine/wavetableShapes.ts` `WAVETABLE_SHAPES` and `domain/moduleDefs.ts` `WAVEFORMS` (both append-only: songs store the index) → rebuild the wasm. `osc.test.ts` checks the names line up |
 | New param on an existing module | `domain/moduleDefs.ts` `params` (the slider is automatic) → read it in that module's `engine/modular.ts` case via `kconst` (live ref). A param the graph is compiled from (a `Math.round(p.x)` branch, a node count) must be `structural: true`, or changing it does nothing until the next unrelated recompile |
 | New effect lane (tracker column) | `domain/effects.ts` (`BUILTIN_LANE_TYPES` + `LANE_DEFS`) → `engine/voiceSlotLayout.ts` channel counts → `player/playbackData.ts` (fill the channel + its neutral default) → `src/native/TxSeq.h`, only if it needs sub-row behaviour → `engine/compile.ts` (txSeq outlet read + apply) → `ui/tracker/TrackerGrid.tsx` column |
 | New persisted UI preference | `state/appStore.ts`: state + action + **`partialize`** — a key missing from `partialize` silently doesn't persist |
@@ -62,7 +63,7 @@ Chains are ordered; each hop is verified. Skipping the tail is how features half
 
 ## Rules that prevent recurring mistakes
 
-- **The sequencer is C++ — `src/native/TxSeq.h`, registered in `src/native/Main.cpp`.** Changing it changes nothing until `scripts/build-elementary-wasm.sh` rebuilds the wasm and refreshes the renderer dists in **`vendor/elementary-js/`** (the source of truth; `package.json` depends on them via `file:`, so CI and fresh installs get the custom wasm without emsdk). The upstream fork lives in `vendor/elementary` (pinned at the web/offline v4.0.3 commit). After a rebuild: restart the dev server and clear `node_modules/.vite` if the browser still runs stale code.
+- **The sequencer and the wavetable oscillator are C++ — `src/native/TxSeq.h` / `WtOsc.h`, registered in `src/native/Main.cpp`.** Changing them changes nothing until `scripts/build-elementary-wasm.sh` rebuilds the wasm and refreshes the renderer dists in **`vendor/elementary-js/`** (the source of truth; `package.json` depends on them via `file:`, so CI and fresh installs get the custom wasm without emsdk). The upstream fork lives in `vendor/elementary` (pinned at the web/offline v4.0.3 commit). After a rebuild: restart the dev server and clear `node_modules/.vite` if the browser still runs stale code.
 - **txSeq channel contract moves in lockstep:** `engine/voiceSlotLayout.ts` (`MAX_SLOT_SIGNALS`, signal indexes, layout order), `player/txSeqData.ts` (packing), `src/native/TxSeq.h` (header layout, staccato indexes 10 / 2N+8), and `engine/compile.ts` (slot outlet = `slotGlobalIndex * MAX_SLOT_SIGNALS + signal` via `unpack`). Adding a lane means updating every one of them.
 - **The txSeq ref is created once per host** (`useEngine` onReady, keyed `txseq`) — its identity and row clock survive recompiles. Live updates go through the ref setter (diffed props, no root activation); never `core.render` the txseq node alone (that would replace the roots).
 - **Staccato is block-quantized and handled inside the node** — the graph never consumes the staccato channel.
@@ -81,6 +82,7 @@ Chains are ordered; each hop is verified. Skipping the tail is how features half
 - **The music clock is fitted, not polled:** `player/songClock.ts` estimates row boundaries from the times rows *change* in txseq events (they arrive late and whole), and `SongPlayer.position()` reads it at `AudioHost.outputTime` (what is heard). Don't interpolate from the last event alone — that is up to a row off.
 - **Cue hand-overs never restart the node:** `planTransition` stages bridge → settle → target `update`s, driven by row events through `stepTransition` (the node keeps its row across updates and reads data modulo its length). A restart (`play`) resets the row clock and is only for `'now'` cues.
 - **Elementary VFS keys are content hashes**; changing a conv/wave/sample module's `sampleId` is a structural change (forces recompile + VFS path change).
+- **Wave modules play band-limited tables once they exist:** `engine/wavetableMips` builds them per (sample, cycle size, channel) from the decoded audio, `audio/wavetableVfs` keeps them in the VFS (reconciling with `listVfs`, since prunes drop them) and bumps a revision that `useEngine`'s structural key includes. Until then — and for auditioned audio — the module reads the raw cycle. The table layout is a contract with `WtOsc.h` `viewOf`.
 
 ## Electron build (feature/electron-build)
 

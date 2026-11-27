@@ -28,6 +28,28 @@ describe('ParamControl', () => {
     expect(onChange).not.toHaveBeenCalled()
   })
 
+  it('defers a slider change to its release, showing the dragged value meanwhile', () => {
+    const onChange = vi.fn()
+    const { container } = render(<ParamControl param={level} value={0.5} deferred onChange={onChange} />)
+    const slider = container.querySelector('input[type="range"]')!
+    fireEvent.change(slider, { target: { value: '1.2' } })
+    fireEvent.change(slider, { target: { value: '1.4' } })
+    expect(onChange).not.toHaveBeenCalled()
+    expect(screen.getByText('1.4')).toBeTruthy()
+    fireEvent.pointerUp(slider)
+    expect(onChange).toHaveBeenCalledTimes(1)
+    expect(onChange).toHaveBeenCalledWith(1.4)
+  })
+
+  it('commits a deferred arrow-key step on key release', () => {
+    const onChange = vi.fn()
+    const { container } = render(<ParamControl param={level} value={0.5} deferred onChange={onChange} />)
+    const slider = container.querySelector('input[type="range"]')!
+    fireEvent.change(slider, { target: { value: '0.51' } })
+    fireEvent.keyUp(slider, { key: 'ArrowRight' })
+    expect(onChange).toHaveBeenCalledWith(0.51)
+  })
+
   it('uses choices over the param labels, with a placeholder when empty', () => {
     render(<ParamControl param={{ ...level, key: 'sampleIndex' }} value={0} choices={[]} onChange={() => {}} />)
     expect(screen.getByRole('combobox').textContent).toBe('(none)')
