@@ -1,6 +1,7 @@
 #pragma once
 
 #include <elem/GraphNode.h>
+#include <elem/SingleWriterSingleReaderQueue.h>
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -13,15 +14,24 @@
 namespace elem
 {
 
-    // wtosc: band-limited wavetable oscillator for the built-in shapes.
+    // wtosc: band-limited wavetable oscillator — built-in shapes, or uploaded
+    // tables (the wave module's sample cycles).
     //
     // Inputs: [0] frequency in Hz (negative runs backwards: through-zero FM),
     //         [1] optional phase offset in cycles (phase modulation / offset),
     //         [2] optional reset: a rising edge (a jump up by more than 0.5,
-    //             as el.syncphasor) restarts the cycle at phase 0.
+    //             as el.syncphasor) restarts the cycle at phase 0,
+    //         [3] optional position 0..1 across an uploaded table's frames
+    //             (neighbouring frames are crossfaded).
     // Props:  shape (int, see WtShape — the order is the contract with
     //         src/engine/wavetableShapes.ts); bandlimit (bool, default true —
-    //         false plays the exact shape, for LFOs).
+    //         false plays the exact shape, for LFOs); or path (a shared
+    //         resource of uploaded tables, one per audio channel).
+    //
+    // Uploaded tables (src/engine/wavetableMips.ts builds them) are one float
+    // array: [1 (version), frames, NUM_LEVELS, size per level…],
+    // then per frame, per level, `size` samples plus a guard sample (= the
+    // first). Level L holds the frame's first 512 >> L harmonics.
     //
     // Each shape is defined once in the time domain, analysed into its first
     // MAX_HARMONICS harmonics and resynthesized into one table per octave
@@ -171,11 +181,73 @@ namespace elem
             banks[shape].store(built, std::memory_order_release);
             return built;
         }
+            /** Where a node reads its tables: one flat float array of frames × levels,
+         *  each level its own size with a guard sample (see the header layout of
+         *  uploaded tables above). Built-in banks are one frame of equal levels. */
+        struct TableView {
+            float const* data = nullptr;
+            int frames = 0;
+            int frameStride = 0;
+            int rawLevel = -1; // the unfiltered level, built-in shapes only
+            std::array<int, NUM_LEVELS + 1> sizes {};
+            std::array<int, NUM_LEVELS + 1> offsets {};
+        };
+
+        inline TableView viewOf(Bank const& bank)
+        {
+            TableView v;
+            v.data = bank[0].data();
+            v.frames = 1;
+            v.frameStride = (NUM_LEVELS + 1) * (TABLE_SIZE + 1);
+            v.rawLevel = RAW_LEVEL;
+            for (int l = 0; l <= NUM_LEVELS; ++l) {
+                v.sizes[l] = TABLE_SIZE;
+                v.offsets[l] = l * (TABLE_SIZE + 1);
+            }
+            return v;
+        }
+
+        /** Parses an uploaded table set; frames = 0 when the header doesn't fit. */
+        inline TableView viewOf(float const* data, size_t length)
+        {
+            TableView v;
+            if (length < 3 || data[0] != 1.0f) return v;
+            int const frames = int(data[1]);
+            int const levels = int(data[2]);
+            if (frames < 1 || levels != NUM_LEVELS || length < size_t(3 + levels)) return v;
+            int offset = 0;
+            for (int l = 0; l < levels; ++l) {
+                v.sizes[l] = int(data[3 + l]);
+                if (v.sizes[l] < 2) return v;
+                v.offsets[l] = offset;
+                offset += v.sizes[l] + 1;
+            }
+            if (length < size_t(3 + levels) + size_t(offset) * size_t(frames)) return v;
+            v.data = data + 3 + levels;
+            v.frameStride = offset;
+            v.frames = frames;
+            return v;
+        }
+
+        inline float readLevel(TableView const& v, int frame, int level, double t)
+        {
+            int const n = v.sizes[level];
+            float const* table = v.data + size_t(frame) * size_t(v.frameStride) + size_t(v.offsets[level]);
+            double const pos = t * n;
+            int const idx = std::min(int(pos), n - 1);
+            float const f = float(pos - idx);
+            return table[idx] + (table[idx + 1] - table[idx]) * f;
+        }
     }
 
     template <typename FloatType>
     struct WtOscNode : public GraphNode<FloatType> {
         using GraphNode<FloatType>::GraphNode;
+
+        struct Source {
+            SharedResourcePtr resource; // keeps uploaded tables alive; null for built-ins
+            wt::TableView view;
+        };
 
         int setProperty(std::string const& key, js::Value const& val) override
         {
@@ -184,7 +256,8 @@ namespace elem
                 // Built here, off the audio callback where the runtime allows it.
                 // An unknown shape (a newer song in an older app) plays silence
                 // rather than failing the whole render.
-                bank.store(wt::bankFor(static_cast<int>((js::Number) val)), std::memory_order_release);
+                auto const* bank = wt::bankFor(static_cast<int>((js::Number) val));
+                sourceQueue.push(Source { nullptr, bank ? wt::viewOf(*bank) : wt::TableView {} });
             }
             if (key == "bandlimit") {
                 if (!val.isBool()) return ReturnCode::InvalidPropertyType();
@@ -193,22 +266,45 @@ namespace elem
             return GraphNode<FloatType>::setProperty(key, val);
         }
 
+        int setProperty(std::string const& key, js::Value const& val, SharedResourceMap& resources) override
+        {
+            if (key == "path") {
+                if (!val.isString()) return ReturnCode::InvalidPropertyType();
+                // A missing resource (pruned before this render) plays silence
+                // instead of failing the render; the host uploads it again.
+                auto resource = resources.get((js::String) val);
+                if (!resource) {
+                    sourceQueue.push(Source {});
+                } else {
+                    auto const data = resource->getChannelData(0);
+                    sourceQueue.push(Source { resource, wt::viewOf(data.data(), data.size()) });
+                }
+            }
+            return setProperty(key, val);
+        }
+
         void process (BlockContext<FloatType> const& ctx) override {
             auto** inputData = ctx.inputData;
             auto* out = ctx.outputData[0];
             auto const numSamples = ctx.numSamples;
-            auto const* b = bank.load(std::memory_order_acquire);
 
-            if (ctx.numInputChannels < 1 || b == nullptr)
+            while (sourceQueue.size() > 0) {
+                sourceQueue.pop(source);
+                lastInc = -1e9; // re-pick levels for the new tables
+            }
+            auto const& v = source.view;
+
+            if (ctx.numInputChannels < 1 || v.frames < 1)
                 return (void) std::fill_n(out, numSamples, FloatType(0));
 
             double const sr = GraphNode<FloatType>::getSampleRate();
             FloatType const* pm = ctx.numInputChannels > 1 ? inputData[1] : nullptr;
             FloatType const* reset = ctx.numInputChannels > 2 ? inputData[2] : nullptr;
+            FloatType const* position = ctx.numInputChannels > 3 && v.frames > 1 ? inputData[3] : nullptr;
 
-            auto const& tables = *b;
-            bool const unfiltered = raw.load(std::memory_order_relaxed);
-            if (unfiltered) { level = nextLevel = wt::RAW_LEVEL; mix = 0; lastInc = -1e9; }
+            bool const unfiltered = raw.load(std::memory_order_relaxed) && v.rawLevel >= 0;
+            if (unfiltered) { level = nextLevel = v.rawLevel; mix = 0; lastInc = -1e9; }
+
             for (size_t i = 0; i < numSamples; ++i) {
                 double const inc = double(inputData[0][i]) / sr;
                 if (!unfiltered && inc != lastInc) pickLevels(inc);
@@ -219,15 +315,21 @@ namespace elem
                 }
 
                 double const t = pm == nullptr ? phase : wt::frac(phase + double(pm[i]));
-                double const pos = t * wt::TABLE_SIZE;
-                int const idx = std::min(int(pos), wt::TABLE_SIZE - 1);
-                float const f = float(pos - idx);
-                float const* lo = tables[level].data() + idx;
-                float y = lo[0] + (lo[1] - lo[0]) * f;
-                if (mix > 0.0f) {
-                    float const* hi = tables[nextLevel].data() + idx;
-                    float const z = hi[0] + (hi[1] - hi[0]) * f;
-                    y += (z - y) * mix;
+                int frameA = 0, frameB = 0;
+                float morph = 0;
+                if (position != nullptr) {
+                    double const at = std::clamp(double(position[i]), 0.0, 1.0) * (v.frames - 1);
+                    frameA = std::min(int(at), v.frames - 1);
+                    frameB = std::min(frameA + 1, v.frames - 1);
+                    morph = float(at - frameA);
+                }
+
+                float y = wt::readLevel(v, frameA, level, t);
+                if (mix > 0.0f) y += (wt::readLevel(v, frameA, nextLevel, t) - y) * mix;
+                if (morph > 0.0f) {
+                    float z = wt::readLevel(v, frameB, level, t);
+                    if (mix > 0.0f) z += (wt::readLevel(v, frameB, nextLevel, t) - z) * mix;
+                    y += (z - y) * morph;
                 }
                 out[i] = FloatType(y);
 
@@ -254,7 +356,8 @@ namespace elem
             mix = float(x - level);
         }
 
-        std::atomic<wt::Bank const*> bank { nullptr };
+        SingleWriterSingleReaderQueue<Source> sourceQueue;
+        Source source;
         std::atomic<bool> raw { false };
         double phase = 0;
         double lastInc = -1e9;

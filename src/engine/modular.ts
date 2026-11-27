@@ -4,12 +4,14 @@ import type { Connection, Id, Module, ModularInstrument } from '../domain/types'
 import { midiToFreq } from '../domain/notes'
 import { cycleLength, fitsWavetable, wavetableFrameCount } from '../domain/sampleChoices'
 import { makeFdnReverb } from './reverbFdn'
-import { WAVETABLE_SHAPES, wtosc, type WavetableShape } from './wavetableShapes'
+import { WAVETABLE_SHAPES, wtosc, wtoscTable, type WavetableShape } from './wavetableShapes'
+import { wavetableMipKey } from './wavetableMips'
 import { LFO_WAVEFORMS, WAVEFORMS } from '../domain/moduleDefs'
 import type { SampleMeta } from './instruments'
 
 type Node = NodeRepr_t | number
 const SILENCE = 0
+const toNode = (n: Node): NodeRepr_t => (typeof n === 'number' ? el.const({ value: n }) : n)
 
 export interface StereoOut {
   left: NodeRepr_t
@@ -232,6 +234,34 @@ export function compileModular(
     return wtosc(shape, rate, { bandlimit: false, ...(reset === null ? {} : { reset }) })
   }
 
+  /** The wave module's raw cycle read: table lookups into the sample itself. */
+  function rawWaveRead(
+    id: Id, meta: SampleMeta, size: number, count: number, rate: NodeRepr_t,
+    sync: Node | null, phaseShift: NodeRepr_t, position: () => NodeRepr_t,
+  ): NodeRepr_t[] {
+    const ramp = sync === null ? el.phasor(rate) : el.syncphasor(rate, sync)
+    const shifted = el.add(ramp, phaseShift)
+    const phase = el.sub(shifted, el.floor(shifted))
+    // The table index is normalized over the whole buffer: frame k spans
+    // [k·size, k·size + size − 1] of its frames − 1 steps.
+    const span = Math.max(1, meta.frames - 1)
+    const read = (frame: NodeRepr_t | number, tag: string) => el.mc.table({
+      key: `${keyPrefix}:${id}:${tag}:${meta.hash}`,
+      path: meta.hash,
+      channels: meta.channels,
+    }, el.div(el.add(el.mul(frame, size), el.mul(phase, size - 1)), span)) as unknown as NodeRepr_t[]
+    if (count === 1) return read(0, 'tbl')
+    // Position (plus the pos inlet) picks a point between frames; the two
+    // neighbouring frames are crossfaded so sweeps morph smoothly.
+    const at = el.mul(position(), count - 1)
+    const lo = el.floor(at)
+    const hi = el.min(count - 1, el.add(lo, 1))
+    const frac = el.sub(at, lo)
+    const a = read(lo, 'tblA')
+    const b = read(hi, 'tblB')
+    return a.map((x, i) => el.add(x, el.mul(el.sub(b[i], x), frac)))
+  }
+
   function render(m: Module): Node {
     const p = m.params
     const key = (name: string) => `${m.id}:${name}`
@@ -404,8 +434,7 @@ export function compileModular(
         const amountScale = kconst(key('amountScale'), p.amountScale ?? 1)
         // Sync mode and waveform are structural: only the chosen shape is built.
         // Gate sync restarts the cycle on each note-on (the gate's rising edge).
-        const gateIn = inlet(m.id, 'gate')
-        const reset = Math.round(p.sync ?? 0) === 1 ? (typeof gateIn === 'object' && gateIn !== null ? gateIn : el.const({ value: 0 })) : null
+        const reset = Math.round(p.sync ?? 0) === 1 ? toNode(inlet(m.id, 'gate') ?? SILENCE) : null
         const shape = lfoShape(Math.round(p.waveform ?? 0), rate, reset, () => kconst(key('pulseWidth'), p.pulseWidth ?? 0.5))
         return el.mul(shape, amount, amountScale)
       }
@@ -727,38 +756,27 @@ export function compileModular(
         const rate = withFm(typeof base === 'number' ? el.const({ value: base }) : base, m)
         const sync = inlet(m.id, 'sync')
         const pm = inlet(m.id, 'pm')
-        const ramp = sync === null ? el.phasor(rate) : el.syncphasor(rate, sync)
         const offset = kconst(key('phase'), p.phase ?? 0)
-        const shifted = pm === null ? el.add(ramp, offset) : el.add(ramp, offset, el.mul(pm, kconst(key('pmDepth'), p.pmDepth ?? 1)))
-        const phase = el.sub(shifted, el.floor(shifted))
-
+        const phaseShift = pm === null ? offset : el.add(offset, el.mul(pm, kconst(key('pmDepth'), p.pmDepth ?? 1)))
         const size = cycleLength(meta, p.cycle ?? 0)
         const count = wavetableFrameCount(meta.frames, size)
-        // The table index is normalized over the whole buffer: frame k spans
-        // [k·size, k·size + size − 1] of its frames − 1 steps.
-        const span = Math.max(1, meta.frames - 1)
-        const read = (frame: NodeRepr_t | number, tag: string) => el.mc.table({
-          key: `${keyPrefix}:${m.id}:${tag}:${meta.hash}`,
-          path: meta.hash,
-          channels: meta.channels,
-        }, el.div(el.add(el.mul(frame, size), el.mul(phase, size - 1)), span)) as unknown as NodeRepr_t[]
+        const posIn = inlet(m.id, 'pos')
+        const posRef = kconst(key('position'), p.position ?? 0)
+        const position = () => el.min(1, el.max(0, posIn === null ? posRef : el.add(posRef, posIn)))
 
         let ch: NodeRepr_t[]
-        if (count === 1) {
-          ch = read(0, 'tbl')
+        const mipKeys = Array.from({ length: meta.channels }, (_, c) => wavetableMipKey(meta.hash, size, c))
+        if (mipKeys.every((k) => meta.mipKeys?.has(k))) {
+          // Band-limited tables are in: one native node per channel does the
+          // phase, octave levels and frame morph.
+          ch = mipKeys.map((path) => wtoscTable(path, rate, {
+            phase: phaseShift,
+            ...(sync === null ? {} : { reset: toNode(sync) }),
+            ...(count > 1 ? { position: position() } : {}),
+          }))
         } else {
-          // Position (plus the pos inlet) picks a point between frames; the two
-          // neighbouring frames are crossfaded so sweeps morph smoothly.
-          const posIn = inlet(m.id, 'pos')
-          const posRef = kconst(key('position'), p.position ?? 0)
-          const pos = el.min(1, el.max(0, posIn === null ? posRef : el.add(posRef, posIn)))
-          const at = el.mul(pos, count - 1)
-          const lo = el.floor(at)
-          const hi = el.min(count - 1, el.add(lo, 1))
-          const frac = el.sub(at, lo)
-          const a = read(lo, 'tblA')
-          const b = read(hi, 'tblB')
-          ch = a.map((x, i) => el.add(x, el.mul(el.sub(b[i], x), frac)))
+          // Raw cycles until the tables are built (and for auditioned audio, which has none).
+          ch = rawWaveRead(m.id, meta, size, count, rate, sync, phaseShift, position)
         }
         const outL = el.mul(ch[0], gain)
         if (meta.channels === 2) memo.set(`${m.id}:outR`, el.mul(ch[1], gain))

@@ -3,6 +3,7 @@ import OfflineRenderer from '@elemaudio/offline-renderer'
 import { el } from '@elemaudio/core'
 import { compileModular } from './modular'
 import type { SampleMeta } from './instruments'
+import { buildWavetableMips, wavetableMipKey } from './wavetableMips'
 import { DEFAULT_EFFECT_SETTINGS, MASTER_CHANNEL_ID, type ModularInstrument } from '../domain/types'
 
 /** A 0.25 s single cycle, declared as such. */
@@ -290,5 +291,95 @@ describe('wave module wavetables', () => {
       .filter((n) => ['table', 'mc.table'].includes(n.kind)).reduce((keys, n) => keys.add(n.props.key), new Set()).size
     expect(tables(META_TABLE)).toBe(2)
     expect(tables(META_SHORT)).toBe(1)
+  })
+})
+
+describe('wave module band-limited tables', () => {
+  const SR = 44100
+  const withMips = (meta: SampleMeta, size: number): SampleMeta => ({
+    ...meta,
+    mipKeys: new Set(Array.from({ length: meta.channels }, (_, c) => wavetableMipKey(meta.hash, size, c))),
+  })
+
+  async function renderWith(inst: ModularInstrument, freqHz: number, meta: SampleMeta, vfs: Record<string, Float32Array>, blocks = 24): Promise<Float32Array> {
+    const { left, right } = compile(inst, freqHz, [meta])
+    const r = new OfflineRenderer()
+    await r.initialize({ numInputChannels: 0, numOutputChannels: 2, blockSize: 512, sampleRate: SR, virtualFileSystem: vfs })
+    await r.render(left, right)
+    const all = new Float32Array(blocks * 512)
+    const L = new Float32Array(512)
+    const R = new Float32Array(512)
+    for (let b = 0; b < blocks; b++) {
+      r.process([], [L, R])
+      all.set(L, b * 512)
+    }
+    return all.subarray(2048)
+  }
+
+  /** Hann-windowed single-bin magnitude at `hz`. */
+  function magnitude(x: Float32Array, hz: number): number {
+    let re = 0, im = 0
+    for (let i = 0; i < x.length; i++) {
+      const w = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (x.length - 1))
+      re += x[i] * w * Math.cos((2 * Math.PI * hz * i) / SR)
+      im -= x[i] * w * Math.sin((2 * Math.PI * hz * i) / SR)
+    }
+    return Math.hypot(re, im) / (x.length / 4)
+  }
+
+  const saw = Float32Array.from({ length: 2048 }, (_, i) => (2 * i) / 2048 - 1)
+  const META_SAW: SampleMeta = { hash: 'sawhash', channels: 1, sampleRate: SR, frames: 2048, cycleLength: 2048 }
+
+  it('plays through one wtosc per channel once the tables are in', () => {
+    const stereo: SampleMeta = { ...META_SAW, channels: 2 }
+    const inst = makeWavePatch({}, {
+      connections: { c5: { id: 'c5', from: { moduleId: 'wv', port: 'outR' }, to: { moduleId: 'out', port: 'inR' }, gain: 1 } },
+    })
+    const { left, right } = compile(inst, 440, [withMips(stereo, 2048)])
+    const nodes = [...collect(left), ...collect(right)]
+    expect(nodes.filter((n) => n.kind === 'wtosc').map((n) => n.props.path).sort()).toEqual(['sawhash:wt:2048:c0', 'sawhash:wt:2048:c1'])
+    expect(nodes.some((n) => ['table', 'mc.table'].includes(n.kind))).toBe(false)
+  })
+
+  it('reads the raw cycle until the tables are in', () => {
+    const nodes = collect(compile(makeWavePatch({}), 440, [{ ...META_SAW, mipKeys: new Set(['other']) }]).left)
+    expect(nodes.some((n) => n.kind === 'wtosc')).toBe(false)
+    expect(nodes.some((n) => n.kind === 'mc.table')).toBe(true)
+  })
+
+  it('keeps a high note free of the aliases the raw cycle folds back', async () => {
+    const f = 3100
+    const folded = [8, 9, 10, 11].map((n) => SR - n * f)
+    const raw = await renderWith(makeWavePatch({}), f, META_SAW, { sawhash: saw })
+    const banded = await renderWith(makeWavePatch({}), f, withMips(META_SAW, 2048), { 'sawhash:wt:2048:c0': buildWavetableMips(saw, 2048) })
+    expect(magnitude(banded, f)).toBeCloseTo(magnitude(raw, f), 1)
+    for (const hz of folded) {
+      expect(magnitude(raw, hz)).toBeGreaterThan(0.02)
+      expect(magnitude(banded, hz)).toBeLessThan(0.005)
+    }
+  })
+
+  it('morphs across frames by position', async () => {
+    // Two 256-frame frames: +0.5 then −0.5 (DC survives the tables).
+    const table = Float32Array.from({ length: 512 }, (_, i) => (i < 256 ? 0.5 : -0.5))
+    const meta = withMips({ hash: 'tablehash', channels: 1, sampleRate: SR, frames: 512, cycleLength: 256 }, 256)
+    const vfs = { 'tablehash:wt:256:c0': buildWavetableMips(table, 256) }
+    const mean = async (position: number) => {
+      const out = await renderWith(makeWavePatch({ position }), 441, meta, vfs, 10)
+      return out.reduce((a, b) => a + b, 0) / out.length
+    }
+    expect(await mean(0)).toBeCloseTo(0.5, 2)
+    expect(await mean(1)).toBeCloseTo(-0.5, 2)
+    expect(await mean(0.5)).toBeCloseTo(0, 2)
+  })
+
+  it('feeds sync to the reset input', () => {
+    const inst = makeWavePatch({}, {
+      connections: { c4: { id: 'c4', from: { moduleId: 'note', port: 'freq' }, to: { moduleId: 'wv', port: 'sync' }, gain: 1 } },
+    })
+    const wt = collect(compile(inst, 440, [withMips(META_SAW, 2048)]).left).find((n) => n.kind === 'wtosc')!
+    let inputs = 0
+    for (let list: unknown = wt.children; list && list !== 0; list = (list as { tl: unknown }).tl) inputs++
+    expect(inputs).toBe(3)
   })
 })

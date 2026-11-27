@@ -1,7 +1,9 @@
 import { el } from '@elemaudio/core'
 import { AudioHost, OUTPUT_WARMUP_MS } from '../audio/host'
 import { decodeSamplesToVfs } from '../audio/vfsDecode'
-import { compileGraph, getInstGain } from '../engine/compile'
+import { createWavetableVfs } from '../audio/wavetableVfs'
+import { wavetableMipRequests } from '../engine/wavetableMips'
+import { buildSampleMeta, compileGraph, getInstGain } from '../engine/compile'
 import { buildPlaybackData, type PlaybackData } from '../player/playbackData'
 import { buildTxSeqData } from '../player/txSeqData'
 import {
@@ -487,11 +489,16 @@ export class SongPlayer {
 
   private async compile(doc: Doc): Promise<void> {
     const host = this.host
-    const { loaded, l1Sums, decodedSizes } = await decodeSamplesToVfs(
+    const { loaded, l1Sums, decodedSizes, pcm } = await decodeSamplesToVfs(
       host,
       Object.values(doc.entities.samples),
       async (hash) => this.samples.get(hash) ?? null,
     )
+    if (doc !== this.doc) return
+    // Band-limited tables for the wave modules, before the one compile.
+    const mips = createWavetableVfs(host, () => {})
+    mips.setPcm(pcm)
+    await mips.ensure(wavetableMipRequests(doc, buildSampleMeta(doc.entities.samples, loaded, undefined, decodedSizes)))
     if (doc !== this.doc) return
 
     host.paramRefs.clear()
@@ -503,6 +510,7 @@ export class SongPlayer {
       vfsLoadedHashes: loaded,
       l1Sums,
       decodedSizes,
+      wavetableMips: mips.keys(),
       paramRefs: host.paramRefs,
       ccBindings: host.ccBindings,
       txSeq: this.txSeqNode as never,

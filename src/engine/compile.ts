@@ -25,6 +25,7 @@ export function buildSampleMeta(
   vfsLoaded?: Set<string>,
   l1Sums?: Record<string, number>,
   decoded?: Record<string, DecodedSize>,
+  mipKeys?: ReadonlySet<string>,
 ): Record<Id, SampleMeta> {
   return Object.fromEntries(Object.values(samples).map((s) => {
     const size = decoded?.[s.hash]
@@ -36,6 +37,7 @@ export function buildSampleMeta(
       frames: size?.frames ?? s.frames,
       cycleLength: s.cycleLength !== undefined ? s.cycleLength * scale : undefined,
       l1: l1Sums?.[s.hash],
+      mipKeys,
     }]
   }))
 }
@@ -104,6 +106,8 @@ export interface RenderContext {
   l1Sums?: Record<string, number>
   /** Decoded length per sample hash (see `buildSampleMeta`). */
   decodedSizes?: Record<string, DecodedSize>
+  /** Band-limited wave tables in the VFS (see `engine/wavetableMips`). */
+  wavetableMips?: ReadonlySet<string>
   midiCcValues?: Record<number, number>
   paramRefs?: import('../audio/paramRefs').ParamRefRegistry
   ccBindings?: import('../audio/ccBindings').CcBindings
@@ -371,7 +375,7 @@ function compileTrackerVoiceSlots(
 export function compileGraph(doc: Doc, ctx: RenderContext): StereoOut {
   ctx.ccBindings?.clear()
 
-  const sampleMeta = buildSampleMeta(doc.entities.samples, ctx.vfsLoadedHashes, ctx.l1Sums, ctx.decodedSizes)
+  const sampleMeta = buildSampleMeta(doc.entities.samples, ctx.vfsLoadedHashes, ctx.l1Sums, ctx.decodedSizes, ctx.wavetableMips)
   const sampleHashById = buildSampleHashById(doc.entities.samples)
 
   // Live rows-per-second ref — updated on tempo changes so tempo-synced

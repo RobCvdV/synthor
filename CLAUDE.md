@@ -20,7 +20,7 @@ Product intent and planned work live in `docs/` (`VISION`, `FEATURES`, `ROADMAP`
 | Engine | `src/engine/` | Pure `compileGraph(doc, ctx) → Elementary nodes` — no React/AudioContext imports |
 | Audio | `src/audio/` | `AudioHost` (AudioContext + WebRenderer), `paramRefs`, `KeyboardPlayer` |
 | Player | `src/player/` | `playbackData` (track→slot mapping), `txSeqData` (packing for the native node), `cues` (hand-overs), `game/` (pure game-music logic: plans, energy, DJ) |
-| Native | `src/native/` | `TxSeq` sequencer + node registration, compiled into the Elementary wasm |
+| Native | `src/native/` | `TxSeq` sequencer, `WtOsc` wavetable oscillator + node registration, compiled into the Elementary wasm |
 | UI | `src/ui/` | Views, tracker grid, keymap, `useEngine` (store→host wiring) |
 | Persist | `src/persist/` | OPFS autosave/serialize, sample storage, export |
 | MIDI | `src/midi/` | `useMidi` Web MIDI |
@@ -82,6 +82,7 @@ Chains are ordered; each hop is verified. Skipping the tail is how features half
 - **The music clock is fitted, not polled:** `player/songClock.ts` estimates row boundaries from the times rows *change* in txseq events (they arrive late and whole), and `SongPlayer.position()` reads it at `AudioHost.outputTime` (what is heard). Don't interpolate from the last event alone — that is up to a row off.
 - **Cue hand-overs never restart the node:** `planTransition` stages bridge → settle → target `update`s, driven by row events through `stepTransition` (the node keeps its row across updates and reads data modulo its length). A restart (`play`) resets the row clock and is only for `'now'` cues.
 - **Elementary VFS keys are content hashes**; changing a conv/wave/sample module's `sampleId` is a structural change (forces recompile + VFS path change).
+- **Wave modules play band-limited tables once they exist:** `engine/wavetableMips` builds them per (sample, cycle size, channel) from the decoded audio, `audio/wavetableVfs` keeps them in the VFS (reconciling with `listVfs`, since prunes drop them) and bumps a revision that `useEngine`'s structural key includes. Until then — and for auditioned audio — the module reads the raw cycle. The table layout is a contract with `WtOsc.h` `viewOf`.
 
 ## Electron build (feature/electron-build)
 
