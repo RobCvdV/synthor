@@ -1,17 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import { MIP_LEVELS, buildWavetableMips, mipLevelSize, wavetableMipKey, wavetableMipLength, wavetableMipRequests } from './wavetableMips'
+import { MIP_LEVELS, buildWavetableMips, mipLayout, wavetableMipKey, wavetableMipLength, wavetableMipRequests } from './wavetableMips'
 import type { SampleMeta } from './instruments'
 import { createDefaultDoc } from '../domain/factory'
 import { DEFAULT_EFFECT_SETTINGS, MASTER_CHANNEL_ID, type Doc, type ModularInstrument } from '../domain/types'
 
-const HEADER = 3 + MIP_LEVELS
-const STRIDE = Array.from({ length: MIP_LEVELS }, (_, l) => mipLevelSize(l) + 1).reduce((a, b) => a + b, 0)
+const HEADER = 4 + 2 * MIP_LEVELS
 
-/** Level `l` of frame `f` (without its guard sample). */
+/** Level `l` of frame `f` (without its guard sample), read through the header. */
 function level(mips: Float32Array, f: number, l: number): Float32Array {
-  let offset = HEADER + f * STRIDE
-  for (let k = 0; k < l; k++) offset += mipLevelSize(k) + 1
-  return mips.subarray(offset, offset + mipLevelSize(l))
+  const size = mips[3 + l]
+  const offset = mips[3 + MIP_LEVELS + l]
+  const stride = mips[3 + 2 * MIP_LEVELS]
+  const at = HEADER + f * stride + offset
+  return mips.subarray(at, at + size)
 }
 
 /** Amplitude of harmonic h in one cycle of n samples. */
@@ -28,10 +29,28 @@ const saw = (n: number) => Float32Array.from({ length: n }, (_, k) => (2 * k) / 
 
 describe('buildWavetableMips', () => {
   it('writes the header the native node parses', () => {
-    const mips = buildWavetableMips(new Float32Array(3 * 256), 256)
-    expect(mips.length).toBe(wavetableMipLength(3))
-    expect(Array.from(mips.subarray(0, 3))).toEqual([1, 3, MIP_LEVELS])
-    expect(Array.from(mips.subarray(3, HEADER))).toEqual([2048, 1024, 512, 256, 128, 64, 64, 64, 64, 64])
+    const mips = buildWavetableMips(new Float32Array(3 * 2048), 2048)
+    const layout = mipLayout(2048)
+    expect(mips.length).toBe(wavetableMipLength(3, 2048))
+    expect(Array.from(mips.subarray(0, 3))).toEqual([2, 3, MIP_LEVELS])
+    expect(Array.from(mips.subarray(3, 3 + MIP_LEVELS))).toEqual([1024, 1024, 512, 256, 128, 64, 64, 64, 64, 64])
+    expect(Array.from(mips.subarray(3 + MIP_LEVELS, 3 + 2 * MIP_LEVELS))).toEqual(layout.offsets)
+    expect(mips[3 + 2 * MIP_LEVELS]).toBe(layout.stride)
+  })
+
+  it('shares level 0 with level 1 and levels a short cycle cannot fill', () => {
+    const long = mipLayout(2048)
+    expect(long.harmonics).toEqual([256, 256, 128, 64, 32, 16, 8, 4, 2, 1])
+    expect(long.offsets[0]).toBe(long.offsets[1])
+    // 1024 + 512 + 256 + 128 + 5 × 64, plus a guard each: about half the 10-level layout.
+    expect(long.stride).toBe(2240 + 9)
+    // A 256-frame cycle holds at most 127 harmonics: levels 0–2 are one table.
+    const short = mipLayout(256)
+    expect(short.harmonics.slice(0, 4)).toEqual([127, 127, 127, 64])
+    expect(new Set(short.offsets.slice(0, 3)).size).toBe(1)
+    expect(short.sizes[0]).toBe(512)
+    // 512 + 256 + 128 + 5 × 64, plus 8 guards (it was 10 tables of 4298 floats).
+    expect(short.stride).toBe(1224)
   })
 
   it('reproduces a sine cycle on every level, with a guard sample', () => {
@@ -42,7 +61,7 @@ describe('buildWavetableMips', () => {
       const tbl = level(mips, 0, l)
       expect(harmonic(tbl, 1)).toBeCloseTo(0.5, 3)
       expect(tbl[tbl.length / 4]).toBeCloseTo(0.5, 3)
-      const guardAt = tbl.byteOffset / 4 + tbl.length
+      const guardAt = (tbl.byteOffset - mips.byteOffset) / 4 + tbl.length
       expect(mips[guardAt]).toBe(tbl[0])
     }
   })
@@ -53,6 +72,10 @@ describe('buildWavetableMips', () => {
     const tbl = level(mips, 0, 3)
     expect(harmonic(tbl, 64)).toBeCloseTo(2 / (Math.PI * 64), 3)
     expect(harmonic(tbl, 65)).toBeLessThan(1e-4)
+    // Level 0 tops out at 256, like level 1.
+    const rich = level(mips, 0, 0)
+    expect(harmonic(rich, 256)).toBeCloseTo(2 / (Math.PI * 256), 3)
+    expect(harmonic(rich, 257)).toBeLessThan(1e-4)
     // The top level is the fundamental alone.
     const top = level(mips, 0, MIP_LEVELS - 1)
     expect(harmonic(top, 1)).toBeCloseTo(2 / Math.PI, 3)

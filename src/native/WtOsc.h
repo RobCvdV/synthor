@@ -28,22 +28,31 @@ namespace elem
     //         false plays the exact shape, for LFOs); or path (a shared
     //         resource of uploaded tables, one per audio channel).
     //
-    // Uploaded tables (src/engine/wavetableMips.ts builds them) are one float
-    // array: [1 (version), frames, NUM_LEVELS, size per level…],
-    // then per frame, per level, `size` samples plus a guard sample (= the
-    // first). Level L holds the frame's first 512 >> L harmonics.
+    // Levels: level L is alias-free while 2^L ≥ 1024·|inc| and holds up to
+    // 512 >> L harmonics — except level 0, which shares level 1's 256 (the
+    // extra octave only exists below ~43 Hz, where it is inaudible). Each
+    // table holds 4 samples per cycle of its top harmonic (at least 64), plus a
+    // guard sample (= the first). Levels with the same content share one table.
     //
-    // Each shape is defined once in the time domain, analysed into its first
-    // MAX_HARMONICS harmonics and resynthesized into one table per octave
-    // (mip level L keeps MAX_HARMONICS >> L harmonics). Playback crossfades
-    // the two levels around the current pitch, both of which stay below
-    // Nyquist, so nothing aliases. Banks are built lazily, once per shape per
-    // process, and shared by every node.
+    // Uploaded tables (src/engine/wavetableMips.ts builds them) are one float
+    // array: [2 (version), frames, NUM_LEVELS, size per level…, offset per
+    // level…, frame stride], then the frames, each `stride` floats holding its
+    // tables at the offsets.
+    //
+    // Built-in shapes are defined once in the time domain, analysed and
+    // resynthesized the same way. Playback crossfades the two levels around
+    // the current pitch, both of which stay below Nyquist, so nothing aliases.
+    // Banks are built lazily, once per shape per process, and shared by every
+    // node.
     namespace wt
     {
-        constexpr int TABLE_SIZE = 2048;
-        constexpr int MAX_HARMONICS = 512;
-        constexpr int NUM_LEVELS = 10; // 512, 256, … 1 harmonics
+        constexpr int RAW_SIZE = 2048;
+        constexpr int MAX_HARMONICS = 256;
+        constexpr int NUM_LEVELS = 10;
+
+        /** Harmonics level L holds: 512 >> L, level 0 sharing level 1's. */
+        constexpr int levelHarmonics(int level) { return std::min(MAX_HARMONICS, 512 >> level); }
+        constexpr int levelSize(int harmonics) { return std::max(64, 4 * harmonics); }
 
         enum WtShape {
             Sine = 0, Saw, Square, Triangle, Pulse25, Pulse12, HalfSine, AbsSine,
@@ -52,10 +61,24 @@ namespace elem
         };
 
         // Level RAW_LEVEL is the shape itself, unfiltered (for LFOs, where the
-        // band-limited edges would ring). Each level has a guard sample at
-        // TABLE_SIZE so reads can interpolate without wrapping.
+        // band-limited edges would ring).
         constexpr int RAW_LEVEL = NUM_LEVELS;
-        using Bank = std::array<std::array<float, TABLE_SIZE + 1>, NUM_LEVELS + 1>;
+
+        /** Where a node reads its tables: one flat float array of frames, each
+         *  holding its levels' tables at `offsets` (see the layout above). */
+        struct TableView {
+            float const* data = nullptr;
+            int frames = 0;
+            int frameStride = 0;
+            int rawLevel = -1; // the unfiltered level, built-in shapes only
+            std::array<int, NUM_LEVELS + 1> sizes {};
+            std::array<int, NUM_LEVELS + 1> offsets {};
+        };
+
+        struct Bank {
+            std::vector<float> data;
+            TableView view;
+        };
 
         inline double frac(double x) { return x - std::floor(x); }
 
@@ -104,67 +127,93 @@ namespace elem
 
         inline std::unique_ptr<Bank> buildBank(int shape)
         {
-            constexpr int N = TABLE_SIZE;
             // Oversample the time-domain shape so the analysis sees its edges sharply.
-            constexpr int OS = 4;
-            std::vector<double> src(N * OS);
-            for (int k = 0; k < N * OS; ++k) src[k] = shapeAt(shape, (k + 0.5) / (N * OS));
+            constexpr int M = RAW_SIZE * 4;
+            std::vector<double> src(M);
+            for (int k = 0; k < M; ++k) src[k] = shapeAt(shape, (k + 0.5) / M);
 
             // Harmonic n: y += re[n]·cos + im[n]·sin. A plain DFT via a rotating phasor.
             std::vector<double> re(MAX_HARMONICS + 1, 0.0), im(MAX_HARMONICS + 1, 0.0);
             for (int n = 1; n <= MAX_HARMONICS; ++n) {
-                double const w = 2.0 * M_PI * n / (N * OS);
+                double const w = 2.0 * M_PI * n / M;
                 double c = std::cos(w * 0.5), s = std::sin(w * 0.5);
                 double const dc = std::cos(w), ds = std::sin(w);
                 double accC = 0, accS = 0;
-                for (int k = 0; k < N * OS; ++k) {
+                for (int k = 0; k < M; ++k) {
                     accC += src[k] * c;
                     accS += src[k] * s;
                     double const nc = c * dc - s * ds;
                     s = s * dc + c * ds;
                     c = nc;
                 }
-                re[n] = 2.0 * accC / (N * OS);
-                im[n] = 2.0 * accS / (N * OS);
+                re[n] = 2.0 * accC / M;
+                im[n] = 2.0 * accS / M;
             }
 
-            // Resynthesize: add harmonics in octave bands, snapshotting each level
-            // (levels nest, so the work is one pass over all harmonics).
+            // One table per distinct harmonic count, each at its own size.
             auto bank = std::make_unique<Bank>();
-            std::vector<double> acc(N, 0.0);
-            int added = 0;
-            double peak = 0;
-            std::array<std::vector<double>, NUM_LEVELS> levels;
-            for (int level = NUM_LEVELS - 1; level >= 0; --level) {
-                int const upTo = MAX_HARMONICS >> level;
-                for (int n = added + 1; n <= upTo; ++n) {
-                    double const w = 2.0 * M_PI * n / N;
-                    double c = 1.0, s = 0.0;
-                    double const dc = std::cos(w), ds = std::sin(w);
-                    for (int k = 0; k < N; ++k) {
-                        acc[k] += re[n] * c + im[n] * s;
-                        double const nc = c * dc - s * ds;
-                        s = s * dc + c * ds;
-                        c = nc;
-                    }
-                }
-                added = upTo;
-                levels[level] = acc;
-            }
-            for (double v : levels[0]) peak = std::max(peak, std::abs(v));
-            double const gain = peak > 1e-9 ? 1.0 / peak : 0.0;
+            auto& v = bank->view;
+            std::vector<std::vector<double>> tables;
+            int lastHarmonics = -1;
+            int offset = 0;
             for (int level = 0; level < NUM_LEVELS; ++level) {
-                for (int k = 0; k < N; ++k) (*bank)[level][k] = float(levels[level][k] * gain);
-                (*bank)[level][N] = (*bank)[level][0];
+                int const h = levelHarmonics(level);
+                if (h != lastHarmonics) {
+                    int const n = levelSize(h);
+                    std::vector<double> y(n, 0.0);
+                    for (int k = 1; k <= h; ++k) {
+                        double const w = 2.0 * M_PI * k / n;
+                        double c = 1.0, s = 0.0;
+                        double const dc = std::cos(w), ds = std::sin(w);
+                        for (int i = 0; i < n; ++i) {
+                            y[i] += re[k] * c + im[k] * s;
+                            double const nc = c * dc - s * ds;
+                            s = s * dc + c * ds;
+                            c = nc;
+                        }
+                    }
+                    tables.push_back(std::move(y));
+                    v.sizes[level] = n;
+                    v.offsets[level] = offset;
+                    offset += n + 1;
+                    lastHarmonics = h;
+                } else {
+                    v.sizes[level] = v.sizes[level - 1];
+                    v.offsets[level] = v.offsets[level - 1];
+                }
             }
+
+            // Normalize by the richest level, so every level plays at the same gain.
+            double peak = 0;
+            for (double x : tables[0]) peak = std::max(peak, std::abs(x));
+            double const gain = peak > 1e-9 ? 1.0 / peak : 0.0;
+
+            std::vector<double> raw(RAW_SIZE);
             double rawPeak = 0;
-            std::vector<double> raw(N);
-            for (int k = 0; k < N; ++k) {
-                raw[k] = shapeAt(shape, double(k) / N);
+            for (int k = 0; k < RAW_SIZE; ++k) {
+                raw[k] = shapeAt(shape, double(k) / RAW_SIZE);
                 rawPeak = std::max(rawPeak, std::abs(raw[k]));
             }
-            for (int k = 0; k < N; ++k) (*bank)[RAW_LEVEL][k] = float(rawPeak > 1e-9 ? raw[k] / rawPeak : 0.0);
-            (*bank)[RAW_LEVEL][N] = (*bank)[RAW_LEVEL][0];
+            v.sizes[RAW_LEVEL] = RAW_SIZE;
+            v.offsets[RAW_LEVEL] = offset;
+            offset += RAW_SIZE + 1;
+
+            bank->data.resize(size_t(offset));
+            for (int level = 0, t = 0; level < NUM_LEVELS; ++level) {
+                if (level > 0 && v.offsets[level] == v.offsets[level - 1]) continue;
+                auto const& y = tables[size_t(t++)];
+                float* dst = bank->data.data() + v.offsets[level];
+                for (size_t i = 0; i < y.size(); ++i) dst[i] = float(y[i] * gain);
+                dst[y.size()] = dst[0];
+            }
+            float* dst = bank->data.data() + v.offsets[RAW_LEVEL];
+            for (int k = 0; k < RAW_SIZE; ++k) dst[k] = float(rawPeak > 1e-9 ? raw[k] / rawPeak : 0.0);
+            dst[RAW_SIZE] = dst[0];
+
+            v.data = bank->data.data();
+            v.frames = 1;
+            v.frameStride = offset;
+            v.rawLevel = RAW_LEVEL;
             return bank;
         }
 
@@ -181,50 +230,22 @@ namespace elem
             banks[shape].store(built, std::memory_order_release);
             return built;
         }
-            /** Where a node reads its tables: one flat float array of frames × levels,
-         *  each level its own size with a guard sample (see the header layout of
-         *  uploaded tables above). Built-in banks are one frame of equal levels. */
-        struct TableView {
-            float const* data = nullptr;
-            int frames = 0;
-            int frameStride = 0;
-            int rawLevel = -1; // the unfiltered level, built-in shapes only
-            std::array<int, NUM_LEVELS + 1> sizes {};
-            std::array<int, NUM_LEVELS + 1> offsets {};
-        };
-
-        inline TableView viewOf(Bank const& bank)
-        {
-            TableView v;
-            v.data = bank[0].data();
-            v.frames = 1;
-            v.frameStride = (NUM_LEVELS + 1) * (TABLE_SIZE + 1);
-            v.rawLevel = RAW_LEVEL;
-            for (int l = 0; l <= NUM_LEVELS; ++l) {
-                v.sizes[l] = TABLE_SIZE;
-                v.offsets[l] = l * (TABLE_SIZE + 1);
-            }
-            return v;
-        }
-
         /** Parses an uploaded table set; frames = 0 when the header doesn't fit. */
         inline TableView viewOf(float const* data, size_t length)
         {
             TableView v;
-            if (length < 3 || data[0] != 1.0f) return v;
+            constexpr size_t header = 4 + 2 * NUM_LEVELS;
+            if (length < header || data[0] != 2.0f || int(data[2]) != NUM_LEVELS) return v;
             int const frames = int(data[1]);
-            int const levels = int(data[2]);
-            if (frames < 1 || levels != NUM_LEVELS || length < size_t(3 + levels)) return v;
-            int offset = 0;
-            for (int l = 0; l < levels; ++l) {
+            int const stride = int(data[3 + 2 * NUM_LEVELS]);
+            if (frames < 1 || stride < 1 || length < header + size_t(stride) * size_t(frames)) return v;
+            for (int l = 0; l < NUM_LEVELS; ++l) {
                 v.sizes[l] = int(data[3 + l]);
-                if (v.sizes[l] < 2) return v;
-                v.offsets[l] = offset;
-                offset += v.sizes[l] + 1;
+                v.offsets[l] = int(data[3 + NUM_LEVELS + l]);
+                if (v.sizes[l] < 2 || v.offsets[l] < 0 || v.offsets[l] + v.sizes[l] + 1 > stride) return v;
             }
-            if (length < size_t(3 + levels) + size_t(offset) * size_t(frames)) return v;
-            v.data = data + 3 + levels;
-            v.frameStride = offset;
+            v.data = data + header;
+            v.frameStride = stride;
             v.frames = frames;
             return v;
         }
@@ -257,7 +278,7 @@ namespace elem
                 // An unknown shape (a newer song in an older app) plays silence
                 // rather than failing the whole render.
                 auto const* bank = wt::bankFor(static_cast<int>((js::Number) val));
-                sourceQueue.push(Source { nullptr, bank ? wt::viewOf(*bank) : wt::TableView {} });
+                sourceQueue.push(Source { nullptr, bank ? bank->view : wt::TableView {} });
             }
             if (key == "bandlimit") {
                 if (!val.isBool()) return ReturnCode::InvalidPropertyType();
@@ -324,11 +345,13 @@ namespace elem
                     morph = float(at - frameA);
                 }
 
+                // Levels sharing one table need no crossfade.
+                bool const blend = mix > 0.0f && v.offsets[level] != v.offsets[nextLevel];
                 float y = wt::readLevel(v, frameA, level, t);
-                if (mix > 0.0f) y += (wt::readLevel(v, frameA, nextLevel, t) - y) * mix;
+                if (blend) y += (wt::readLevel(v, frameA, nextLevel, t) - y) * mix;
                 if (morph > 0.0f) {
                     float z = wt::readLevel(v, frameB, level, t);
-                    if (mix > 0.0f) z += (wt::readLevel(v, frameB, nextLevel, t) - z) * mix;
+                    if (blend) z += (wt::readLevel(v, frameB, nextLevel, t) - z) * mix;
                     y += (z - y) * morph;
                 }
                 out[i] = FloatType(y);
@@ -343,8 +366,8 @@ namespace elem
         }
 
     private:
-        // Level L keeps 512 >> L harmonics; it is alias-free while 2^L ≥ 1024·|inc|.
-        // floor(log2(2048·|inc|)) is the richest such level; fade toward the next.
+        // Level L is alias-free while 2^L ≥ 1024·|inc|; floor(log2(2048·|inc|))
+        // is the richest such level; fade toward the next.
         void pickLevels(double inc)
         {
             lastInc = inc;

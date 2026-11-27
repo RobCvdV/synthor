@@ -5,33 +5,66 @@ import type { SampleMeta } from './instruments'
 /**
  * Band-limited tables for the native `wtosc` node, built from a sample's cycles
  * (the wave module). Each frame (one cycle) is analysed with an FFT and
- * resynthesized once per octave: level L keeps the first 512 >> L harmonics, so
- * the node can play whichever levels stay below Nyquist at the current pitch.
+ * resynthesized once per octave, so the node can play whichever levels stay
+ * below Nyquist at the current pitch. Level L holds up to 512 >> L harmonics,
+ * except level 0, which shares level 1's 256 (its extra octave only exists
+ * below ~43 Hz). A table holds 4 samples per cycle of its top harmonic (at
+ * least 64), and levels with the same content — a short cycle has few
+ * harmonics to begin with — share one table.
  *
  * Layout — the contract with `src/native/WtOsc.h` `viewOf(data, length)`:
- * `[1 (version), frames, MIP_LEVELS, size of each level…]`, then per frame,
- * per level, `size` samples plus a guard sample (a copy of the first).
+ * `[2 (version), frames, MIP_LEVELS, size per level…, offset per level…,
+ * frame stride]`, then the frames, each `stride` floats holding its tables at
+ * the offsets; every table ends in a guard sample (a copy of its first).
  */
 export const MIP_LEVELS = 10
-const MAX_HARMONICS = 512
+const MAX_HARMONICS = 256
+const HEADER = 4 + 2 * MIP_LEVELS
 
-/** Samples in level L: 4 per cycle of its highest harmonic, at least 64. */
-export function mipLevelSize(level: number): number {
-  return Math.max(64, 4 * (MAX_HARMONICS >> level))
+export interface MipLayout {
+  /** Harmonics kept per level. */
+  harmonics: number[]
+  /** Samples per level's table (without the guard). */
+  sizes: number[]
+  /** Offset of each level's table within a frame; shared tables share one. */
+  offsets: number[]
+  /** Floats per frame. */
+  stride: number
 }
 
-const LEVEL_SIZES = Array.from({ length: MIP_LEVELS }, (_, l) => mipLevelSize(l))
-const FRAME_STRIDE = LEVEL_SIZES.reduce((sum, n) => sum + n + 1, 0)
-const HEADER = 3 + MIP_LEVELS
+/** Which tables a cycle of `size` frames gets, and where they sit in a frame. */
+export function mipLayout(size: number): MipLayout {
+  // A cycle of `size` samples holds harmonics below size / 2 only.
+  const sourceLimit = Math.max(1, Math.ceil(size / 2) - 1)
+  const harmonics: number[] = []
+  const sizes: number[] = []
+  const offsets: number[] = []
+  let stride = 0
+  for (let l = 0; l < MIP_LEVELS; l++) {
+    const h = Math.min(MAX_HARMONICS, 512 >> l, sourceLimit)
+    harmonics.push(h)
+    if (l > 0 && h === harmonics[l - 1]) {
+      sizes.push(sizes[l - 1])
+      offsets.push(offsets[l - 1])
+      continue
+    }
+    // A power of two (the resynthesis is an FFT) with at least 4 samples per top-harmonic cycle.
+    const n = Math.max(64, 2 ** Math.ceil(Math.log2(4 * h)))
+    sizes.push(n)
+    offsets.push(stride)
+    stride += n + 1
+  }
+  return { harmonics, sizes, offsets, stride }
+}
 
 /** The VFS key of one channel's tables for a sample cut into `size`-frame cycles. */
 export function wavetableMipKey(hash: string, size: number, channel: number): string {
   return `${hash}:wt:${Math.round(size * 1000) / 1000}:c${channel}`
 }
 
-/** Floats in a table set of `frames` frames (the upload's length). */
-export function wavetableMipLength(frames: number): number {
-  return HEADER + frames * FRAME_STRIDE
+/** Floats in the table set of `frames` frames of `size`-frame cycles (the upload's length). */
+export function wavetableMipLength(frames: number, size: number): number {
+  return HEADER + frames * mipLayout(size).stride
 }
 
 /**
@@ -41,17 +74,20 @@ export function wavetableMipLength(frames: number): number {
  */
 export function buildWavetableMips(channel: Float32Array, size: number): Float32Array {
   const frames = wavetableFrameCount(channel.length, size)
-  const out = new Float32Array(wavetableMipLength(frames))
-  out[0] = 1
+  const layout = mipLayout(size)
+  const out = new Float32Array(HEADER + frames * layout.stride)
+  out[0] = 2
   out[1] = frames
   out[2] = MIP_LEVELS
-  LEVEL_SIZES.forEach((n, l) => { out[3 + l] = n })
+  layout.sizes.forEach((n, l) => { out[3 + l] = n })
+  layout.offsets.forEach((o, l) => { out[3 + MIP_LEVELS + l] = o })
+  out[3 + 2 * MIP_LEVELS] = layout.stride
 
   // The analysis size: a power of two covering the cycle, so no detail is lost.
   const m = Math.min(4096, Math.max(64, 2 ** Math.ceil(Math.log2(Math.max(1, size)))))
   const re = new Float64Array(m)
   const im = new Float64Array(m)
-  const maxN = LEVEL_SIZES[0]
+  const maxN = Math.max(...layout.sizes)
   const synRe = new Float64Array(maxN)
   const synIm = new Float64Array(maxN)
 
@@ -64,11 +100,11 @@ export function buildWavetableMips(channel: Float32Array, size: number): Float32
     }
     fft(re, im, false)
 
-    const harmonics = m / 2 - 1
-    let offset = HEADER + f * FRAME_STRIDE
+    const frameAt = HEADER + f * layout.stride
     for (let l = 0; l < MIP_LEVELS; l++) {
-      const n = LEVEL_SIZES[l]
-      const keep = Math.min(MAX_HARMONICS >> l, harmonics, n / 2 - 1)
+      if (l > 0 && layout.offsets[l] === layout.offsets[l - 1]) continue
+      const n = layout.sizes[l]
+      const keep = Math.min(layout.harmonics[l], m / 2 - 1)
       synRe.fill(0, 0, n)
       synIm.fill(0, 0, n)
       // x[k] = Σ c_h e^{i2πhk/n} with c_0 = X0/m, c_h = 2X_h/m: an inverse FFT, real part.
@@ -78,9 +114,9 @@ export function buildWavetableMips(channel: Float32Array, size: number): Float32
         synIm[h] = (2 * im[h]) / m
       }
       fft(synRe.subarray(0, n), synIm.subarray(0, n), true)
-      for (let k = 0; k < n; k++) out[offset + k] = synRe[k]
-      out[offset + n] = out[offset]
-      offset += n + 1
+      const at = frameAt + layout.offsets[l]
+      for (let k = 0; k < n; k++) out[at + k] = synRe[k]
+      out[at + n] = out[at]
     }
   }
   return out
